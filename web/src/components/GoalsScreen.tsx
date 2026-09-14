@@ -389,8 +389,8 @@ export const GoalsScreen: React.FC<Props> = ({
             const isCurrentYear = annual.year === today.year;
             const isFutureYear = annual.year > today.year;
             const yearDiff = annual.year - today.year;
-            const isTopLevelSeasonal = annual.period === 'SEASONAL' && annual.seasonIndex !== undefined;
-            const topLevelSeasonTheme = isTopLevelSeasonal ? SEASON_CONFIG[annual.seasonIndex!] : null;
+            const isTopLevelSeasonal = annual.period === 'SEASONAL' && annual.seasonIndex !== undefined && Boolean(SEASON_CONFIG[annual.seasonIndex]);
+            const topLevelSeasonTheme = isTopLevelSeasonal && annual.seasonIndex !== undefined ? SEASON_CONFIG[annual.seasonIndex] : null;
 
             return (
               <div
@@ -828,7 +828,7 @@ export const GoalsScreen: React.FC<Props> = ({
                                 <div className="space-y-2.5 pt-2 border-t border-emerald-200/60">
                                   <span className="text-[11px] font-bold text-teal-900 flex items-center gap-1">
                                     <span>📅</span>
-                                    <span>اهداف ماهانه تعیین شده برای فصل {SEASON_CONFIG[sub.seasonIndex!]?.name} ({toPersianDigits(nestedMonthlyGoals.length)})</span>
+                                    <span>اهداف ماهانه تعیین شده برای فصل {sub.seasonIndex !== undefined && SEASON_CONFIG[sub.seasonIndex] ? SEASON_CONFIG[sub.seasonIndex].name : ''} ({toPersianDigits(nestedMonthlyGoals.length)})</span>
                                   </span>
 
                                   <div className="space-y-2 pr-2 border-r-2 border-teal-300">
