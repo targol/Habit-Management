@@ -17,7 +17,8 @@ export const WEEKDAYS = [
 
 export const WEEKDAYS_SHORT = ['ش', 'ی', 'د', 'س', 'چ', 'پ', 'ج'];
 
-export function toPersianDigits(n: number | string): string {
+export function toPersianDigits(n: number | string | undefined | null): string {
+  if (n === undefined || n === null) return '';
   const str = n.toString();
   const persianDigits = ['۰', '۱', '۲', '۳', '۴', '۵', '۶', '۷', '۸', '۹'];
   return str.replace(/[0-9]/g, (w) => persianDigits[parseInt(w, 10)]);

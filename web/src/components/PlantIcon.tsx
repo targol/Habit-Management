@@ -14,8 +14,9 @@ export const ALL_PLANT_TYPES: PlantTypeOption[] = [
   { id: 'آفتابگردان', name: 'آفتابگردان شاداب', description: 'نماد شادابی، انگیزه، وفاداری و انرژی مثبت' },
   { id: 'گل سرخ', name: 'گل سرخ / رز', description: 'نماد شکوه، عشق به کار، شور و تعهد عمیق' },
   { id: 'بامبو شانس', name: 'بامبو شانس و ثروت', description: 'نماد انعطاف، رشد سریع و خیر و برکت' },
-  { id: 'پیچک رونده', name: 'پیچک رونده سبز', description: 'نماد پیوستگی زنجیره و بالا رفتن مداوم' },
+  { id: 'پیچک رونده', name: 'پیچک رونده سبز', description: 'نماد پیوستگی و بالا رفتن مداوم' },
   { id: 'ریحان و نعنا', name: 'ریحان و نعنای معطر', description: 'نماد طراوت ذهن و سلامتی پایدار روزانه' },
+  { id: 'ارکیده', name: 'ارکیده باشکوه', description: 'نماد ظرافت، تمرکز عمیق و خلاقیت ناب' },
 ];
 
 interface Props {
@@ -41,217 +42,335 @@ export const PlantIcon: React.FC<Props> = ({
 
   const animClass = animated ? 'animate-bounce-subtle' : '';
 
-  // Render cute custom SVG per plant type
+  // Render refined, high-craft botanical vector icons
   const renderSVG = () => {
     switch (type) {
       case 'برگ انجیری':
         return (
-          <svg viewBox="0 0 64 64" fill="none" className="w-full h-full drop-shadow-xs">
-            {/* Cute terra-cotta pot */}
-            <path d="M22 46 L24 58 Q24 60 27 60 L37 60 Q40 60 40 58 L42 46 Z" fill="#E07A5F" />
-            <rect x="20" y="43" width="24" height="4" rx="2" fill="#D35400" />
-            {/* Plant Stems */}
-            <path d="M32 44 Q31 30 25 20" stroke="#2D6A4F" strokeWidth="2.5" strokeLinecap="round" />
-            <path d="M32 44 Q35 28 42 22" stroke="#2D6A4F" strokeWidth="2.5" strokeLinecap="round" />
-            <path d="M32 44 Q32 22 32 14" stroke="#2D6A4F" strokeWidth="2.5" strokeLinecap="round" />
-            {/* Monstera Leaf Left */}
-            <path d="M24 20 C14 18 12 30 22 34 C25 35 27 32 27 28 C26 23 25 21 24 20 Z" fill="#52B788" />
-            <circle cx="19" cy="27" r="1.5" fill="#E07A5F" opacity="0.3" />
-            {/* Monstera Leaf Right */}
-            <path d="M42 22 C52 20 54 32 44 36 C41 37 39 34 39 30 C40 25 41 23 42 22 Z" fill="#40916C" />
-            <circle cx="47" cy="29" r="1.5" fill="#E07A5F" opacity="0.3" />
-            {/* Main Center Leaf */}
-            <path d="M32 12 C24 8 20 18 28 26 C31 29 34 29 36 26 C44 18 40 8 32 12 Z" fill="#74C69D" />
-            <ellipse cx="32" cy="18" rx="1.5" ry="3" fill="#D8F3DC" opacity="0.8" />
-            {/* Cute blush on pot */}
-            <circle cx="27" cy="52" r="1.5" fill="#FFCCD5" />
-            <circle cx="37" cy="52" r="1.5" fill="#FFCCD5" />
-            {/* Pot cute smile */}
-            <path d="M30 54 Q32 56 34 54" stroke="#78350F" strokeWidth="1.2" strokeLinecap="round" />
+          <svg viewBox="0 0 64 64" fill="none" className="w-full h-full drop-shadow-xs" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="monsteraPot" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#E29578" />
+                <stop offset="100%" stopColor="#C86D51" />
+              </linearGradient>
+              <linearGradient id="monsteraLeaf1" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#52B788" />
+                <stop offset="100%" stopColor="#1B4332" />
+              </linearGradient>
+              <linearGradient id="monsteraLeaf2" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#74C69D" />
+                <stop offset="100%" stopColor="#2D6A4F" />
+              </linearGradient>
+            </defs>
+            {/* Minimalist Ceramic Cylinder Pot */}
+            <path d="M20 46 L22 58 Q23 60 26 60 L38 60 Q41 60 42 58 L44 46 Z" fill="url(#monsteraPot)" />
+            <rect x="18.5" y="43" width="27" height="4" rx="2" fill="#D36B4F" />
+            <ellipse cx="32" cy="45" rx="12" ry="2" fill="#3D2619" opacity="0.4" />
+            {/* Main Center Stems */}
+            <path d="M32 45 Q31 34 22 23" stroke="#2D6A4F" strokeWidth="2.2" strokeLinecap="round" />
+            <path d="M32 45 Q35 32 44 24" stroke="#2D6A4F" strokeWidth="2.2" strokeLinecap="round" />
+            <path d="M32 45 Q32 28 32 14" stroke="#2D6A4F" strokeWidth="2.4" strokeLinecap="round" />
+            {/* Left Monstera Leaf with cutouts */}
+            <path d="M22 23 C14 21 11 31 19 36 C22 37 25 35 25 32 C25 28 23 24 22 23 Z" fill="url(#monsteraLeaf1)" />
+            <ellipse cx="17" cy="27" rx="1.2" ry="2.5" transform="rotate(-30 17 27)" fill="#FEFAE0" opacity="0.85" />
+            {/* Right Monstera Leaf with cutouts */}
+            <path d="M44 24 C52 22 54 32 46 37 C43 38 40 36 40 33 C40 29 42 25 44 24 Z" fill="url(#monsteraLeaf1)" />
+            <ellipse cx="48" cy="29" rx="1.2" ry="2.5" transform="rotate(30 48 29)" fill="#FEFAE0" opacity="0.85" />
+            {/* Grand Center Leaf */}
+            <path d="M32 12 C24 7 19 18 27 27 C30 30 34 30 37 27 C45 18 40 7 32 12 Z" fill="url(#monsteraLeaf2)" />
+            <path d="M32 14 L32 28" stroke="#B7E4C7" strokeWidth="1.2" strokeLinecap="round" opacity="0.8" />
+            <ellipse cx="27" cy="18" rx="1" ry="2.4" transform="rotate(-20 27 18)" fill="#FEFAE0" opacity="0.9" />
+            <ellipse cx="37" cy="18" rx="1" ry="2.4" transform="rotate(20 37 18)" fill="#FEFAE0" opacity="0.9" />
+            {/* Subtle pot accent ring */}
+            <line x1="22" y1="52" x2="42" y2="52" stroke="#FEFAE0" strokeWidth="1.2" opacity="0.4" />
           </svg>
         );
 
       case 'بونسای':
         return (
-          <svg viewBox="0 0 64 64" fill="none" className="w-full h-full drop-shadow-xs">
-            {/* Ceramic Shallow Bonsai Dish */}
-            <ellipse cx="32" cy="56" rx="22" ry="5" fill="#4A5568" />
-            <ellipse cx="32" cy="55" rx="20" ry="3.5" fill="#718096" />
-            <ellipse cx="32" cy="54" rx="17" ry="2" fill="#5D4037" />
-            {/* Twisted Trunk */}
-            <path d="M32 54 Q36 44 28 36 Q22 30 26 24 Q30 18 34 16" stroke="#8D6E63" strokeWidth="4.5" strokeLinecap="round" />
-            <path d="M28 36 Q38 32 44 30" stroke="#8D6E63" strokeWidth="3" strokeLinecap="round" />
-            {/* Foliage Cloud Left */}
-            <circle cx="22" cy="24" r="7" fill="#2E7D32" />
-            <circle cx="28" cy="21" r="8" fill="#388E3C" />
-            <circle cx="20" cy="20" r="6" fill="#4CAF50" />
-            {/* Foliage Cloud Right */}
-            <circle cx="45" cy="29" r="6.5" fill="#2E7D32" />
-            <circle cx="40" cy="26" r="6" fill="#4CAF50" />
-            {/* Top Foliage Crown */}
-            <circle cx="34" cy="14" r="8" fill="#2E7D32" />
-            <circle cx="39" cy="12" r="7" fill="#43A047" />
-            <circle cx="30" cy="11" r="6.5" fill="#66BB6A" />
-            <circle cx="35" cy="9" r="5" fill="#81C784" />
+          <svg viewBox="0 0 64 64" fill="none" className="w-full h-full drop-shadow-xs" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="bonsaiDish" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stopColor="#374151" />
+                <stop offset="50%" stopColor="#4B5563" />
+                <stop offset="100%" stopColor="#1F2937" />
+              </linearGradient>
+              <linearGradient id="bonsaiFoliage" x1="0%" y1="0%" x2="0%" y2="100%">
+                <stop offset="0%" stopColor="#4ADE80" />
+                <stop offset="50%" stopColor="#16A34A" />
+                <stop offset="100%" stopColor="#14532D" />
+              </linearGradient>
+            </defs>
+            {/* Shallow Zen Dish on Feet */}
+            <ellipse cx="32" cy="56" rx="23" ry="4.5" fill="url(#bonsaiDish)" />
+            <rect x="14" y="58" width="5" height="2" rx="1" fill="#111827" />
+            <rect x="45" y="58" width="5" height="2" rx="1" fill="#111827" />
+            <ellipse cx="32" cy="55" rx="19" ry="2.5" fill="#3E2723" />
+            <ellipse cx="32" cy="54.5" rx="16" ry="1.8" fill="#556B2F" opacity="0.7" />
+            {/* Masterfully Sculpted Trunk */}
+            <path d="M31 55 Q36 46 29 38 Q22 31 27 24 Q31 17 35 15" stroke="#795548" strokeWidth="4.2" strokeLinecap="round" />
+            <path d="M29 38 Q39 34 45 31" stroke="#6D4C41" strokeWidth="3" strokeLinecap="round" />
+            <path d="M27 25 Q20 22 17 21" stroke="#6D4C41" strokeWidth="2.2" strokeLinecap="round" />
+            {/* Left Cloud Tier */}
+            <circle cx="17" cy="20" r="5.5" fill="#15803D" />
+            <circle cx="21" cy="18" r="6.5" fill="#22C55E" />
+            <circle cx="16" cy="17" r="4.5" fill="#4ADE80" />
+            {/* Right Cloud Tier */}
+            <circle cx="46" cy="30" r="6" fill="#15803D" />
+            <circle cx="42" cy="27" r="6.5" fill="#22C55E" />
+            <circle cx="47" cy="26" r="4.5" fill="#86EFAC" />
+            {/* Crown Cloud Top */}
+            <ellipse cx="35" cy="14" rx="9" ry="6.5" fill="#14532D" />
+            <ellipse cx="34" cy="12" rx="8" ry="5.5" fill="url(#bonsaiFoliage)" />
+            <ellipse cx="32" cy="10" rx="6" ry="4" fill="#86EFAC" opacity="0.9" />
           </svg>
         );
 
       case 'کاکتوس گلدار':
         return (
-          <svg viewBox="0 0 64 64" fill="none" className="w-full h-full drop-shadow-xs">
-            {/* Cute Pastel Yellow/Orange Pot */}
-            <path d="M22 44 L24 58 Q24 60 27 60 L37 60 Q40 60 40 58 L42 44 Z" fill="#F4A261" />
-            <rect x="20" y="41" width="24" height="4" rx="2" fill="#E76F51" />
-            {/* Cactus Main Body */}
-            <path d="M25 44 C25 24 39 24 39 44 Z" fill="#2A9D8F" />
-            {/* Cactus Left Arm */}
-            <path d="M25 36 Q17 36 17 28 Q17 24 21 24 Q24 24 24 28 L24 38" fill="#264653" />
-            {/* Cactus Right Arm */}
-            <path d="M39 34 Q47 34 47 26 Q47 22 43 22 Q40 22 40 26 L40 37" fill="#264653" />
-            {/* Spines / dots */}
-            <circle cx="32" cy="30" r="0.8" fill="#E9C46A" />
-            <circle cx="29" cy="36" r="0.8" fill="#E9C46A" />
-            <circle cx="35" cy="36" r="0.8" fill="#E9C46A" />
-            <circle cx="32" cy="41" r="0.8" fill="#E9C46A" />
-            {/* Pink Blossom on Top */}
-            <circle cx="32" cy="20" r="3.5" fill="#E76F51" />
-            <circle cx="30" cy="18" r="2.5" fill="#F4A261" />
-            <circle cx="34" cy="18" r="2.5" fill="#E63946" />
-            <circle cx="32" cy="16" r="2.5" fill="#F72585" />
-            <circle cx="32" cy="19" r="1.5" fill="#FFE3E0" />
-            {/* Cute smile on pot */}
-            <circle cx="28" cy="51" r="1.2" fill="#264653" />
-            <circle cx="36" cy="51" r="1.2" fill="#264653" />
-            <path d="M30 54 Q32 56 34 54" stroke="#264653" strokeWidth="1.2" strokeLinecap="round" />
+          <svg viewBox="0 0 64 64" fill="none" className="w-full h-full drop-shadow-xs" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="cactusBody" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stopColor="#1E6F5C" />
+                <stop offset="35%" stopColor="#289672" />
+                <stop offset="70%" stopColor="#29BB89" />
+                <stop offset="100%" stopColor="#1E6F5C" />
+              </linearGradient>
+              <linearGradient id="terracotta" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#F4A261" />
+                <stop offset="100%" stopColor="#E76F51" />
+              </linearGradient>
+            </defs>
+            {/* Chic Minimalist Pot */}
+            <path d="M22 46 L24 58 Q24 60 27 60 L37 60 Q40 60 40 58 L42 46 Z" fill="url(#terracotta)" />
+            <rect x="20" y="43" width="24" height="4" rx="2" fill="#D35400" />
+            {/* Main Ribbed Cactus Column */}
+            <path d="M25 45 C25 23 39 23 39 45 Z" fill="url(#cactusBody)" />
+            {/* Vertical Rib lines */}
+            <path d="M28 45 C28 27 30 25 32 23" stroke="#134E3F" strokeWidth="1.2" opacity="0.5" />
+            <path d="M36 45 C36 27 34 25 32 23" stroke="#134E3F" strokeWidth="1.2" opacity="0.5" />
+            <line x1="32" y1="45" x2="32" y2="22" stroke="#E8F5E9" strokeWidth="1.2" opacity="0.7" />
+            {/* Side Branch */}
+            <path d="M25 36 Q17 36 17 28 Q17 25 20 25 Q23 25 23 28 L24 37" fill="#289672" stroke="#134E3F" strokeWidth="0.8" />
+            <path d="M39 34 Q47 34 47 27 Q47 24 44 24 Q41 24 41 27 L40 36" fill="#289672" stroke="#134E3F" strokeWidth="0.8" />
+            {/* Star Needle dots */}
+            <circle cx="28" cy="32" r="0.7" fill="#FFF9C4" />
+            <circle cx="36" cy="32" r="0.7" fill="#FFF9C4" />
+            <circle cx="32" cy="37" r="0.7" fill="#FFF9C4" />
+            <circle cx="32" cy="28" r="0.7" fill="#FFF9C4" />
+            {/* Exquisite Desert Flower Blossom on top */}
+            <circle cx="32" cy="20" r="4.5" fill="#E63946" />
+            <circle cx="29" cy="18" r="3.2" fill="#F72585" />
+            <circle cx="35" cy="18" r="3.2" fill="#F72585" />
+            <circle cx="32" cy="16" r="3.5" fill="#FF70A6" />
+            <circle cx="32" cy="18.5" r="1.8" fill="#FFD166" />
           </svg>
         );
 
       case 'نیلوفر آبی':
         return (
-          <svg viewBox="0 0 64 64" fill="none" className="w-full h-full drop-shadow-xs">
-            {/* Water ripples & Lily pad */}
-            <ellipse cx="32" cy="52" rx="25" ry="6" fill="#A8DADC" opacity="0.6" />
-            <path d="M12 50 C12 43 52 43 52 50 C52 56 36 57 32 50 C28 57 12 56 12 50 Z" fill="#2A9D8F" />
-            <ellipse cx="32" cy="50" rx="19" ry="4" fill="#38B000" />
-            {/* Water lily outer petals */}
-            <path d="M18 44 C22 34 29 44 29 44 Z" fill="#F72585" opacity="0.8" />
-            <path d="M46 44 C42 34 35 44 35 44 Z" fill="#F72585" opacity="0.8" />
-            <path d="M23 44 C28 28 36 44 36 44 Z" fill="#FF70A6" />
-            <path d="M41 44 C36 28 28 44 28 44 Z" fill="#FF70A6" />
-            {/* Center petals */}
-            <path d="M32 44 C28 24 36 24 32 44 Z" fill="#FF97B7" />
-            <path d="M32 44 C30 20 34 20 32 44 Z" fill="#FFD6E0" />
+          <svg viewBox="0 0 64 64" fill="none" className="w-full h-full drop-shadow-xs" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="lotusWater" x1="0%" y1="0%" x2="0%" y2="100%">
+                <stop offset="0%" stopColor="#E0F2FE" stopOpacity="0.8" />
+                <stop offset="100%" stopColor="#7DD3FC" stopOpacity="0.4" />
+              </linearGradient>
+              <linearGradient id="lotusPetal" x1="0%" y1="0%" x2="0%" y2="100%">
+                <stop offset="0%" stopColor="#FF758F" />
+                <stop offset="60%" stopColor="#FFB3C1" />
+                <stop offset="100%" stopColor="#FFF0F3" />
+              </linearGradient>
+            </defs>
+            {/* Serene Water pool & Lily pad */}
+            <ellipse cx="32" cy="54" rx="25" ry="5.5" fill="url(#lotusWater)" />
+            <path d="M12 51 C12 44 52 44 52 51 C52 57 37 58 32 52 C27 58 12 57 12 51 Z" fill="#2D6A4F" />
+            <ellipse cx="32" cy="51" rx="18" ry="3.5" fill="#40916C" />
+            {/* Outer Petals */}
+            <path d="M18 46 C21 34 29 46 29 46 Z" fill="#E01E5A" opacity="0.85" />
+            <path d="M46 46 C43 34 35 46 35 46 Z" fill="#E01E5A" opacity="0.85" />
+            <path d="M22 47 C26 30 35 47 35 47 Z" fill="#F72585" />
+            <path d="M42 47 C38 30 29 47 29 47 Z" fill="#F72585" />
+            {/* Center Layer Petals */}
+            <path d="M26 47 C29 25 37 47 37 47 Z" fill="url(#lotusPetal)" />
+            <path d="M38 47 C35 25 27 47 27 47 Z" fill="url(#lotusPetal)" />
+            <path d="M32 47 C29 22 35 22 32 47 Z" fill="#FFF0F3" />
             {/* Golden Core */}
-            <circle cx="32" cy="38" r="3.5" fill="#FFB703" />
-            <circle cx="32" cy="38" r="2" fill="#FB8500" />
+            <circle cx="32" cy="40" r="3.2" fill="#FFB703" />
+            <circle cx="32" cy="40" r="1.6" fill="#FB8500" />
           </svg>
         );
 
       case 'آفتابگردان':
         return (
-          <svg viewBox="0 0 64 64" fill="none" className="w-full h-full drop-shadow-xs">
-            {/* Stalk and green pot */}
-            <path d="M24 46 L26 58 Q26 60 28 60 L36 60 Q38 60 38 58 L40 46 Z" fill="#606C38" />
-            <rect x="22" y="44" width="20" height="3" rx="1.5" fill="#283618" />
-            <path d="M32 45 L32 26" stroke="#588157" strokeWidth="3" strokeLinecap="round" />
-            <path d="M32 38 Q22 36 24 32" stroke="#588157" strokeWidth="2.5" strokeLinecap="round" />
-            <path d="M32 34 Q42 32 40 28" stroke="#588157" strokeWidth="2.5" strokeLinecap="round" />
-            {/* Sunflower Golden Petals */}
-            <circle cx="32" cy="22" r="16" fill="#FFB703" />
-            <circle cx="32" cy="22" r="14" fill="#FCA311" />
-            {/* Flower Center */}
-            <circle cx="32" cy="22" r="8.5" fill="#6F4E37" />
-            <circle cx="32" cy="22" r="6.5" fill="#4A3525" />
-            {/* Center pattern */}
-            <circle cx="30" cy="21" r="1" fill="#DDA15E" />
-            <circle cx="34" cy="21" r="1" fill="#DDA15E" />
-            <circle cx="32" cy="24" r="1" fill="#DDA15E" />
+          <svg viewBox="0 0 64 64" fill="none" className="w-full h-full drop-shadow-xs" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="sunflowerPetals" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#FFD166" />
+                <stop offset="100%" stopColor="#F77F00" />
+              </linearGradient>
+            </defs>
+            {/* Plant Pot */}
+            <path d="M24 47 L26 58 Q26 60 28 60 L36 60 Q38 60 38 58 L40 47 Z" fill="#4F772D" />
+            <rect x="22" y="44" width="20" height="3.5" rx="1.5" fill="#31572C" />
+            {/* Sturdy Stem and Leaves */}
+            <path d="M32 46 L32 26" stroke="#588157" strokeWidth="3" strokeLinecap="round" />
+            <path d="M32 38 Q22 35 24 30 Q28 32 32 36" fill="#588157" />
+            <path d="M32 34 Q42 31 40 26 Q36 28 32 32" fill="#3A5A40" />
+            {/* Sunflower Golden Petals Array */}
+            <circle cx="32" cy="21" r="16" fill="url(#sunflowerPetals)" />
+            <circle cx="32" cy="21" r="14" fill="#FCBF49" />
+            {/* Rich Seed Center */}
+            <circle cx="32" cy="21" r="8.5" fill="#582F0E" />
+            <circle cx="32" cy="21" r="6.5" fill="#3F1D0B" />
+            <circle cx="30.5" cy="20" r="1" fill="#7F4F24" />
+            <circle cx="33.5" cy="20" r="1" fill="#7F4F24" />
+            <circle cx="32" cy="23" r="1" fill="#7F4F24" />
           </svg>
         );
 
       case 'گل سرخ':
         return (
-          <svg viewBox="0 0 64 64" fill="none" className="w-full h-full drop-shadow-xs">
-            {/* Ceramic Pot */}
-            <path d="M23 46 L25 58 Q25 60 28 60 L36 60 Q39 60 39 58 L41 46 Z" fill="#BC6C25" />
-            <rect x="21" y="43" width="22" height="4" rx="2" fill="#9A5216" />
-            {/* Stem with cute leaves */}
-            <path d="M32 44 Q31 34 32 26" stroke="#2D6A4F" strokeWidth="3" strokeLinecap="round" />
-            <path d="M32 38 C25 35 24 41 32 40" fill="#52B788" />
-            <path d="M32 34 C39 31 40 37 32 36" fill="#40916C" />
-            {/* Rose Blossom Petals */}
-            <circle cx="32" cy="21" r="12" fill="#D90429" />
-            <circle cx="30" cy="20" r="9" fill="#EF233C" />
-            <circle cx="34" cy="20" r="7.5" fill="#E63946" />
-            <circle cx="32" cy="19" r="6" fill="#FF4D6D" />
-            <circle cx="32" cy="18" r="3.5" fill="#FF758F" />
-            <path d="M31 18 Q32 16 33 18" stroke="#FFF" strokeWidth="1" strokeLinecap="round" />
+          <svg viewBox="0 0 64 64" fill="none" className="w-full h-full drop-shadow-xs" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="rosePot" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#9C6644" />
+                <stop offset="100%" stopColor="#7F4F24" />
+              </linearGradient>
+              <linearGradient id="rosePetalGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#D90429" />
+                <stop offset="50%" stopColor="#EF233C" />
+                <stop offset="100%" stopColor="#9B2226" />
+              </linearGradient>
+            </defs>
+            {/* Ceramic Glazed Planter */}
+            <path d="M23 47 L25 58 Q25 60 28 60 L36 60 Q39 60 39 58 L41 47 Z" fill="url(#rosePot)" />
+            <rect x="21" y="44" width="22" height="4" rx="2" fill="#582F0E" />
+            {/* Thorny Rose Stem */}
+            <path d="M32 45 Q31 34 32 25" stroke="#2D6A4F" strokeWidth="2.8" strokeLinecap="round" />
+            <path d="M32 38 Q24 35 25 41" stroke="#2D6A4F" strokeWidth="2" fill="#52B788" />
+            <path d="M32 33 Q40 30 39 36" stroke="#2D6A4F" strokeWidth="2" fill="#40916C" />
+            {/* Velvety Spiral Rose Flower */}
+            <circle cx="32" cy="20" r="12" fill="url(#rosePetalGrad)" />
+            <circle cx="30" cy="19" r="8.5" fill="#EF233C" />
+            <circle cx="34" cy="19" r="7" fill="#E63946" />
+            <circle cx="32" cy="18" r="5" fill="#FF4D6D" />
+            <circle cx="32" cy="17" r="3" fill="#FF758F" />
+            <path d="M30 17 Q32 15 34 17" stroke="#FFF" strokeWidth="1" strokeLinecap="round" opacity="0.9" />
           </svg>
         );
 
       case 'بامبو شانس':
         return (
-          <svg viewBox="0 0 64 64" fill="none" className="w-full h-full drop-shadow-xs">
-            {/* Glass vase with water and pebbles */}
-            <rect x="22" y="42" width="20" height="18" rx="3" fill="#E0F2FE" stroke="#38BDF8" strokeWidth="1.5" />
-            <ellipse cx="32" cy="56" rx="8" ry="2.5" fill="#94A3B8" />
-            <ellipse cx="27" cy="55" rx="3" ry="2" fill="#CBD5E1" />
-            <ellipse cx="37" cy="55" rx="3" ry="2" fill="#CBD5E1" />
+          <svg viewBox="0 0 64 64" fill="none" className="w-full h-full drop-shadow-xs" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="bambooGlass" x1="0%" y1="0%" x2="0%" y2="100%">
+                <stop offset="0%" stopColor="#E0F2FE" stopOpacity="0.9" />
+                <stop offset="100%" stopColor="#BAE6FD" stopOpacity="0.6" />
+              </linearGradient>
+            </defs>
+            {/* Glass Vase with Pebbles */}
+            <rect x="21" y="42" width="22" height="18" rx="3" fill="url(#bambooGlass)" stroke="#38BDF8" strokeWidth="1.2" />
+            <ellipse cx="27" cy="56" rx="3.5" ry="2" fill="#94A3B8" />
+            <ellipse cx="37" cy="56" rx="3.5" ry="2" fill="#64748B" />
+            <ellipse cx="32" cy="57" rx="3.8" ry="2" fill="#CBD5E1" />
             {/* Bamboo Stalk 1 */}
-            <rect x="25" y="20" width="4" height="26" rx="1.5" fill="#22C55E" />
-            <line x1="24" y1="28" x2="30" y2="28" stroke="#15803D" strokeWidth="1.5" />
-            <line x1="24" y1="36" x2="30" y2="36" stroke="#15803D" strokeWidth="1.5" />
-            {/* Bamboo Stalk 2 (Taller center) */}
-            <rect x="30" y="12" width="4" height="34" rx="1.5" fill="#4ADE80" />
-            <line x1="29" y1="20" x2="35" y2="20" stroke="#16A34A" strokeWidth="1.5" />
-            <line x1="29" y1="30" x2="35" y2="30" stroke="#16A34A" strokeWidth="1.5" />
+            <rect x="24" y="20" width="4.2" height="26" rx="1.5" fill="#22C55E" />
+            <line x1="23" y1="28" x2="29" y2="28" stroke="#15803D" strokeWidth="1.5" />
+            <line x1="23" y1="36" x2="29" y2="36" stroke="#15803D" strokeWidth="1.5" />
+            {/* Bamboo Stalk 2 (Center tall) */}
+            <rect x="30" y="11" width="4.5" height="35" rx="1.5" fill="#4ADE80" />
+            <line x1="29" y1="19" x2="35.5" y2="19" stroke="#16A34A" strokeWidth="1.5" />
+            <line x1="29" y1="29" x2="35.5" y2="29" stroke="#16A34A" strokeWidth="1.5" />
             {/* Bamboo Stalk 3 */}
-            <rect x="35" y="16" width="4" height="30" rx="1.5" fill="#16A34A" />
-            <line x1="34" y1="24" x2="40" y2="24" stroke="#15803D" strokeWidth="1.5" />
-            <line x1="34" y1="33" x2="40" y2="33" stroke="#15803D" strokeWidth="1.5" />
-            {/* Cute leafy sprouts on tips */}
-            <path d="M26 18 Q20 16 22 12" stroke="#22C55E" strokeWidth="2" strokeLinecap="round" />
-            <path d="M32 10 Q32 4 36 6" stroke="#4ADE80" strokeWidth="2" strokeLinecap="round" />
-            <path d="M37 14 Q44 12 42 8" stroke="#16A34A" strokeWidth="2" strokeLinecap="round" />
+            <rect x="36" y="15" width="4.2" height="31" rx="1.5" fill="#16A34A" />
+            <line x1="35" y1="23" x2="41" y2="23" stroke="#15803D" strokeWidth="1.5" />
+            <line x1="35" y1="32" x2="41" y2="32" stroke="#15803D" strokeWidth="1.5" />
+            {/* Graceful Arching Shoots */}
+            <path d="M25 18 Q19 15 21 11" stroke="#22C55E" strokeWidth="2.2" strokeLinecap="round" />
+            <path d="M32 9 Q32 3 36 5" stroke="#4ADE80" strokeWidth="2.2" strokeLinecap="round" />
+            <path d="M38 13 Q45 11 43 7" stroke="#16A34A" strokeWidth="2.2" strokeLinecap="round" />
           </svg>
         );
 
       case 'پیچک رونده':
         return (
-          <svg viewBox="0 0 64 64" fill="none" className="w-full h-full drop-shadow-xs">
-            {/* Hanging Basket / pot */}
-            <path d="M20 38 L24 50 Q24 52 27 52 L37 52 Q40 52 40 50 L44 38 Z" fill="#78350F" />
-            <line x1="22" y1="38" x2="32" y2="12" stroke="#D97706" strokeWidth="1.2" />
-            <line x1="42" y1="38" x2="32" y2="12" stroke="#D97706" strokeWidth="1.2" />
-            <circle cx="32" cy="12" r="2" fill="#D97706" />
-            {/* Cascading Vine strands */}
-            <path d="M24 44 Q16 50 18 58" stroke="#16A34A" strokeWidth="2" strokeLinecap="round" />
-            <path d="M32 44 Q32 54 30 62" stroke="#15803D" strokeWidth="2" strokeLinecap="round" />
-            <path d="M40 44 Q46 52 44 60" stroke="#22C55E" strokeWidth="2" strokeLinecap="round" />
-            {/* Heart-shaped Ivy Leaves */}
-            <circle cx="17" cy="52" r="3" fill="#4ADE80" />
-            <circle cx="31" cy="54" r="3.5" fill="#22C55E" />
-            <circle cx="45" cy="53" r="3" fill="#86EFAC" />
-            <circle cx="28" cy="60" r="2.5" fill="#15803D" />
+          <svg viewBox="0 0 64 64" fill="none" className="w-full h-full drop-shadow-xs" xmlns="http://www.w3.org/2000/svg">
+            {/* Hanging Planter Cord */}
+            <line x1="22" y1="39" x2="32" y2="10" stroke="#B45309" strokeWidth="1.2" />
+            <line x1="42" y1="39" x2="32" y2="10" stroke="#B45309" strokeWidth="1.2" />
+            <circle cx="32" cy="10" r="2" fill="#92400E" />
+            {/* Clay Hanging Bowl */}
+            <path d="M19 39 L23 49 Q24 51 27 51 L37 51 Q40 51 41 49 L45 39 Z" fill="#9A3412" />
+            {/* Gracefully Cascading Ivy Tendrils */}
+            <path d="M23 44 Q15 50 17 60" stroke="#16A34A" strokeWidth="2" strokeLinecap="round" />
+            <path d="M32 46 Q33 54 30 63" stroke="#15803D" strokeWidth="2" strokeLinecap="round" />
+            <path d="M41 44 Q47 52 44 61" stroke="#22C55E" strokeWidth="2" strokeLinecap="round" />
+            {/* Heart/Star-shaped Ivy Leaves */}
+            <circle cx="16" cy="51" r="3.2" fill="#4ADE80" />
+            <circle cx="18" cy="58" r="2.8" fill="#22C55E" />
+            <circle cx="31" cy="53" r="3.6" fill="#22C55E" />
+            <circle cx="29" cy="61" r="2.8" fill="#15803D" />
+            <circle cx="45" cy="52" r="3.4" fill="#86EFAC" />
+            <circle cx="43" cy="59" r="2.8" fill="#16A34A" />
+          </svg>
+        );
+
+      case 'ارکیده':
+        return (
+          <svg viewBox="0 0 64 64" fill="none" className="w-full h-full drop-shadow-xs" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="orchidPot" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#E2E8F0" />
+                <stop offset="100%" stopColor="#94A3B8" />
+              </linearGradient>
+              <linearGradient id="orchidPetals" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#FDF4FF" />
+                <stop offset="100%" stopColor="#E879F9" />
+              </linearGradient>
+            </defs>
+            {/* Ceramic Pot */}
+            <path d="M23 47 L25 58 Q25 60 28 60 L36 60 Q39 60 39 58 L41 47 Z" fill="url(#orchidPot)" />
+            <rect x="21" y="44" width="22" height="4" rx="2" fill="#64748B" />
+            {/* Slender Arched Stem */}
+            <path d="M32 45 Q31 30 36 20 Q40 12 47 14" stroke="#15803D" strokeWidth="2.2" strokeLinecap="round" />
+            {/* Base Leaves */}
+            <ellipse cx="25" cy="46" rx="8" ry="3" transform="rotate(-15 25 46)" fill="#16A34A" />
+            <ellipse cx="39" cy="46" rx="8" ry="3" transform="rotate(15 39 46)" fill="#15803D" />
+            {/* Main Orchid Flower 1 */}
+            <circle cx="36" cy="20" r="5" fill="url(#orchidPetals)" />
+            <ellipse cx="32" cy="20" rx="3.5" ry="2" transform="rotate(-30 32 20)" fill="#F0ABFC" />
+            <ellipse cx="40" cy="20" rx="3.5" ry="2" transform="rotate(30 40 20)" fill="#F0ABFC" />
+            <circle cx="36" cy="21" r="2" fill="#C026D3" />
+            <circle cx="36" cy="21" r="0.8" fill="#FACC15" />
+            {/* Orchid Flower 2 (Top bud) */}
+            <circle cx="45" cy="14" r="4" fill="url(#orchidPetals)" />
+            <circle cx="45" cy="14.5" r="1.5" fill="#C026D3" />
           </svg>
         );
 
       case 'ریحان و نعنا':
       default:
         return (
-          <svg viewBox="0 0 64 64" fill="none" className="w-full h-full drop-shadow-xs">
-            {/* Wooden/Stone Rustic Pot */}
-            <path d="M22 45 L24 58 Q24 60 27 60 L37 60 Q40 60 40 58 L42 45 Z" fill="#84A98C" />
-            <rect x="20" y="42" width="24" height="4" rx="2" fill="#52796F" />
-            {/* Dense Herb Leaves */}
-            <path d="M32 43 L32 26" stroke="#2F3E46" strokeWidth="2" strokeLinecap="round" />
-            <circle cx="28" cy="36" r="5" fill="#52796F" />
-            <circle cx="36" cy="36" r="5" fill="#52796F" />
-            <circle cx="26" cy="28" r="6" fill="#84A98C" />
-            <circle cx="38" cy="28" r="6" fill="#84A98C" />
-            <circle cx="32" cy="20" r="7" fill="#A7C957" />
-            <circle cx="32" cy="15" r="4.5" fill="#6A994E" />
-            <ellipse cx="32" cy="18" rx="1" ry="2" fill="#FFF" opacity="0.6" />
+          <svg viewBox="0 0 64 64" fill="none" className="w-full h-full drop-shadow-xs" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="herbPot" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#A3B18A" />
+                <stop offset="100%" stopColor="#588157" />
+              </linearGradient>
+            </defs>
+            {/* Earthy Sage Pot */}
+            <path d="M22 46 L24 58 Q24 60 27 60 L37 60 Q40 60 40 58 L42 46 Z" fill="url(#herbPot)" />
+            <rect x="20" y="43" width="24" height="4" rx="2" fill="#3A5A40" />
+            {/* Stems */}
+            <path d="M32 44 L32 24" stroke="#344E41" strokeWidth="2.2" strokeLinecap="round" />
+            {/* Lush Paired Basil & Mint Leaves */}
+            <ellipse cx="27" cy="38" rx="5.5" ry="4" transform="rotate(-25 27 38)" fill="#588157" />
+            <ellipse cx="37" cy="38" rx="5.5" ry="4" transform="rotate(25 37 38)" fill="#3A5A40" />
+            <ellipse cx="25" cy="29" rx="6.5" ry="4.5" transform="rotate(-30 25 29)" fill="#84A98C" />
+            <ellipse cx="39" cy="29" rx="6.5" ry="4.5" transform="rotate(30 39 29)" fill="#588157" />
+            <circle cx="32" cy="19" r="6.5" fill="#A7C957" />
+            <circle cx="32" cy="14" r="4.5" fill="#6A994E" />
+            <path d="M32 12 L32 23" stroke="#F1FAEE" strokeWidth="1" opacity="0.6" strokeLinecap="round" />
           </svg>
         );
     }

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Goal, AppTask, Habit, GoalStatus, Category } from '../types';
-import { toPersianDigits, PERSIAN_MONTHS, WEEKDAYS, WEEKS_OF_MONTH, getTodayJalali } from '../calendar/jalali';
+import { toPersianDigits, PERSIAN_MONTHS, WEEKDAYS, WEEKS_OF_MONTH, getTodayJalali, jalaliToFormattedString } from '../calendar/jalali';
 import { 
   Plus, 
   Target, 
@@ -22,7 +22,8 @@ import {
   PlayCircle,
   PauseCircle,
   Filter,
-  Tag
+  Tag,
+  Sprout
 } from 'lucide-react';
 import { PlantIcon } from './PlantIcon';
 
@@ -32,12 +33,14 @@ interface Props {
   habits: Habit[];
   categories: Category[];
   onOpenAnnualWizard: () => void;
-  onNewGoal: (parentId?: string | null, period?: 'ANNUAL' | 'SEASONAL' | 'MONTHLY') => void;
+  onNewGoal: (parentId?: string | null, period?: 'ANNUAL' | 'SEASONAL' | 'MONTHLY', seasonIndex?: number) => void;
   onEditGoal: (goal: Goal) => void;
   onDeleteGoal: (goalId: string) => void;
   onViewHistory: (goal: Goal) => void;
   onNewTaskForGoal: (goalId: string) => void;
+  onNewHabitForGoal?: (goalId: string) => void;
   onToggleTask: (taskId: string) => void;
+  onToggleHabitToday?: (habitId: string) => void;
   onOpenTimer: (title: string, minutes: number, onDone: () => void) => void;
 }
 
@@ -47,6 +50,7 @@ const SEASONS = ['بهار', 'تابستان', 'پاییز', 'زمستان'];
 const SEASON_CONFIG = [
   {
     name: 'بهار',
+    months: 'فروردین، اردیبهشت، خرداد',
     icon: '🌸',
     cardBg: 'bg-emerald-50/70 border-emerald-300 border-r-4 border-r-emerald-500 shadow-xs shadow-emerald-100',
     badgeClass: 'bg-emerald-100 text-emerald-900 border-emerald-300',
@@ -55,6 +59,7 @@ const SEASON_CONFIG = [
   },
   {
     name: 'تابستان',
+    months: 'تیر، مرداد، شهریور',
     icon: '☀️',
     cardBg: 'bg-amber-50/70 border-amber-300 border-r-4 border-r-amber-500 shadow-xs shadow-amber-100',
     badgeClass: 'bg-amber-100 text-amber-900 border-amber-300',
@@ -63,6 +68,7 @@ const SEASON_CONFIG = [
   },
   {
     name: 'پاییز',
+    months: 'مهر، آبان، آذر',
     icon: '🍂',
     cardBg: 'bg-orange-50/70 border-orange-300 border-r-4 border-r-orange-500 shadow-xs shadow-orange-100',
     badgeClass: 'bg-orange-100 text-orange-900 border-orange-300',
@@ -71,6 +77,7 @@ const SEASON_CONFIG = [
   },
   {
     name: 'زمستان',
+    months: 'دی، بهمن، اسفند',
     icon: '❄️',
     cardBg: 'bg-sky-50/70 border-sky-300 border-r-4 border-r-sky-500 shadow-xs shadow-sky-100',
     badgeClass: 'bg-sky-100 text-sky-900 border-sky-300',
@@ -90,10 +97,13 @@ export const GoalsScreen: React.FC<Props> = ({
   onDeleteGoal,
   onViewHistory,
   onNewTaskForGoal,
+  onNewHabitForGoal,
   onToggleTask,
+  onToggleHabitToday,
   onOpenTimer,
 }) => {
   const today = getTodayJalali();
+  const currentSeasonIdx = Math.floor((today.month - 1) / 3);
   // Expanded goal cards state for collapse/expand
   const [expandedGoals, setExpandedGoals] = useState<Record<string, boolean>>({});
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>('ALL');
@@ -103,11 +113,18 @@ export const GoalsScreen: React.FC<Props> = ({
     setExpandedGoals(prev => ({ ...prev, [goalId]: !prev[goalId] }));
   };
 
-  // Compute progress for a goal based on linked tasks and habits
+  // Recursively collect all descendant IDs with cycle prevention
+  const getGoalDescendantIds = (goalId: string, visited = new Set<string>()): string[] => {
+    if (visited.has(goalId)) return [];
+    visited.add(goalId);
+    const directChildren = goals.filter(g => g.parentId === goalId && g.id !== goalId);
+    const grandChildIds = directChildren.flatMap(c => getGoalDescendantIds(c.id, visited));
+    return [goalId, ...directChildren.map(c => c.id), ...grandChildIds];
+  };
+
+  // Compute progress for a goal based on linked tasks and habits (including sub-goals and monthly sub-sub-goals)
   const calculateGoalProgress = (goalId: string) => {
-    // Also include sub-goals' tasks
-    const childGoals = goals.filter(g => g.parentId === goalId);
-    const allRelevantGoalIds = [goalId, ...childGoals.map(c => c.id)];
+    const allRelevantGoalIds = getGoalDescendantIds(goalId);
 
     const linkedTasks = tasks.filter(t => t.goalId && allRelevantGoalIds.includes(t.goalId));
     const linkedHabits = habits.filter(h => h.goalId && allRelevantGoalIds.includes(h.goalId));
@@ -121,27 +138,29 @@ export const GoalsScreen: React.FC<Props> = ({
 
     if (linkedTasks.length > 0) {
       const completedTasks = linkedTasks.filter(t => t.isCompleted).length;
-      score += (completedTasks / linkedTasks.length) * 70;
-      maxScore += 70;
+      score += (completedTasks / linkedTasks.length) * 60;
+      maxScore += 60;
     }
 
     if (linkedHabits.length > 0) {
       let totalHabitChecks = 0;
       linkedHabits.forEach(h => {
-        totalHabitChecks += Object.values(h.completionHistory).filter(Boolean).length;
+        totalHabitChecks += Object.values(h.completionHistory || {}).filter(Boolean).length;
       });
-      const habitPortion = Math.min(1, totalHabitChecks / (linkedHabits.length * 15));
-      score += habitPortion * 30;
-      maxScore += 30;
+      const habitPortion = Math.min(1, totalHabitChecks / (linkedHabits.length * 10));
+      score += habitPortion * 40;
+      maxScore += 40;
     }
 
     return maxScore > 0 ? Math.round((score / maxScore) * 100) : 0;
   };
 
-  // Top level goals: either marked as ANNUAL or goals without a parentId
-  const topLevelGoals = goals.filter(g => !g.parentId || g.period === 'ANNUAL');
+  // Top level goals: either marked as ANNUAL, without a parentId, or parent is missing
+  const todayStr = jalaliToFormattedString(today);
+  const topLevelGoals = goals.filter(g => !g.parentId || g.period === 'ANNUAL' || !goals.some(p => p.id === g.parentId));
   const getSubGoals = (parentId: string) => goals.filter(g => g.parentId === parentId);
   const getTasksForGoal = (goalId: string) => tasks.filter(t => t.goalId === goalId);
+  const getHabitsForGoal = (goalId: string) => habits.filter(h => h.goalId === goalId);
 
   // Available unique years in goals
   const availableYears = Array.from(new Set(goals.map(g => g.year || today.year))).sort((a, b) => a - b);
@@ -519,6 +538,91 @@ export const GoalsScreen: React.FC<Props> = ({
                 {/* Sub-goals and Micro-tasks Cascade */}
                 {isExpanded && (
                   <div className="pt-3 border-t border-gray-100 space-y-4">
+                    {/* Four Seasons Planner & Remaining Seasons Strip for Annual Goal */}
+                    <div className="bg-emerald-50/40 border border-emerald-200/80 rounded-xl p-3 space-y-2.5">
+                      <div className="flex items-center justify-between flex-wrap gap-1">
+                        <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-950">
+                          <Calendar className="w-3.5 h-3.5 text-emerald-700" />
+                          <span>برنامه‌ریزی فصول سال {toPersianDigits(annual.year)} و مراحل باقیمانده</span>
+                        </div>
+                        {annual.year === today.year && (
+                          <span className="text-[10px] text-emerald-800 bg-emerald-100/90 px-2 py-0.5 rounded-full font-medium">
+                            فصل جاری: {SEASON_CONFIG[currentSeasonIdx]?.name} ({SEASON_CONFIG[currentSeasonIdx]?.months})
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                        {SEASON_CONFIG.map((sConfig, sIdx) => {
+                          const seasonalGoalForThisSeason = subGoals.find(g => g.period === 'SEASONAL' && g.seasonIndex === sIdx);
+                          const isPast = annual.year < today.year || (annual.year === today.year && sIdx < currentSeasonIdx);
+                          const isCurrent = annual.year === today.year && sIdx === currentSeasonIdx;
+                          const isRemaining = annual.year > today.year || (annual.year === today.year && sIdx > currentSeasonIdx);
+
+                          return (
+                            <div
+                              key={sIdx}
+                              className={`p-2.5 rounded-xl border text-xs flex flex-col justify-between transition-all ${
+                                seasonalGoalForThisSeason
+                                  ? `${sConfig.cardBg}`
+                                  : isCurrent
+                                  ? 'bg-emerald-50/80 border-emerald-300 ring-1 ring-emerald-300'
+                                  : isRemaining
+                                  ? 'bg-white border-dashed border-gray-300 hover:border-emerald-300'
+                                  : 'bg-gray-50/60 border-gray-200 opacity-70'
+                              }`}
+                            >
+                              <div>
+                                <div className="flex items-center justify-between">
+                                  <span className="font-bold text-gray-900 flex items-center gap-1 text-[11px]">
+                                    <span>{sConfig.icon}</span>
+                                    <span>{sConfig.name}</span>
+                                  </span>
+                                  {isCurrent && (
+                                    <span className="text-[9px] font-bold text-emerald-700 bg-emerald-100/90 px-1 py-0.2 rounded">
+                                      فصل جاری
+                                    </span>
+                                  )}
+                                  {isRemaining && (
+                                    <span className="text-[9px] font-medium text-amber-700 bg-amber-50 px-1 py-0.2 rounded border border-amber-200">
+                                      باقیمانده
+                                    </span>
+                                  )}
+                                  {isPast && (
+                                    <span className="text-[9px] text-gray-400">گذشته</span>
+                                  )}
+                                </div>
+                                <p className="text-[10px] text-gray-500 mt-1 truncate">{sConfig.months}</p>
+                              </div>
+
+                              <div className="mt-2.5 pt-1.5 border-t border-black/5">
+                                {seasonalGoalForThisSeason ? (
+                                  <div className="space-y-1">
+                                    <span className="text-[10px] font-bold text-emerald-950 truncate block" title={seasonalGoalForThisSeason.title}>
+                                      {seasonalGoalForThisSeason.title}
+                                    </span>
+                                    <div className="flex items-center justify-between text-[9px] text-emerald-700">
+                                      <span>پیشرفت:</span>
+                                      <span className="font-bold">{toPersianDigits(calculateGoalProgress(seasonalGoalForThisSeason.id))}٪</span>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => onNewGoal(annual.id, 'SEASONAL', sIdx)}
+                                    className="w-full py-1 px-1.5 rounded-lg bg-white hover:bg-emerald-50 text-emerald-800 border border-emerald-200 hover:border-emerald-300 text-[10px] font-bold flex items-center justify-center gap-1 transition-colors cursor-pointer shadow-2xs"
+                                  >
+                                    <Plus className="w-2.5 h-2.5" />
+                                    <span>+ هدف فصل {sConfig.name}</span>
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+
                     {/* Add Intermediate Goal Action Row */}
                     <div className="flex items-center justify-between flex-wrap gap-2">
                       <span className="text-xs font-bold text-emerald-950 flex items-center gap-1.5">
@@ -543,6 +647,14 @@ export const GoalsScreen: React.FC<Props> = ({
                           <Plus className="w-3 h-3" />
                           <span>+ گام میانی ماهانه</span>
                         </button>
+                        <button
+                          type="button"
+                          onClick={() => onNewTaskForGoal(annual.id)}
+                          className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-800 text-[11px] font-bold rounded-lg border border-blue-200 flex items-center gap-1 transition-colors cursor-pointer"
+                        >
+                          <Plus className="w-3 h-3" />
+                          <span>+ تسک مستقیم سالانه</span>
+                        </button>
                       </div>
                     </div>
 
@@ -552,13 +664,14 @@ export const GoalsScreen: React.FC<Props> = ({
                         هنوز هدف میانی برای این هدف سالانه تعریف نشده است. با افزودن اهداف فصلی یا ماهانه، مسیر پیشرفت را به بخش‌های قابل مدیریت تقسیم کنید.
                       </div>
                     ) : (
-                      <div className="space-y-3 pr-2 border-r-2 border-emerald-200">
+                      <div className="space-y-4 pr-2 border-r-2 border-emerald-200">
                         {subGoals.map((sub) => {
                           const subProgress = calculateGoalProgress(sub.id);
                           const subTasks = getTasksForGoal(sub.id);
+                          const subHabits = getHabitsForGoal(sub.id);
                           const subStatus = getStatusBadge(sub.status);
                           const SubStatusIcon = subStatus.icon;
-                          const isSeasonal = sub.period === 'SEASONAL' && sub.seasonIndex !== undefined;
+                          const isSeasonal = sub.period === 'SEASONAL' && sub.seasonIndex !== undefined && SEASON_CONFIG[sub.seasonIndex] !== undefined;
                           const seasonTheme = isSeasonal ? SEASON_CONFIG[sub.seasonIndex!] : null;
                           const subCardClass = seasonTheme
                             ? seasonTheme.cardBg
@@ -570,6 +683,9 @@ export const GoalsScreen: React.FC<Props> = ({
                             : sub.period === 'MONTHLY'
                             ? 'bg-gradient-to-r from-teal-500 to-emerald-600'
                             : 'bg-emerald-600';
+
+                          // Nested monthly goals for this seasonal goal
+                          const nestedMonthlyGoals = isSeasonal ? goals.filter(g => g.parentId === sub.id && g.period === 'MONTHLY') : [];
 
                           return (
                             <div
@@ -589,7 +705,7 @@ export const GoalsScreen: React.FC<Props> = ({
                                     {sub.period === 'MONTHLY' && sub.monthIndex !== undefined && (
                                       <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-teal-100 border border-teal-300 text-teal-900 flex items-center gap-1">
                                         <span>📅</span>
-                                        <span>ماه {PERSIAN_MONTHS[sub.monthIndex - 1]}</span>
+                                        <span>ماه {PERSIAN_MONTHS[(sub.monthIndex - 1 + 12) % 12]}</span>
                                       </span>
                                     )}
                                     {sub.categoryId && getCategory(sub.categoryId) && (
@@ -661,7 +777,7 @@ export const GoalsScreen: React.FC<Props> = ({
                               {/* Intermediate Goal Progress Bar */}
                               <div>
                                 <div className="flex justify-between items-center text-[11px] text-gray-600 mb-1">
-                                  <span>پیشرفت این گام میانی</span>
+                                  <span>پیشرفت این گام میانی (شامل ماه‌ها و اقدامات)</span>
                                   <span className="font-bold text-emerald-700">{toPersianDigits(subProgress)}٪</span>
                                 </div>
                                 <div className="h-1.5 w-full bg-white/90 rounded-full overflow-hidden">
@@ -672,12 +788,261 @@ export const GoalsScreen: React.FC<Props> = ({
                                 </div>
                               </div>
 
+                              {/* Actions on this Intermediate Goal */}
+                              <div className="flex items-center justify-between flex-wrap gap-2 pt-1 border-t border-black/5">
+                                <span className="text-[10px] text-gray-500">افزودن اقدامات این گام:</span>
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  {isSeasonal && (
+                                    <button
+                                      type="button"
+                                      onClick={() => onNewGoal(sub.id, 'MONTHLY')}
+                                      className="px-2 py-0.5 bg-teal-50 hover:bg-teal-100 text-teal-800 text-[10px] font-bold rounded-md border border-teal-200 flex items-center gap-1 transition-colors cursor-pointer"
+                                    >
+                                      <Plus className="w-2.5 h-2.5" />
+                                      <span>+ هدف ماهانه این فصل</span>
+                                    </button>
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={() => onNewTaskForGoal(sub.id)}
+                                    className="px-2 py-0.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-[10px] font-bold rounded-md border border-emerald-200 flex items-center gap-1 transition-colors cursor-pointer"
+                                  >
+                                    <Plus className="w-2.5 h-2.5" />
+                                    <span>+ تسک خرد</span>
+                                  </button>
+                                  {onNewHabitForGoal && (
+                                    <button
+                                      type="button"
+                                      onClick={() => onNewHabitForGoal(sub.id)}
+                                      className="px-2 py-0.5 bg-amber-50 hover:bg-amber-100 text-amber-800 text-[10px] font-bold rounded-md border border-amber-200 flex items-center gap-1 transition-colors cursor-pointer"
+                                    >
+                                      <Plus className="w-2.5 h-2.5" />
+                                      <span>+ عادت مرتبط</span>
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+
+                              {/* Nested Monthly Goals for Seasonal Goal */}
+                              {isSeasonal && nestedMonthlyGoals.length > 0 && (
+                                <div className="space-y-2.5 pt-2 border-t border-emerald-200/60">
+                                  <span className="text-[11px] font-bold text-teal-900 flex items-center gap-1">
+                                    <span>📅</span>
+                                    <span>اهداف ماهانه تعیین شده برای فصل {SEASON_CONFIG[sub.seasonIndex!]?.name} ({toPersianDigits(nestedMonthlyGoals.length)})</span>
+                                  </span>
+
+                                  <div className="space-y-2 pr-2 border-r-2 border-teal-300">
+                                    {nestedMonthlyGoals.map((mGoal) => {
+                                      const mProgress = calculateGoalProgress(mGoal.id);
+                                      const mTasks = getTasksForGoal(mGoal.id);
+                                      const mHabits = getHabitsForGoal(mGoal.id);
+                                      const mStatus = getStatusBadge(mGoal.status);
+                                      const MStatusIcon = mStatus.icon;
+
+                                      return (
+                                        <div
+                                          key={mGoal.id}
+                                          className="bg-white/95 rounded-xl border border-teal-200/90 p-3 space-y-2.5 shadow-2xs"
+                                        >
+                                          <div className="flex items-start justify-between gap-2">
+                                            <div>
+                                              <div className="flex flex-wrap items-center gap-1.5">
+                                                {mGoal.monthIndex !== undefined && (
+                                                  <span className="text-[9px] font-bold px-1.5 py-0.2 rounded-md bg-teal-50 border border-teal-300 text-teal-800">
+                                                    ماه {PERSIAN_MONTHS[(mGoal.monthIndex - 1 + 12) % 12]}
+                                                  </span>
+                                                )}
+                                                {mGoal.categoryId && getCategory(mGoal.categoryId) && (
+                                                  <span
+                                                    className="text-[9px] font-bold px-1.5 py-0.2 rounded-md border flex items-center gap-1"
+                                                    style={{
+                                                      backgroundColor: `${getCategory(mGoal.categoryId)!.colorHex}15`,
+                                                      color: getCategory(mGoal.categoryId)!.colorHex,
+                                                      borderColor: `${getCategory(mGoal.categoryId)!.colorHex}40`,
+                                                    }}
+                                                  >
+                                                    <span>{getCategory(mGoal.categoryId)!.title}</span>
+                                                  </span>
+                                                )}
+                                                {mGoal.plantType && (
+                                                  <span className="inline-flex items-center gap-1 text-[9px] text-emerald-800 bg-emerald-50 px-1.5 py-0.2 rounded-md font-medium border border-emerald-200">
+                                                    <PlantIcon type={mGoal.plantType} size="xs" />
+                                                    <span>{mGoal.plantType}</span>
+                                                  </span>
+                                                )}
+                                                <span className={`text-[9px] font-semibold px-1.5 py-0.2 rounded-md border flex items-center gap-0.5 ${mStatus.color}`}>
+                                                  <MStatusIcon className="w-2 h-2" />
+                                                  <span>{mStatus.label}</span>
+                                                </span>
+                                              </div>
+                                              <h6 className="text-xs font-bold text-gray-900 mt-1 flex items-center gap-1">
+                                                {mGoal.plantType && <PlantIcon type={mGoal.plantType} size="xs" />}
+                                                <span>{mGoal.title}</span>
+                                              </h6>
+                                            </div>
+
+                                            <div className="flex items-center gap-1 shrink-0">
+                                              <button
+                                                type="button"
+                                                onClick={() => onEditGoal(mGoal)}
+                                                title="ویرایش هدف ماهانه"
+                                                className="p-1 text-gray-500 hover:bg-gray-100 rounded-md transition-colors"
+                                              >
+                                                <Edit3 className="w-3 h-3" />
+                                              </button>
+                                              <button
+                                                type="button"
+                                                onClick={() => onDeleteGoal(mGoal.id)}
+                                                title="حذف هدف ماهانه"
+                                                className="p-1 text-rose-500 hover:bg-rose-50 rounded-md transition-colors"
+                                              >
+                                                <Trash2 className="w-3 h-3" />
+                                              </button>
+                                            </div>
+                                          </div>
+
+                                          {/* Month Goal Progress */}
+                                          <div>
+                                            <div className="flex justify-between items-center text-[10px] text-gray-500 mb-0.5">
+                                              <span>پیشرفت ماه</span>
+                                              <span className="font-bold text-teal-700">{toPersianDigits(mProgress)}٪</span>
+                                            </div>
+                                            <div className="h-1 w-full bg-gray-100 rounded-full overflow-hidden">
+                                              <div
+                                                className="h-full bg-gradient-to-r from-teal-500 to-emerald-600 rounded-full transition-all"
+                                                style={{ width: `${mProgress}%` }}
+                                              />
+                                            </div>
+                                          </div>
+
+                                          {/* Actions for Monthly Goal: Task & Habit */}
+                                          <div className="flex items-center justify-between gap-1 flex-wrap pt-1 border-t border-gray-100">
+                                            <span className="text-[10px] text-gray-400">اقدامات این ماه:</span>
+                                            <div className="flex items-center gap-1">
+                                              <button
+                                                type="button"
+                                                onClick={() => onNewTaskForGoal(mGoal.id)}
+                                                className="text-[10px] text-emerald-700 font-bold hover:underline flex items-center gap-0.5 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200"
+                                              >
+                                                <Plus className="w-2.5 h-2.5" />
+                                                <span>+ تسک خرد</span>
+                                              </button>
+                                              {onNewHabitForGoal && (
+                                                <button
+                                                  type="button"
+                                                  onClick={() => onNewHabitForGoal(mGoal.id)}
+                                                  className="text-[10px] text-amber-800 font-bold hover:underline flex items-center gap-0.5 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200"
+                                                >
+                                                  <Plus className="w-2.5 h-2.5" />
+                                                  <span>+ عادت روزانه</span>
+                                                </button>
+                                              )}
+                                            </div>
+                                          </div>
+
+                                          {/* Tasks under Monthly Goal */}
+                                          {mTasks.length > 0 && (
+                                            <div className="space-y-1">
+                                              {mTasks.map((task) => (
+                                                <div
+                                                  key={task.id}
+                                                  className={`p-1.5 rounded-lg border text-xs flex items-center justify-between gap-2 transition-all ${
+                                                    task.isCompleted
+                                                      ? 'bg-gray-50 border-gray-200 opacity-60'
+                                                      : 'bg-white border-emerald-100 shadow-2xs'
+                                                  }`}
+                                                >
+                                                  <div className="flex items-center gap-1.5 min-w-0">
+                                                    <button
+                                                      type="button"
+                                                      onClick={() => onToggleTask(task.id)}
+                                                      className="cursor-pointer text-emerald-600 hover:text-emerald-700 shrink-0"
+                                                    >
+                                                      {task.isCompleted ? (
+                                                        <CheckCircle2 className="w-3.5 h-3.5 fill-emerald-600 text-white" />
+                                                      ) : (
+                                                        <Circle className="w-3.5 h-3.5 text-gray-300" />
+                                                      )}
+                                                    </button>
+                                                    <span className={`text-[11px] truncate ${task.isCompleted ? 'line-through text-gray-400' : 'text-gray-900 font-medium'}`}>
+                                                      {task.title}
+                                                    </span>
+                                                  </div>
+                                                  {!task.isCompleted && (
+                                                    <button
+                                                      type="button"
+                                                      onClick={() => onOpenTimer(task.title, Math.floor(task.timerSecondsTarget / 60) || 25, () => onToggleTask(task.id))}
+                                                      title="تمرکز روی تسک"
+                                                      className="p-1 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded shrink-0 cursor-pointer"
+                                                    >
+                                                      <Play className="w-2.5 h-2.5" />
+                                                    </button>
+                                                  )}
+                                                </div>
+                                              ))}
+                                            </div>
+                                          )}
+
+                                          {/* Habits under Monthly Goal */}
+                                          {mHabits.length > 0 && (
+                                            <div className="space-y-1">
+                                              {mHabits.map((habit) => {
+                                                const isDoneToday = !!habit.completionHistory?.[todayStr];
+                                                return (
+                                                  <div
+                                                    key={habit.id}
+                                                    className={`p-1.5 rounded-lg border text-xs flex items-center justify-between gap-2 transition-all ${
+                                                      isDoneToday
+                                                        ? 'bg-amber-50/60 border-amber-200'
+                                                        : 'bg-white border-amber-100 shadow-2xs'
+                                                    }`}
+                                                  >
+                                                    <div className="flex items-center gap-1.5 min-w-0">
+                                                      <button
+                                                        type="button"
+                                                        onClick={() => onToggleHabitToday?.(habit.id)}
+                                                        className="cursor-pointer text-amber-600 hover:text-amber-700 shrink-0"
+                                                      >
+                                                        {isDoneToday ? (
+                                                          <CheckCircle2 className="w-3.5 h-3.5 fill-amber-600 text-white" />
+                                                        ) : (
+                                                          <Circle className="w-3.5 h-3.5 text-gray-300" />
+                                                        )}
+                                                      </button>
+                                                      <PlantIcon type={habit.plantType} size="xs" />
+                                                      <span className={`text-[11px] truncate ${isDoneToday ? 'text-amber-900 font-bold' : 'text-gray-900 font-medium'}`}>
+                                                        {habit.title}
+                                                      </span>
+                                                      <span className="text-[9px] text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                                                        {habit.frequency === 'DAILY' ? 'روزانه' : 'هفتگی'}
+                                                      </span>
+                                                    </div>
+                                                    <button
+                                                      type="button"
+                                                      onClick={() => onOpenTimer(habit.title, habit.timerMinutes || 15, () => onToggleHabitToday?.(habit.id))}
+                                                      title="تایمر عادت"
+                                                      className="p-1 text-amber-700 bg-amber-50 hover:bg-amber-100 rounded shrink-0 cursor-pointer"
+                                                    >
+                                                      <Play className="w-2.5 h-2.5" />
+                                                    </button>
+                                                  </div>
+                                                );
+                                              })}
+                                            </div>
+                                          )}
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              )}
+
                               {/* Micro-tasks for this intermediate goal (Weekly & Daily) */}
                               <div className="bg-white/80 rounded-xl p-2.5 border border-emerald-100 space-y-2">
                                 <div className="flex items-center justify-between">
                                   <span className="text-[11px] font-bold text-gray-800 flex items-center gap-1">
                                     <CheckSquare className="w-3.5 h-3.5 text-emerald-600" />
-                                    <span>تسک‌های ریزتر هفتگی و روزانه ({toPersianDigits(subTasks.length)})</span>
+                                    <span>تسک‌های مستقیم این گام ({toPersianDigits(subTasks.length)})</span>
                                   </span>
 
                                   <button
@@ -686,13 +1051,13 @@ export const GoalsScreen: React.FC<Props> = ({
                                     className="text-[10px] text-emerald-700 font-bold hover:underline flex items-center gap-0.5"
                                   >
                                     <Plus className="w-3 h-3" />
-                                    <span>افزودن تسک خرد</span>
+                                    <span>افزودن تسک</span>
                                   </button>
                                 </div>
 
                                 {subTasks.length === 0 ? (
                                   <p className="text-[10px] text-gray-400 py-1 text-center">
-                                    تسک هفتگی یا روزانه‌ای ثبت نشده است. روی «افزودن تسک خرد» کلیک کنید.
+                                    تسک مستقیمی ثبت نشده است. روی «افزودن تسک» کلیک کنید.
                                   </p>
                                 ) : (
                                   <div className="space-y-1.5">
@@ -752,11 +1117,114 @@ export const GoalsScreen: React.FC<Props> = ({
                                   </div>
                                 )}
                               </div>
+
+                              {/* Habits directly under this intermediate goal */}
+                              {subHabits.length > 0 && (
+                                <div className="bg-amber-50/40 rounded-xl p-2.5 border border-amber-200/80 space-y-1.5">
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-[11px] font-bold text-amber-900 flex items-center gap-1">
+                                      <Flame className="w-3.5 h-3.5 text-amber-600" />
+                                      <span>عادت‌های مرتبط با این گام ({toPersianDigits(subHabits.length)})</span>
+                                    </span>
+                                  </div>
+                                  <div className="space-y-1">
+                                    {subHabits.map((habit) => {
+                                      const isDoneToday = !!habit.completionHistory?.[todayStr];
+                                      return (
+                                        <div
+                                          key={habit.id}
+                                          className={`p-1.5 rounded-lg border text-xs flex items-center justify-between gap-2 transition-all ${
+                                            isDoneToday ? 'bg-amber-50 border-amber-200' : 'bg-white border-amber-100 shadow-2xs'
+                                          }`}
+                                        >
+                                          <div className="flex items-center gap-1.5 min-w-0">
+                                            <button
+                                              type="button"
+                                              onClick={() => onToggleHabitToday?.(habit.id)}
+                                              className="cursor-pointer text-amber-600 hover:text-amber-700 shrink-0"
+                                            >
+                                              {isDoneToday ? (
+                                                <CheckCircle2 className="w-3.5 h-3.5 fill-amber-600 text-white" />
+                                              ) : (
+                                                <Circle className="w-3.5 h-3.5 text-gray-300" />
+                                              )}
+                                            </button>
+                                            <PlantIcon type={habit.plantType} size="xs" />
+                                            <span className="text-[11px] font-medium text-gray-900 truncate">
+                                              {habit.title}
+                                            </span>
+                                            <span className="text-[9px] text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                                              {habit.frequency === 'DAILY' ? 'روزانه' : 'هفتگی'}
+                                            </span>
+                                          </div>
+                                          <button
+                                            type="button"
+                                            onClick={() => onOpenTimer(habit.title, habit.timerMinutes || 15, () => onToggleHabitToday?.(habit.id))}
+                                            title="تایمر تمرکز"
+                                            className="p-1 text-amber-700 bg-amber-50 hover:bg-amber-100 rounded shrink-0 cursor-pointer"
+                                          >
+                                            <Play className="w-2.5 h-2.5" />
+                                          </button>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           );
                         })}
                       </div>
                     )}
+
+                    {/* Direct Tasks and Habits for Annual Goal */}
+                    {(() => {
+                      const annualTasks = getTasksForGoal(annual.id);
+                      const annualHabits = getHabitsForGoal(annual.id);
+                      if (annualTasks.length === 0 && annualHabits.length === 0) return null;
+
+                      return (
+                        <div className="bg-blue-50/50 rounded-xl p-3 border border-blue-200 space-y-2">
+                          <span className="text-xs font-bold text-blue-950 flex items-center gap-1.5">
+                            <CheckSquare className="w-3.5 h-3.5 text-blue-600" />
+                            <span>اقدامات مستقیم تعیین شده برای خود هدف سالانه</span>
+                          </span>
+
+                          {annualTasks.length > 0 && (
+                            <div className="space-y-1">
+                              {annualTasks.map(task => (
+                                <div key={task.id} className="p-2 rounded-lg bg-white border border-blue-100 flex items-center justify-between text-xs">
+                                  <div className="flex items-center gap-2">
+                                    <button type="button" onClick={() => onToggleTask(task.id)} className="cursor-pointer text-blue-600">
+                                      {task.isCompleted ? <CheckCircle2 className="w-4 h-4 fill-blue-600 text-white" /> : <Circle className="w-4 h-4 text-gray-300" />}
+                                    </button>
+                                    <span className={task.isCompleted ? 'line-through text-gray-400' : 'text-gray-900 font-medium'}>
+                                      {task.title}
+                                    </span>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
+                          {annualHabits.length > 0 && (
+                            <div className="space-y-1">
+                              {annualHabits.map(habit => (
+                                <div key={habit.id} className="p-2 rounded-lg bg-white border border-amber-100 flex items-center justify-between text-xs">
+                                  <div className="flex items-center gap-2">
+                                    <button type="button" onClick={() => onToggleHabitToday?.(habit.id)} className="cursor-pointer text-amber-600">
+                                      {habit.completionHistory?.[todayStr] ? <CheckCircle2 className="w-4 h-4 fill-amber-600 text-white" /> : <Circle className="w-4 h-4 text-gray-300" />}
+                                    </button>
+                                    <PlantIcon type={habit.plantType} size="xs" />
+                                    <span className="text-gray-900 font-medium">{habit.title}</span>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </div>
                 )}
               </div>

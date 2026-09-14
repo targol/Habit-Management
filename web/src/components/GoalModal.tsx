@@ -54,9 +54,13 @@ export const GoalModal: React.FC<Props> = ({
   const [parentId, setParentId] = useState<string | null>(null);
   const [categoryId, setCategoryId] = useState<string>(categories[0]?.id || 'cat-work');
   const [plantType, setPlantType] = useState<string>('بونسای');
+  const [isInheritedFromParent, setIsInheritedFromParent] = useState(false);
 
   // Available year options: current year and next 10 years + 2 past years
   const standardYears = Array.from({ length: 13 }, (_, i) => today.year - 2 + i);
+
+  // Find parent goal if parentId exists
+  const parentGoal = existingGoals.find(g => g.id === parentId);
 
   // Synchronize state on open or whenever goal/existingGoals change
   useEffect(() => {
@@ -80,27 +84,93 @@ export const GoalModal: React.FC<Props> = ({
       setParentId(goal.parentId || null);
       setCategoryId(goal.categoryId || categories[0]?.id || 'cat-work');
       setPlantType(goal.plantType || 'بونسای');
+      setIsInheritedFromParent(Boolean(goal.parentId));
     } else {
       // New Goal mode
+      const passedParentId = goal?.parentId || null;
+      const foundParent = existingGoals.find(g => g.id === passedParentId);
+
       setTitle(goal?.title || '');
       setDescription(goal?.description || '');
       setVisionWhy(goal?.visionWhy || '');
       
-      const defaultYear = goal?.year || today.year;
+      const defaultYear = foundParent?.year || goal?.year || today.year;
       setYear(defaultYear);
       setCustomYearInput(defaultYear.toString());
       setIsCustomYear(false);
 
-      setPeriod(goal?.period || (goal?.parentId ? 'SEASONAL' : 'ANNUAL'));
+      // Period auto-selection: if parent is seasonal -> monthly, if parent is annual -> seasonal
+      let defaultPeriod = goal?.period;
+      if (!defaultPeriod) {
+        if (foundParent) {
+          defaultPeriod = foundParent.period === 'SEASONAL' ? 'MONTHLY' : 'SEASONAL';
+        } else {
+          defaultPeriod = 'ANNUAL';
+        }
+      }
+      setPeriod(defaultPeriod);
       setStatus('IN_PROGRESS');
       setStartDate(goal?.startDate || todayStr);
-      setSeasonIndex(goal?.seasonIndex ?? Math.floor((today.month - 1) / 3));
-      setMonthIndex(goal?.monthIndex ?? today.month);
-      setParentId(goal?.parentId || null);
-      setCategoryId(goal?.categoryId || categories[0]?.id || 'cat-work');
-      setPlantType(goal?.plantType || 'بونسای');
+
+      const defSeason = goal?.seasonIndex ?? foundParent?.seasonIndex ?? Math.floor((today.month - 1) / 3);
+      setSeasonIndex(defSeason);
+
+      // Default month based on season or current month
+      let defMonth = goal?.monthIndex ?? today.month;
+      if (foundParent && foundParent.period === 'SEASONAL' && foundParent.seasonIndex !== undefined) {
+        const seasonStartMonth = foundParent.seasonIndex * 3 + 1;
+        defMonth = seasonStartMonth;
+      }
+      setMonthIndex(defMonth);
+
+      setParentId(passedParentId);
+
+      // Category and Plant inheritance from parent!
+      if (foundParent) {
+        setCategoryId(foundParent.categoryId || categories[0]?.id || 'cat-work');
+        setPlantType(foundParent.plantType || 'بونسای');
+        setIsInheritedFromParent(true);
+      } else {
+        const initialCatId = goal?.categoryId || categories[0]?.id || 'cat-work';
+        setCategoryId(initialCatId);
+        const matchingCat = categories.find(c => c.id === initialCatId);
+        setPlantType(goal?.plantType || matchingCat?.plantType || 'بونسای');
+        setIsInheritedFromParent(false);
+      }
     }
   }, [isOpen, goal, isEdit]);
+
+  // Handle parent change with category & plant inheritance
+  const handleParentChange = (newParentId: string | null) => {
+    setParentId(newParentId);
+    if (newParentId) {
+      const found = existingGoals.find(g => g.id === newParentId);
+      if (found) {
+        if (found.categoryId) setCategoryId(found.categoryId);
+        if (found.plantType) setPlantType(found.plantType);
+        if (found.year) setYear(found.year);
+        if (found.period === 'SEASONAL' && found.seasonIndex !== undefined) {
+          setSeasonIndex(found.seasonIndex);
+          setMonthIndex(found.seasonIndex * 3 + 1);
+          setPeriod('MONTHLY');
+        } else if (found.period === 'ANNUAL') {
+          setPeriod('SEASONAL');
+        }
+        setIsInheritedFromParent(true);
+      }
+    } else {
+      setIsInheritedFromParent(false);
+    }
+  };
+
+  // Handle category change: also adapt default plant if defined in category
+  const handleCategorySelect = (catId: string) => {
+    setCategoryId(catId);
+    const catObj = categories.find(c => c.id === catId);
+    if (catObj?.plantType) {
+      setPlantType(catObj.plantType);
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -229,6 +299,72 @@ export const GoalModal: React.FC<Props> = ({
             />
           </div>
 
+          {/* Parent Goal link (if intermediate) */}
+          {period !== 'ANNUAL' && (
+            <div className="bg-emerald-50/40 p-3 rounded-xl border border-emerald-200/80 space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="font-bold text-gray-800 flex items-center gap-1.5">
+                  <Target className="w-4 h-4 text-emerald-600" />
+                  <span>هدف بالادستی (ارث‌بری خودکار دسته و گیاه)</span>
+                </label>
+                {parentGoal && (
+                  <span className="text-[10px] text-emerald-700 bg-emerald-100/70 border border-emerald-300 px-2 py-0.5 rounded-md font-semibold">
+                    ارث‌بری فعال
+                  </span>
+                )}
+              </div>
+
+              <select
+                value={parentId || ''}
+                onChange={(e) => handleParentChange(e.target.value ? e.target.value : null)}
+                className="w-full px-3 py-2 rounded-xl border border-gray-200 text-xs bg-white font-medium"
+              >
+                <option value="">بدون هدف مادر (مستقل)</option>
+                {/* Group 1: Seasonal Goals (Best parents for Monthly goals) */}
+                {period === 'MONTHLY' && existingGoals.some(g => g.id !== goal?.id && g.period === 'SEASONAL') && (
+                  <optgroup label="--- اهداف میانی فصلی (پیشنهادی برای ماه) ---">
+                    {existingGoals
+                      .filter(g => g.id !== goal?.id && g.period === 'SEASONAL')
+                      .map((g) => (
+                        <option key={g.id} value={g.id}>
+                          فصل {g.seasonIndex !== undefined ? SEASON_OPTIONS[g.seasonIndex]?.name : ''} (سال {toPersianDigits(g.year)}): {g.title}
+                        </option>
+                      ))}
+                  </optgroup>
+                )}
+                {/* Group 2: Annual Goals */}
+                <optgroup label="--- اهداف کلان سالانه ---">
+                  {existingGoals
+                    .filter(g => g.id !== goal?.id && g.period === 'ANNUAL')
+                    .map((g) => (
+                      <option key={g.id} value={g.id}>
+                        هدف سالانه {toPersianDigits(g.year)}: {g.title}
+                      </option>
+                    ))}
+                </optgroup>
+              </select>
+
+              {parentGoal && (
+                <div className="text-[11px] text-emerald-800 bg-white p-2 rounded-lg border border-emerald-200 flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <Sparkles className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                    <span className="truncate">
+                      ارث‌بری از: <strong>{parentGoal.title}</strong>
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    {parentGoal.categoryId && (
+                      <span className="text-[10px] text-gray-600">
+                        ({categories.find(c => c.id === parentGoal.categoryId)?.title || 'دسته'})
+                      </span>
+                    )}
+                    {parentGoal.plantType && <PlantIcon type={parentGoal.plantType} size="xs" />}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Category Selection (دسته‌بندی هدف) - PROMINENT */}
           <div className="bg-gray-50/80 p-3 rounded-xl border border-gray-200 space-y-2">
             <div className="flex items-center justify-between">
@@ -236,22 +372,29 @@ export const GoalModal: React.FC<Props> = ({
                 <Folder className="w-4 h-4 text-emerald-600" />
                 <span>تعیین دسته‌بندی هدف *</span>
               </label>
-              {selectedCategory && (
-                <span
-                  className="text-[11px] font-bold px-2 py-0.5 rounded-md border flex items-center gap-1"
-                  style={{
-                    backgroundColor: `${selectedCategory.colorHex}15`,
-                    color: selectedCategory.colorHex,
-                    borderColor: `${selectedCategory.colorHex}40`,
-                  }}
-                >
+              <div className="flex items-center gap-1.5">
+                {isInheritedFromParent && parentGoal && (
+                  <span className="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-md font-semibold">
+                    ارث‌بری شده از هدف والد
+                  </span>
+                )}
+                {selectedCategory && (
                   <span
-                    className="w-2 h-2 rounded-full"
-                    style={{ backgroundColor: selectedCategory.colorHex }}
-                  />
-                  <span>{selectedCategory.title}</span>
-                </span>
-              )}
+                    className="text-[11px] font-bold px-2 py-0.5 rounded-md border flex items-center gap-1"
+                    style={{
+                      backgroundColor: `${selectedCategory.colorHex}15`,
+                      color: selectedCategory.colorHex,
+                      borderColor: `${selectedCategory.colorHex}40`,
+                    }}
+                  >
+                    <span
+                      className="w-2 h-2 rounded-full"
+                      style={{ backgroundColor: selectedCategory.colorHex }}
+                    />
+                    <span>{selectedCategory.title}</span>
+                  </span>
+                )}
+              </div>
             </div>
 
             {/* Visual Category Chips */}
@@ -262,7 +405,7 @@ export const GoalModal: React.FC<Props> = ({
                   <button
                     key={c.id}
                     type="button"
-                    onClick={() => setCategoryId(c.id)}
+                    onClick={() => handleCategorySelect(c.id)}
                     className={`px-2.5 py-1.5 rounded-lg font-semibold text-xs transition-all cursor-pointer flex items-center gap-1.5 border ${
                       isSelected
                         ? 'text-white shadow-xs font-bold'
@@ -278,6 +421,9 @@ export const GoalModal: React.FC<Props> = ({
                       style={{ backgroundColor: isSelected ? '#ffffff' : c.colorHex }}
                     />
                     <span>{c.title}</span>
+                    {c.plantType && (
+                      <span className="text-[10px] opacity-80">({c.plantType})</span>
+                    )}
                     {isSelected && <Check className="w-3 h-3 text-white mr-0.5" />}
                   </button>
                 );
@@ -417,23 +563,57 @@ export const GoalModal: React.FC<Props> = ({
           {/* Sub-period: Seasonal with Distinct Seasonal Colors */}
           {period === 'SEASONAL' && (
             <div className="space-y-2 p-3 rounded-xl border border-emerald-200 bg-gray-50/50">
-              <label className="block font-bold text-gray-800">
-                کدام فصل سال؟ (رنگ‌بندی اختصاصی هر فصل)
-              </label>
+              <div className="flex items-center justify-between">
+                <label className="block font-bold text-gray-800">
+                  کدام فصل سال؟ (تعیین برای فصل‌های باقیمانده)
+                </label>
+                <span className="text-[10px] text-emerald-800 bg-emerald-100/60 px-2 py-0.5 rounded-md font-semibold">
+                  سال {toPersianDigits(isCustomYear ? (parseInt(customYearInput, 10) || today.year) : year)}
+                </span>
+              </div>
+
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 {SEASON_OPTIONS.map((s) => {
                   const isSelected = seasonIndex === s.index;
+                  const effYear = isCustomYear ? (parseInt(customYearInput, 10) || today.year) : year;
+                  const currentSeason = Math.floor((today.month - 1) / 3);
+                  let badgeText = '';
+                  let badgeColor = '';
+
+                  if (effYear === today.year) {
+                    if (s.index === currentSeason) {
+                      badgeText = 'فصل جاری';
+                      badgeColor = 'bg-emerald-500 text-white';
+                    } else if (s.index > currentSeason) {
+                      badgeText = 'باقیمانده';
+                      badgeColor = 'bg-blue-500 text-white';
+                    } else {
+                      badgeText = 'گذشته';
+                      badgeColor = 'bg-gray-400 text-white';
+                    }
+                  } else if (effYear > today.year) {
+                    badgeText = 'باقیمانده';
+                    badgeColor = 'bg-indigo-500 text-white';
+                  }
+
                   return (
                     <button
                       key={s.index}
                       type="button"
                       onClick={() => setSeasonIndex(s.index)}
-                      className={`py-2 px-2 rounded-xl text-xs font-bold transition-all border flex items-center justify-center gap-1.5 cursor-pointer ${
+                      className={`py-2 px-2 rounded-xl text-xs font-bold transition-all border flex flex-col items-center justify-center gap-1 cursor-pointer relative ${
                         isSelected ? s.activeClass : s.inactiveClass
                       }`}
                     >
-                      <span className="text-sm">{s.icon}</span>
-                      <span>{s.name}</span>
+                      {badgeText && (
+                        <span className={`text-[9px] px-1.5 py-0.2 rounded-full font-bold absolute -top-2 right-1 shadow-2xs ${badgeColor}`}>
+                          {badgeText}
+                        </span>
+                      )}
+                      <div className="flex items-center gap-1">
+                        <span className="text-sm">{s.icon}</span>
+                        <span>{s.name}</span>
+                      </div>
                     </button>
                   );
                 })}
@@ -443,39 +623,50 @@ export const GoalModal: React.FC<Props> = ({
 
           {/* Sub-period: Monthly */}
           {period === 'MONTHLY' && (
-            <div>
-              <label className="block font-semibold text-gray-700 mb-1">کدام ماه سال؟</label>
+            <div className="space-y-2 p-3 rounded-xl border border-teal-200 bg-teal-50/40">
+              <label className="block font-bold text-gray-800">
+                کدام ماه سال؟ (ماه‌های متناظر فصل)
+              </label>
+              
+              {/* Quick Month Buttons if parent is seasonal */}
+              {parentGoal && parentGoal.period === 'SEASONAL' && parentGoal.seasonIndex !== undefined && (
+                <div className="space-y-1">
+                  <span className="text-[11px] text-teal-800 font-semibold block">
+                    ماه‌های فصل {SEASON_OPTIONS[parentGoal.seasonIndex]?.name}:
+                  </span>
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {[1, 2, 3].map((mOffset) => {
+                      const mNumber = parentGoal.seasonIndex! * 3 + mOffset;
+                      const isSelected = monthIndex === mNumber;
+                      return (
+                        <button
+                          key={mNumber}
+                          type="button"
+                          onClick={() => setMonthIndex(mNumber)}
+                          className={`py-1.5 px-2 rounded-lg text-xs font-bold transition-all border text-center cursor-pointer ${
+                            isSelected
+                              ? 'bg-teal-600 text-white border-teal-700 shadow-xs'
+                              : 'bg-white text-teal-900 border-teal-200 hover:bg-teal-100'
+                          }`}
+                        >
+                          {PERSIAN_MONTHS[mNumber - 1]}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               <select
                 value={monthIndex}
                 onChange={(e) => setMonthIndex(parseInt(e.target.value, 10))}
-                className="w-full px-3 py-2 rounded-xl border border-gray-200 text-xs bg-white"
+                className="w-full px-3 py-2 rounded-xl border border-gray-200 text-xs bg-white mt-1"
               >
                 {PERSIAN_MONTHS.map((m, idx) => (
                   <option key={idx + 1} value={idx + 1}>
                     ماه {m} ({toPersianDigits(idx + 1)})
                   </option>
                 ))}
-              </select>
-            </div>
-          )}
-
-          {/* Parent Goal link (if intermediate) */}
-          {period !== 'ANNUAL' && (
-            <div>
-              <label className="block font-semibold text-gray-700 mb-1">هدف بالادستی (هدف مادر)</label>
-              <select
-                value={parentId || ''}
-                onChange={(e) => setParentId(e.target.value ? e.target.value : null)}
-                className="w-full px-3 py-2 rounded-xl border border-gray-200 text-xs bg-white"
-              >
-                <option value="">بدون هدف مادر (مستقل)</option>
-                {existingGoals
-                  .filter(g => g.id !== goal?.id && g.period === 'ANNUAL')
-                  .map((g) => (
-                    <option key={g.id} value={g.id}>
-                      هدف سالانه {toPersianDigits(g.year)}: {g.title}
-                    </option>
-                  ))}
               </select>
             </div>
           )}

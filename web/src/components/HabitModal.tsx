@@ -24,15 +24,45 @@ export const HabitModal: React.FC<Props> = ({
   const today = getTodayJalali();
   const [title, setTitle] = useState(habit?.title || '');
   const [notes, setNotes] = useState(habit?.notes || '');
-  const [categoryId, setCategoryId] = useState(habit?.categoryId || categories[0]?.id || 'cat-health');
+
+  // Inherit from goal if available
+  const initialGoal = goals.find(g => g.id === habit?.goalId);
+  const [categoryId, setCategoryId] = useState(
+    habit?.categoryId || initialGoal?.categoryId || categories[0]?.id || 'cat-health'
+  );
   const [goalId, setGoalId] = useState<string | null>(habit?.goalId || null);
   const [timerMinutes, setTimerMinutes] = useState(habit?.timerMinutes || 15);
   const [targetDays, setTargetDays] = useState<number[]>(habit?.targetDaysOfWeek || [0, 1, 2, 3, 4, 5, 6]);
   const [exemptHolidays, setExemptHolidays] = useState(habit?.exemptHolidays || false);
   const [exemptWeekends, setExemptWeekends] = useState(habit?.exemptWeekends || false);
-  const [plantType, setPlantType] = useState(habit?.plantType || ALL_PLANT_TYPES[0].id);
+  const [plantType, setPlantType] = useState(
+    habit?.plantType || initialGoal?.plantType || categories.find(c => c.id === (habit?.categoryId || initialGoal?.categoryId))?.plantType || ALL_PLANT_TYPES[0].id
+  );
+  const [isInheritedFromGoal, setIsInheritedFromGoal] = useState(Boolean(initialGoal));
 
   if (!isOpen) return null;
+
+  const handleGoalChange = (newGoalId: string | null) => {
+    setGoalId(newGoalId);
+    if (newGoalId) {
+      const g = goals.find(item => item.id === newGoalId);
+      if (g) {
+        if (g.categoryId) setCategoryId(g.categoryId);
+        if (g.plantType) setPlantType(g.plantType);
+        setIsInheritedFromGoal(true);
+      }
+    } else {
+      setIsInheritedFromGoal(false);
+    }
+  };
+
+  const handleCategoryChange = (newCatId: string) => {
+    setCategoryId(newCatId);
+    const catObj = categories.find(c => c.id === newCatId);
+    if (catObj?.plantType) {
+      setPlantType(catObj.plantType);
+    }
+  };
 
   const toggleDay = (dayIdx: number) => {
     if (targetDays.includes(dayIdx)) {
@@ -55,7 +85,7 @@ export const HabitModal: React.FC<Props> = ({
       goalId: goalId || null,
       time: habit?.time || '08:00',
       timerMinutes,
-      frequency: 'DAILY',
+      frequency: targetDays.length === 7 ? 'DAILY' : 'WEEKLY',
       targetDaysOfWeek: targetDays,
       exemptHolidays,
       exemptWeekends,
@@ -109,14 +139,19 @@ export const HabitModal: React.FC<Props> = ({
           {/* Category & Goal */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-semibold text-gray-700 mb-1 flex items-center gap-1">
-                <Folder className="w-3.5 h-3.5 text-emerald-600" />
-                <span>دسته‌بندی</span>
+              <label className="block text-xs font-semibold text-gray-700 mb-1 flex items-center justify-between">
+                <span className="flex items-center gap-1">
+                  <Folder className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>دسته‌بندی</span>
+                </span>
+                {isInheritedFromGoal && (
+                  <span className="text-[10px] text-emerald-700 bg-emerald-50 px-1 rounded-sm">ارث‌بری از هدف</span>
+                )}
               </label>
               <select
                 value={categoryId}
-                onChange={(e) => setCategoryId(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl border border-gray-200 text-xs bg-white"
+                onChange={(e) => handleCategoryChange(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl border border-gray-200 text-xs bg-white focus:border-emerald-500 outline-hidden"
               >
                 {categories.map((c) => (
                   <option key={c.id} value={c.id}>{c.title}</option>
@@ -131,12 +166,15 @@ export const HabitModal: React.FC<Props> = ({
               </label>
               <select
                 value={goalId || ''}
-                onChange={(e) => setGoalId(e.target.value ? e.target.value : null)}
-                className="w-full px-3 py-2 rounded-xl border border-gray-200 text-xs bg-white"
+                onChange={(e) => handleGoalChange(e.target.value ? e.target.value : null)}
+                className="w-full px-3 py-2 rounded-xl border border-gray-200 text-xs bg-white focus:border-emerald-500 outline-hidden"
               >
                 <option value="">بدون هدف (مستقل)</option>
                 {goals.map((g) => (
-                  <option key={g.id} value={g.id}>{g.title}</option>
+                  <option key={g.id} value={g.id}>
+                    {g.period === 'ANNUAL' ? '🎯 ' : g.period === 'SEASONAL' ? '🍂 ' : '📅 '}
+                    {g.title}
+                  </option>
                 ))}
               </select>
             </div>
@@ -190,10 +228,41 @@ export const HabitModal: React.FC<Props> = ({
             />
           </div>
 
-          {/* Days of week */}
+          {/* Frequency & Days of week */}
           <div>
-            <label className="block text-xs font-semibold text-gray-700 mb-1.5">روزهای هدف در هفته</label>
-            <div className="grid grid-cols-7 gap-1.5">
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-xs font-semibold text-gray-700">تناوب تکرار</label>
+              <div className="flex items-center gap-1 bg-gray-100 p-0.5 rounded-lg text-[11px]">
+                <button
+                  type="button"
+                  onClick={() => setTargetDays([0, 1, 2, 3, 4, 5, 6])}
+                  className={`px-2.5 py-1 rounded-md font-bold transition-all cursor-pointer ${
+                    targetDays.length === 7
+                      ? 'bg-white text-emerald-800 shadow-xs'
+                      : 'text-gray-500 hover:text-gray-700'
+                  }`}
+                >
+                  روزانه (هر روز)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (targetDays.length === 7) {
+                      setTargetDays([0, 2, 4]); // default to Sat, Mon, Wed
+                    }
+                  }}
+                  className={`px-2.5 py-1 rounded-md font-bold transition-all cursor-pointer ${
+                    targetDays.length < 7
+                      ? 'bg-white text-emerald-800 shadow-xs'
+                      : 'text-gray-500 hover:text-gray-700'
+                  }`}
+                >
+                  روزهای مشخص هفته
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-7 gap-1.5 mt-2">
               {WEEKDAYS_SHORT.map((wName, idx) => {
                 const isSelected = targetDays.includes(idx);
                 return (
@@ -201,7 +270,7 @@ export const HabitModal: React.FC<Props> = ({
                     key={idx}
                     type="button"
                     onClick={() => toggleDay(idx)}
-                    className={`py-2 rounded-xl text-xs font-bold transition-colors ${
+                    className={`py-2 rounded-xl text-xs font-bold transition-colors cursor-pointer ${
                       isSelected
                         ? 'bg-emerald-600 text-white shadow-xs'
                         : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
@@ -212,6 +281,9 @@ export const HabitModal: React.FC<Props> = ({
                 );
               })}
             </div>
+            <p className="text-[11px] text-gray-400 mt-1">
+              {targetDays.length === 7 ? 'این عادت هر روز هفته تکرار می‌شود.' : `این عادت در ${targetDays.length} روز از هفته تکرار می‌شود.`}
+            </p>
           </div>
 
           {/* Exemption rules */}

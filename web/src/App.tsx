@@ -12,6 +12,7 @@ import { TasksScreen } from './components/TasksScreen';
 import { HabitsScreen } from './components/HabitsScreen';
 import { GoalsScreen } from './components/GoalsScreen';
 import { ReportsScreen } from './components/ReportsScreen';
+import { SettingsScreen } from './components/SettingsScreen';
 import { TaskModal } from './components/TaskModal';
 import { HabitModal } from './components/HabitModal';
 import { GoalModal } from './components/GoalModal';
@@ -25,46 +26,122 @@ import {
   Target, 
   BarChart3, 
   Plus, 
-  Clock,
-  Sparkles
+  Clock, 
+  Sparkles,
+  Settings
 } from 'lucide-react';
 
-type NavTab = 'TODAY' | 'TASKS' | 'HABITS' | 'GOALS' | 'REPORTS';
+type NavTab = 'TODAY' | 'TASKS' | 'HABITS' | 'GOALS' | 'REPORTS' | 'SETTINGS';
 
 export const App: React.FC = () => {
-  // --- Persistent State ---
-  const [categories] = useState<Category[]>(() => {
-    const saved = localStorage.getItem('javaneh_categories');
-    return saved ? JSON.parse(saved) : INITIAL_CATEGORIES;
+  // --- Persistent State with Safe Fallbacks & Data Preservation ---
+  const [categories, setCategories] = useState<Category[]>(() => {
+    try {
+      const saved = localStorage.getItem('javaneh_categories');
+      if (saved !== null) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch (e) {
+      console.warn('Failed to parse saved categories', e);
+    }
+    return INITIAL_CATEGORIES;
   });
 
   const [goals, setGoals] = useState<Goal[]>(() => {
-    const saved = localStorage.getItem('javaneh_goals');
-    return saved ? JSON.parse(saved) : getInitialGoals();
+    try {
+      const saved = localStorage.getItem('javaneh_goals');
+      if (saved !== null) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          return parsed.map((g: Goal) => ({
+            ...g,
+            history: g.history || [],
+          }));
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to parse saved goals', e);
+    }
+    return getInitialGoals();
   });
 
   const [tasks, setTasks] = useState<AppTask[]>(() => {
-    const saved = localStorage.getItem('javaneh_tasks');
-    return saved ? JSON.parse(saved) : getInitialTasks();
+    try {
+      const saved = localStorage.getItem('javaneh_tasks');
+      if (saved !== null) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          return parsed.map((t: AppTask) => ({
+            ...t,
+            repeatDaysOfWeek: t.repeatDaysOfWeek || [],
+          }));
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to parse saved tasks', e);
+    }
+    return getInitialTasks();
   });
 
   const [habits, setHabits] = useState<Habit[]>(() => {
-    const saved = localStorage.getItem('javaneh_habits');
-    return saved ? JSON.parse(saved) : getInitialHabits();
+    try {
+      const saved = localStorage.getItem('javaneh_habits');
+      if (saved !== null) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          return parsed.map((h: Habit) => ({
+            ...h,
+            targetDaysOfWeek: h.targetDaysOfWeek || [0, 1, 2, 3, 4, 5, 6],
+            completionHistory: h.completionHistory || {},
+          }));
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to parse saved habits', e);
+    }
+    return getInitialHabits();
   });
 
-  // Save to localStorage
+  // Mark initialized so defaults are never re-injected unexpectedly
   useEffect(() => {
-    localStorage.setItem('javaneh_goals', JSON.stringify(goals));
+    try {
+      localStorage.setItem('javaneh_initialized', 'true');
+    } catch {}
+  }, []);
+
+  // Save to localStorage safely
+  useEffect(() => {
+    try {
+      localStorage.setItem('javaneh_goals', JSON.stringify(goals));
+    } catch (e) {
+      console.error('Failed to save goals', e);
+    }
   }, [goals]);
 
   useEffect(() => {
-    localStorage.setItem('javaneh_tasks', JSON.stringify(tasks));
+    try {
+      localStorage.setItem('javaneh_tasks', JSON.stringify(tasks));
+    } catch (e) {
+      console.error('Failed to save tasks', e);
+    }
   }, [tasks]);
 
   useEffect(() => {
-    localStorage.setItem('javaneh_habits', JSON.stringify(habits));
+    try {
+      localStorage.setItem('javaneh_habits', JSON.stringify(habits));
+    } catch (e) {
+      console.error('Failed to save habits', e);
+    }
   }, [habits]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('javaneh_categories', JSON.stringify(categories));
+    } catch (e) {
+      console.error('Failed to save categories', e);
+    }
+  }, [categories]);
 
   // --- Active Tab ---
   const [currentTab, setCurrentTab] = useState<NavTab>('TODAY');
@@ -296,7 +373,7 @@ export const App: React.FC = () => {
   };
 
   // Annual Goal Wizard save handler
-  const handleSaveAnnualWizard = (annualGoal: Goal, intermediateGoal?: Goal, microTask?: AppTask) => {
+  const handleSaveAnnualWizard = (annualGoal: Goal, intermediateGoal?: Goal, microTask?: AppTask, microHabit?: Habit) => {
     setGoals(prev => {
       const added = [annualGoal];
       if (intermediateGoal) added.push(intermediateGoal);
@@ -307,17 +384,22 @@ export const App: React.FC = () => {
       setTasks(prev => [microTask, ...prev]);
     }
 
+    if (microHabit) {
+      setHabits(prev => [microHabit, ...prev]);
+    }
+
     // Switch to GOALS tab to see the newly created hierarchy
     setCurrentTab('GOALS');
   };
 
   // Helper to open task modal pre-filled for a specific goal
   const handleNewTaskForGoal = (goalId: string) => {
+    const parentGoal = goals.find(g => g.id === goalId);
     setEditingTask({
       id: `task-${Date.now()}`,
       title: '',
       notes: '',
-      categoryId: categories[0]?.id || 'cat-work',
+      categoryId: parentGoal?.categoryId || categories[0]?.id || 'cat-work',
       goalId,
       dueDate: todayStr,
       repeatType: 'NONE',
@@ -331,24 +413,82 @@ export const App: React.FC = () => {
     setIsTaskModalOpen(true);
   };
 
+  // Helper to open habit modal pre-filled for a specific goal
+  const handleNewHabitForGoal = (goalId: string) => {
+    const parentGoal = goals.find(g => g.id === goalId);
+    const parentCat = parentGoal ? categories.find(c => c.id === parentGoal.categoryId) : undefined;
+    setEditingHabit({
+      id: `habit-${Date.now()}`,
+      title: '',
+      categoryId: parentGoal?.categoryId || categories[0]?.id || 'cat-work',
+      plantType: parentGoal?.plantType || parentCat?.plantType || 'بونسای',
+      frequency: 'DAILY',
+      targetDaysPerWeek: 7,
+      selectedDaysOfWeek: [0, 1, 2, 3, 4, 5, 6],
+      currentStreak: 0,
+      longestStreak: 0,
+      completionHistory: {},
+      goalId,
+      timerMinutes: 15,
+    });
+    setIsHabitModalOpen(true);
+  };
+
   // Helper to open new goal modal pre-filled with parent or period
-  const handleOpenNewGoalModal = (parentId?: string | null, period?: 'ANNUAL' | 'SEASONAL' | 'MONTHLY') => {
+  const handleOpenNewGoalModal = (
+    parentId?: string | null, 
+    period?: 'ANNUAL' | 'SEASONAL' | 'MONTHLY',
+    seasonIndex?: number
+  ) => {
+    const foundParent = parentId ? goals.find(g => g.id === parentId) : null;
+    const initialCategory = foundParent?.categoryId || categories[0]?.id || 'cat-work';
+    const initialCatObj = categories.find(c => c.id === initialCategory);
+
     setEditingGoal({
       id: '', // Empty ID ensures it is treated as a clean new goal
       title: '',
       description: '',
       visionWhy: '',
-      year: today.year,
+      year: foundParent?.year || today.year,
       period: period || (parentId ? 'SEASONAL' : 'ANNUAL'),
+      seasonIndex: seasonIndex !== undefined ? seasonIndex : foundParent?.seasonIndex,
       status: 'IN_PROGRESS',
       startDate: todayStr,
       parentId: parentId || null,
-      categoryId: categories[0]?.id || 'cat-work',
-      plantType: 'بونسای',
+      categoryId: initialCategory,
+      plantType: foundParent?.plantType || initialCatObj?.plantType || 'بونسای',
       history: [],
       createdAt: todayStr,
     });
     setIsGoalModalOpen(true);
+  };
+
+  // Category management handlers for Settings
+  const handleSaveCategory = (cat: Category) => {
+    setCategories(prev => {
+      const idx = prev.findIndex(c => c.id === cat.id);
+      if (idx >= 0) {
+        const next = [...prev];
+        next[idx] = cat;
+        return next;
+      }
+      return [...prev, cat];
+    });
+  };
+
+  const handleDeleteCategory = (catId: string) => {
+    setCategories(prev => prev.filter(c => c.id !== catId));
+  };
+
+  const handleResetCategories = () => {
+    setCategories(INITIAL_CATEGORIES);
+  };
+
+  const handleImportAllData = (data: { categories?: Category[]; goals?: Goal[]; tasks?: AppTask[]; habits?: Habit[] }) => {
+    if (data.categories) setCategories(data.categories);
+    if (data.goals) setGoals(data.goals);
+    if (data.tasks) setTasks(data.tasks);
+    if (data.habits) setHabits(data.habits);
   };
 
   // --- Timer Helper ---
@@ -398,6 +538,19 @@ export const App: React.FC = () => {
             >
               <Clock className="w-3.5 h-3.5 text-emerald-600" />
               <span className="hidden md:inline">تایمر تمرکز</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setCurrentTab('SETTINGS')}
+              title="تنظیمات دسته‌ها و گیاهان"
+              className={`p-2 rounded-xl border transition-colors cursor-pointer ${
+                currentTab === 'SETTINGS'
+                  ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                  : 'bg-gray-50 hover:bg-gray-100 text-gray-700 border-gray-200'
+              }`}
+            >
+              <Settings className="w-4 h-4" />
             </button>
 
             <button
@@ -470,7 +623,9 @@ export const App: React.FC = () => {
             onDeleteGoal={handleDeleteGoal}
             onViewHistory={(g) => { setSelectedGoalForHistory(g); setIsHistoryModalOpen(true); }}
             onNewTaskForGoal={handleNewTaskForGoal}
+            onNewHabitForGoal={handleNewHabitForGoal}
             onToggleTask={handleToggleTask}
+            onToggleHabitToday={(id) => handleToggleHabitDate(id, todayStr)}
             onOpenTimer={(title, mins, cb) => openTimer(title, mins, cb)}
           />
         )}
@@ -483,11 +638,24 @@ export const App: React.FC = () => {
             categories={categories}
           />
         )}
+
+        {currentTab === 'SETTINGS' && (
+          <SettingsScreen
+            categories={categories}
+            goals={goals}
+            tasks={tasks}
+            habits={habits}
+            onSaveCategory={handleSaveCategory}
+            onDeleteCategory={handleDeleteCategory}
+            onResetCategories={handleResetCategories}
+            onImportAllData={handleImportAllData}
+          />
+        )}
       </main>
 
       {/* Bottom Navigation Bar */}
       <nav className="sticky bottom-0 z-40 bg-white/95 backdrop-blur-md border-t border-emerald-100/90 shadow-md">
-        <div className="max-w-md mx-auto px-4 h-16 flex items-center justify-around">
+        <div className="max-w-md mx-auto px-3 h-16 flex items-center justify-around">
           <button
             type="button"
             onClick={() => setCurrentTab('TODAY')}
@@ -496,7 +664,7 @@ export const App: React.FC = () => {
             }`}
           >
             <Sprout className={`w-5 h-5 ${currentTab === 'TODAY' ? 'stroke-[2.5]' : ''}`} />
-            <span className="text-[10px]">امروز و باغچه</span>
+            <span className="text-[10px]">باغچه</span>
           </button>
 
           <button
@@ -540,7 +708,18 @@ export const App: React.FC = () => {
             }`}
           >
             <BarChart3 className={`w-5 h-5 ${currentTab === 'REPORTS' ? 'stroke-[2.5]' : ''}`} />
-            <span className="text-[10px]">گزارش‌ها</span>
+            <span className="text-[10px]">گزارش</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setCurrentTab('SETTINGS')}
+            className={`flex flex-col items-center gap-1 cursor-pointer transition-colors ${
+              currentTab === 'SETTINGS' ? 'text-emerald-700 font-bold' : 'text-gray-400 hover:text-gray-600'
+            }`}
+          >
+            <Settings className={`w-5 h-5 ${currentTab === 'SETTINGS' ? 'stroke-[2.5]' : ''}`} />
+            <span className="text-[10px]">تنظیمات</span>
           </button>
         </div>
       </nav>

@@ -2,10 +2,10 @@ import { Category, Goal, AppTask, Habit } from '../types';
 import { getTodayJalali, jalaliToFormattedString, addDaysJalali } from '../calendar/jalali';
 
 export const INITIAL_CATEGORIES: Category[] = [
-  { id: 'cat-work', title: 'کاری و تحصیلی', colorHex: '#10B981', iconName: 'Briefcase' },
-  { id: 'cat-personal', title: 'توسعه فردی', colorHex: '#3B82F6', iconName: 'BookOpen' },
-  { id: 'cat-health', title: 'سلامت و ورزش', colorHex: '#EF4444', iconName: 'HeartPulse' },
-  { id: 'cat-home', title: 'خانه و زندگی', colorHex: '#F59E0B', iconName: 'Home' },
+  { id: 'cat-work', title: 'کاری و تحصیلی', colorHex: '#10B981', iconName: 'Briefcase', plantType: 'بونسای' },
+  { id: 'cat-personal', title: 'توسعه فردی', colorHex: '#3B82F6', iconName: 'BookOpen', plantType: 'نیلوفر آبی' },
+  { id: 'cat-health', title: 'سلامت و ورزش', colorHex: '#EF4444', iconName: 'HeartPulse', plantType: 'برگ انجیری' },
+  { id: 'cat-home', title: 'خانه و زندگی', colorHex: '#F59E0B', iconName: 'Home', plantType: 'کاکتوس گلدار' },
 ];
 
 export function getInitialGoals(): Goal[] {

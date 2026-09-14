@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Goal, AppTask, Category } from '../types';
+import { Goal, AppTask, Habit, Category } from '../types';
 import { 
   getTodayJalali, 
   toPersianDigits, 
@@ -21,7 +21,8 @@ import {
   Calendar,
   Clock,
   Folder,
-  Sprout
+  Sprout,
+  Flame
 } from 'lucide-react';
 import { PlantIcon, ALL_PLANT_TYPES } from './PlantIcon';
 
@@ -29,7 +30,7 @@ interface Props {
   isOpen: boolean;
   categories: Category[];
   onClose: () => void;
-  onSaveComplete: (annualGoal: Goal, intermediateGoal?: Goal, microTask?: AppTask) => void;
+  onSaveComplete: (annualGoal: Goal, intermediateGoal?: Goal, microTask?: AppTask, microHabit?: Habit) => void;
 }
 
 const SEASONS = ['بهار', 'تابستان', 'پاییز', 'زمستان'];
@@ -68,7 +69,7 @@ export const AnnualGoalWizardModal: React.FC<Props> = ({
   const [interTitle, setInterTitle] = useState('');
   const [interDescription, setInterDescription] = useState('');
 
-  // Step 3: Micro-Task (Weekly & Daily)
+  // Step 3: Micro-Task & Micro-Habit (Weekly & Daily)
   const [hasMicroTask, setHasMicroTask] = useState(true);
   const [taskTitle, setTaskTitle] = useState('');
   const [taskNotes, setTaskNotes] = useState('');
@@ -76,6 +77,10 @@ export const AnnualGoalWizardModal: React.FC<Props> = ({
   const [taskDayOfWeek, setTaskDayOfWeek] = useState<number>(0); // شنبه
   const [taskCategoryId, setTaskCategoryId] = useState<string>(categories[0]?.id || 'cat-work');
   const [taskTimerMinutes, setTaskTimerMinutes] = useState<number>(25);
+
+  const [hasMicroHabit, setHasMicroHabit] = useState(false);
+  const [habitTitle, setHabitTitle] = useState('');
+  const [habitTimerMinutes, setHabitTimerMinutes] = useState<number>(15);
 
   if (!isOpen) return null;
 
@@ -124,6 +129,7 @@ export const AnnualGoalWizardModal: React.FC<Props> = ({
 
     let intermediateGoal: Goal | undefined;
     let microTask: AppTask | undefined;
+    let microHabit: Habit | undefined;
 
     // 2. Intermediate Goal
     if (hasIntermediate && interTitle.trim()) {
@@ -156,30 +162,51 @@ export const AnnualGoalWizardModal: React.FC<Props> = ({
           },
         ],
       };
-
-      // 3. Micro Task
-      if (hasMicroTask && taskTitle.trim()) {
-        microTask = {
-          id: `task-micro-${Date.now() + 2}`,
-          title: taskTitle.trim(),
-          notes: taskNotes.trim(),
-          categoryId: taskCategoryId,
-          goalId: interGoalId,
-          dueDate: todayStr,
-          time: '10:00',
-          reminderMinutesBefore: 15,
-          repeatType: 'NONE',
-          repeatDaysOfWeek: [taskDayOfWeek],
-          weekOfMonth: taskWeekOfMonth,
-          dayOfWeek: taskDayOfWeek,
-          timerSecondsTarget: taskTimerMinutes * 60,
-          timerSecondsElapsed: 0,
-          isCompleted: false,
-        };
-      }
     }
 
-    onSaveComplete(annualGoal, intermediateGoal, microTask);
+    const parentGoalIdForItems = intermediateGoal ? intermediateGoal.id : annualGoalId;
+    const targetCategory = interCategoryId || annualCategoryId;
+
+    // 3. Micro Task
+    if (hasMicroTask && taskTitle.trim()) {
+      microTask = {
+        id: `task-micro-${Date.now() + 2}`,
+        title: taskTitle.trim(),
+        notes: taskNotes.trim(),
+        categoryId: taskCategoryId || targetCategory,
+        goalId: parentGoalIdForItems,
+        dueDate: todayStr,
+        time: '10:00',
+        reminderMinutesBefore: 15,
+        repeatType: 'NONE',
+        repeatDaysOfWeek: [taskDayOfWeek],
+        weekOfMonth: taskWeekOfMonth,
+        dayOfWeek: taskDayOfWeek,
+        timerSecondsTarget: taskTimerMinutes * 60,
+        timerSecondsElapsed: 0,
+        isCompleted: false,
+      };
+    }
+
+    // 4. Micro Habit
+    if (hasMicroHabit && habitTitle.trim()) {
+      microHabit = {
+        id: `habit-micro-${Date.now() + 3}`,
+        title: habitTitle.trim(),
+        categoryId: targetCategory,
+        plantType: annualPlantType,
+        frequency: 'DAILY',
+        targetDaysPerWeek: 7,
+        selectedDaysOfWeek: [0, 1, 2, 3, 4, 5, 6],
+        currentStreak: 0,
+        longestStreak: 0,
+        completionHistory: {},
+        goalId: parentGoalIdForItems,
+        timerMinutes: habitTimerMinutes,
+      };
+    }
+
+    onSaveComplete(annualGoal, intermediateGoal, microTask, microHabit);
     onClose();
   };
 
@@ -483,26 +510,44 @@ export const AnnualGoalWizardModal: React.FC<Props> = ({
                   <div className="col-span-2">
                     {interPeriod === 'SEASONAL' ? (
                       <div className="space-y-1.5">
-                        <label className="block font-semibold text-gray-700">کدام فصل سال؟ (رنگ‌بندی فصلی)</label>
+                        <div className="flex items-center justify-between">
+                          <label className="block font-semibold text-gray-700">کدام فصل سال؟ (فصل‌های باقیمانده سال)</label>
+                          <span className="text-[10px] text-emerald-700 font-medium">فصول باقیمانده سال جاری</span>
+                        </div>
                         <div className="grid grid-cols-4 gap-2">
                           {[
                             { idx: 0, name: 'بهار', icon: '🌸', active: 'bg-emerald-600 text-white border-emerald-700 shadow-xs', inactive: 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100' },
                             { idx: 1, name: 'تابستان', icon: '☀️', active: 'bg-amber-600 text-white border-amber-700 shadow-xs', inactive: 'bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100' },
                             { idx: 2, name: 'پاییز', icon: '🍂', active: 'bg-orange-600 text-white border-orange-700 shadow-xs', inactive: 'bg-orange-50 text-orange-800 border-orange-200 hover:bg-orange-100' },
                             { idx: 3, name: 'زمستان', icon: '❄️', active: 'bg-sky-600 text-white border-sky-700 shadow-xs', inactive: 'bg-sky-50 text-sky-800 border-sky-200 hover:bg-sky-100' },
-                          ].map((s) => (
-                            <button
-                              key={s.idx}
-                              type="button"
-                              onClick={() => setInterSeasonIndex(s.idx)}
-                              className={`py-2 px-1 rounded-xl text-xs font-bold transition-all border flex items-center justify-center gap-1 cursor-pointer ${
-                                interSeasonIndex === s.idx ? s.active : s.inactive
-                              }`}
-                            >
-                              <span>{s.icon}</span>
-                              <span>{s.name}</span>
-                            </button>
-                          ))}
+                          ].map((s) => {
+                            const curSeasonIdx = Math.floor((today.month - 1) / 3);
+                            const isCurrent = s.idx === curSeasonIdx;
+                            const isRemaining = s.idx >= curSeasonIdx;
+
+                            return (
+                              <button
+                                key={s.idx}
+                                type="button"
+                                onClick={() => setInterSeasonIndex(s.idx)}
+                                className={`py-2 px-1 rounded-xl text-xs font-bold transition-all border flex flex-col items-center justify-center gap-0.5 cursor-pointer relative ${
+                                  interSeasonIndex === s.idx ? s.active : s.inactive
+                                }`}
+                              >
+                                <span className="text-sm">{s.icon}</span>
+                                <span>{s.name}</span>
+                                <span className={`text-[9px] px-1 rounded-sm ${
+                                  isCurrent 
+                                    ? (interSeasonIndex === s.idx ? 'bg-white/20 text-white' : 'bg-emerald-200 text-emerald-900') 
+                                    : isRemaining 
+                                    ? (interSeasonIndex === s.idx ? 'bg-white/20 text-white' : 'bg-gray-200/70 text-gray-600')
+                                    : (interSeasonIndex === s.idx ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-400')
+                                }`}>
+                                  {isCurrent ? 'جاری' : isRemaining ? 'باقیمانده' : 'گذشته'}
+                                </span>
+                              </button>
+                            );
+                          })}
                         </div>
                       </div>
                     ) : (
@@ -670,6 +715,62 @@ export const AnnualGoalWizardModal: React.FC<Props> = ({
                   />
                 </div>
               </>
+            )}
+
+            {/* Micro-Habit section */}
+            <div className="bg-amber-50/60 p-3 rounded-xl border border-amber-200 text-amber-950 flex items-center justify-between mt-3">
+              <div>
+                <span className="font-bold block flex items-center gap-1">
+                  <Flame className="w-3.5 h-3.5 text-amber-600" />
+                  <span>عادت روزانه مرتبط با این هدف</span>
+                </span>
+                <span className="text-[11px] text-amber-800">
+                  یک عادت مستمر برای ساختن هویت و انضباط رسیدن به هدف
+                </span>
+              </div>
+              <label className="flex items-center gap-1.5 cursor-pointer font-bold">
+                <input
+                  type="checkbox"
+                  checked={hasMicroHabit}
+                  onChange={(e) => setHasMicroHabit(e.target.checked)}
+                  className="w-4 h-4 text-amber-600 rounded"
+                />
+                <span>افزودن عادت روزانه</span>
+              </label>
+            </div>
+
+            {hasMicroHabit && (
+              <div className="space-y-3 pt-1">
+                <div>
+                  <label className="block font-semibold text-gray-700 mb-1">عنوان عادت روزانه *</label>
+                  <input
+                    type="text"
+                    placeholder="مثلاً: ۲۰ دقیقه مطالعه مستمر یا ورزش صبحگاهی"
+                    value={habitTitle}
+                    onChange={(e) => setHabitTitle(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-gray-200 text-xs focus:border-amber-500 focus:ring-2 focus:ring-amber-100 outline-hidden"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-semibold text-gray-700 mb-1">تایمر تمرکز عادت (دقیقه)</label>
+                    <input
+                      type="number"
+                      min={5}
+                      max={120}
+                      step={5}
+                      value={habitTimerMinutes}
+                      onChange={(e) => setHabitTimerMinutes(parseInt(e.target.value, 10) || 15)}
+                      className="w-full px-3 py-2 rounded-xl border border-gray-200"
+                    />
+                  </div>
+
+                  <div className="flex items-center text-[11px] text-gray-500 bg-gray-50 p-2.5 rounded-xl border border-gray-200 self-end">
+                    <span>دسته‌بندی و گیاه این عادت مستقیماً از هدف ارث‌بری می‌شود.</span>
+                  </div>
+                </div>
+              </div>
             )}
           </div>
         )}

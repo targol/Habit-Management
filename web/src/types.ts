@@ -19,6 +19,7 @@ export interface Category {
   title: string;
   colorHex: string;
   iconName: string;
+  plantType?: string; // نوع گیاه نمادین این دسته‌بندی
 }
 
 export interface Goal {

@@ -23,8 +23,27 @@ export const TaskModal: React.FC<Props> = ({
   const today = getTodayJalali();
   const [title, setTitle] = useState(task?.title || '');
   const [notes, setNotes] = useState(task?.notes || '');
-  const [categoryId, setCategoryId] = useState(task?.categoryId || categories[0]?.id || 'cat-work');
+  
+  // Inherit category from linked goal if available
+  const initialGoal = goals.find(g => g.id === task?.goalId);
+  const [categoryId, setCategoryId] = useState(
+    task?.categoryId || initialGoal?.categoryId || categories[0]?.id || 'cat-work'
+  );
   const [goalId, setGoalId] = useState<string | null>(task?.goalId || null);
+  const [isInheritedFromGoal, setIsInheritedFromGoal] = useState(Boolean(initialGoal?.categoryId));
+
+  const handleGoalChange = (newGoalId: string | null) => {
+    setGoalId(newGoalId);
+    if (newGoalId) {
+      const g = goals.find(item => item.id === newGoalId);
+      if (g?.categoryId) {
+        setCategoryId(g.categoryId);
+        setIsInheritedFromGoal(true);
+      }
+    } else {
+      setIsInheritedFromGoal(false);
+    }
+  };
   
   // Due date state
   const initialDate = task ? task.dueDate : jalaliToFormattedString(today);
@@ -118,13 +137,21 @@ export const TaskModal: React.FC<Props> = ({
           {/* Category & Goal */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-semibold text-gray-700 mb-1 flex items-center gap-1">
-                <Folder className="w-3.5 h-3.5 text-emerald-600" />
-                <span>دسته‌بندی</span>
+              <label className="block text-xs font-semibold text-gray-700 mb-1 flex items-center justify-between">
+                <span className="flex items-center gap-1">
+                  <Folder className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>دسته‌بندی</span>
+                </span>
+                {isInheritedFromGoal && (
+                  <span className="text-[10px] text-emerald-700 bg-emerald-50 px-1 rounded-sm">ارث‌بری از هدف</span>
+                )}
               </label>
               <select
                 value={categoryId}
-                onChange={(e) => setCategoryId(e.target.value)}
+                onChange={(e) => {
+                  setCategoryId(e.target.value);
+                  setIsInheritedFromGoal(false);
+                }}
                 className="w-full px-3 py-2 rounded-xl border border-gray-200 text-xs bg-white focus:border-emerald-500 outline-hidden"
               >
                 {categories.map((c) => (
@@ -140,7 +167,7 @@ export const TaskModal: React.FC<Props> = ({
               </label>
               <select
                 value={goalId || ''}
-                onChange={(e) => setGoalId(e.target.value ? e.target.value : null)}
+                onChange={(e) => handleGoalChange(e.target.value ? e.target.value : null)}
                 className="w-full px-3 py-2 rounded-xl border border-gray-200 text-xs bg-white focus:border-emerald-500 outline-hidden"
               >
                 <option value="">بدون هدف (مستقل)</option>
