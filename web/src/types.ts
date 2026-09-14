@@ -37,6 +37,8 @@ export interface Goal {
   parentId?: string | null;
   categoryId?: string; // دسته‌بندی موضوعی هدف
   plantType?: string; // نوع گیاه نمادین این هدف
+  manualProgress?: number | null; // درصد پیشرفت دستی تعیین‌شده توسط کاربر (۰ تا ۱۰۰)
+  isManualProgressActive?: boolean; // آیا پیشرفت دستی ملاک است یا محاسبه خودکار
   history: GoalHistoryEntry[];
   createdAt: string;
 }

@@ -6,7 +6,7 @@ import {
   getInitialTasks, 
   getInitialHabits 
 } from './data/initialData';
-import { getTodayJalali, jalaliToFormattedString, getCurrentPersianDateTimeString } from './calendar/jalali';
+import { getTodayJalali, jalaliToFormattedString, getCurrentPersianDateTimeString, toPersianDigits } from './calendar/jalali';
 import { TodayScreen } from './components/TodayScreen';
 import { TasksScreen } from './components/TasksScreen';
 import { HabitsScreen } from './components/HabitsScreen';
@@ -292,6 +292,124 @@ export const App: React.FC = () => {
       setIsHistoryModalOpen(false);
       setSelectedGoalForHistory(null);
     }
+  };
+
+  const handleUpdateGoalProgress = (goalId: string, manualProgress: number | null, isManualActive: boolean) => {
+    const timestampNow = getCurrentPersianDateTimeString();
+    setGoals(prev => prev.map(g => {
+      if (g.id === goalId) {
+        const entry: GoalHistoryEntry = {
+          id: `hist-${Date.now()}`,
+          timestamp: timestampNow,
+          action: 'EDITED',
+          description: isManualActive 
+            ? `تنظیم دستی درصد پیشرفت به ${toPersianDigits(manualProgress ?? 0)}٪` 
+            : 'تغییر شیوه ارزیابی به محاسبه خودکار سیستمی',
+        };
+        const updated: Goal = {
+          ...g,
+          manualProgress,
+          isManualProgressActive: isManualActive,
+          history: [entry, ...(g.history || [])],
+        };
+        if (selectedGoalForHistory?.id === goalId) {
+          setSelectedGoalForHistory(updated);
+        }
+        return updated;
+      }
+      return g;
+    }));
+  };
+
+  const handleTransferSeasonItems = (fromGoalId: string, targetSeasonIndex?: number) => {
+    const fromGoal = goals.find(g => g.id === fromGoalId);
+    if (!fromGoal) return;
+
+    const seasonNames = ['بهار', 'تابستان', 'پاییز', 'زمستان'];
+    const currentFromSeasonIdx = fromGoal.seasonIndex ?? 0;
+    const nextSeasonIdx = targetSeasonIndex !== undefined ? targetSeasonIndex : (currentFromSeasonIdx + 1) % 4;
+    const targetYear = nextSeasonIdx === 0 && currentFromSeasonIdx === 3 ? fromGoal.year + 1 : fromGoal.year;
+
+    // Look for existing target seasonal goal under the same parent
+    let targetGoal = goals.find(g => 
+      (g.parentId === fromGoal.parentId || (!g.parentId && !fromGoal.parentId)) &&
+      g.period === 'SEASONAL' && 
+      g.seasonIndex === nextSeasonIdx &&
+      g.year === targetYear
+    );
+
+    let actualTargetGoalId = targetGoal?.id;
+
+    if (!targetGoal) {
+      actualTargetGoalId = `goal-season-${Date.now()}`;
+      const newTarget: Goal = {
+        id: actualTargetGoalId,
+        title: `هدف فصل ${seasonNames[nextSeasonIdx]} (ادامه ${fromGoal.title})`,
+        description: `انتقال خودکار تسک‌ها و عادات از فصل ${seasonNames[currentFromSeasonIdx]}`,
+        year: targetYear,
+        period: 'SEASONAL',
+        status: 'IN_PROGRESS',
+        startDate: todayStr,
+        seasonIndex: nextSeasonIdx,
+        parentId: fromGoal.parentId,
+        categoryId: fromGoal.categoryId,
+        plantType: fromGoal.plantType,
+        createdAt: todayStr,
+        history: [{
+          id: `hist-${Date.now()}`,
+          timestamp: getCurrentPersianDateTimeString(),
+          action: 'CREATED',
+          description: `ایجاد خودکار هدف فصل ${seasonNames[nextSeasonIdx]} برای دریافت فعالیت‌های فصل قبل`,
+        }],
+      };
+      setGoals(prev => [newTarget, ...prev]);
+    }
+
+    const timestampNow = getCurrentPersianDateTimeString();
+
+    // 1. Transfer incomplete tasks
+    let movedTasksCount = 0;
+    setTasks(prev => prev.map(t => {
+      if (t.goalId === fromGoalId && !t.isCompleted) {
+        movedTasksCount++;
+        return {
+          ...t,
+          goalId: actualTargetGoalId,
+          notes: t.notes ? `${t.notes}\n[انتقال از فصل ${seasonNames[currentFromSeasonIdx]}]` : `[انتقال از فصل ${seasonNames[currentFromSeasonIdx]}]`,
+        };
+      }
+      return t;
+    }));
+
+    // 2. Transfer habits
+    let movedHabitsCount = 0;
+    setHabits(prev => prev.map(h => {
+      if (h.goalId === fromGoalId) {
+        movedHabitsCount++;
+        return {
+          ...h,
+          goalId: actualTargetGoalId,
+        };
+      }
+      return h;
+    }));
+
+    // 3. Update history on source goal
+    setGoals(prev => prev.map(g => {
+      if (g.id === fromGoalId) {
+        const entry: GoalHistoryEntry = {
+          id: `hist-${Date.now() + 1}`,
+          timestamp: timestampNow,
+          action: 'EDITED',
+          description: `انتقال ${toPersianDigits(movedTasksCount)} تسک انجام‌نشده و ${toPersianDigits(movedHabitsCount)} عادت به فصل ${seasonNames[nextSeasonIdx]}`,
+        };
+        return {
+          ...g,
+          history: [entry, ...(g.history || [])],
+        };
+      }
+      return g;
+    }));
   };
 
   const handleUpdateGoalStatus = (goalId: string, status: GoalStatus, note?: string) => {
@@ -640,6 +758,8 @@ export const App: React.FC = () => {
             onToggleTask={handleToggleTask}
             onToggleHabitToday={(id) => handleToggleHabitDate(id, todayStr)}
             onOpenTimer={(title, mins, cb) => openTimer(title, mins, cb)}
+            onUpdateGoalProgress={handleUpdateGoalProgress}
+            onTransferSeasonItems={handleTransferSeasonItems}
           />
         )}
 

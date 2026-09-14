@@ -254,6 +254,8 @@ export const GoalModal: React.FC<Props> = ({
       parentId: parentId || null,
       categoryId,
       plantType,
+      manualProgress: isEdit && goal ? goal.manualProgress : undefined,
+      isManualProgressActive: isEdit && goal ? goal.isManualProgressActive : undefined,
       history,
       createdAt: isEdit && goal ? goal.createdAt : todayStr,
     };
