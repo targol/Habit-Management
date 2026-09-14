@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Goal, GoalPeriod, GoalStatus, GoalHistoryEntry, Category } from '../types';
 import { 
   getTodayJalali, 
@@ -7,7 +7,7 @@ import {
   PERSIAN_MONTHS, 
   getCurrentPersianDateTimeString 
 } from '../calendar/jalali';
-import { X, Target, Calendar, Folder, Sprout, Check, Sparkles, Edit3 } from 'lucide-react';
+import { X, Target, Calendar, Folder, Sprout, Check, Sparkles, Edit3, AlertCircle } from 'lucide-react';
 import { PlantIcon, ALL_PLANT_TYPES } from './PlantIcon';
 
 interface Props {
@@ -41,6 +41,8 @@ export const GoalModal: React.FC<Props> = ({
   const isEdit = Boolean(goal && goal.id && existingGoals.some(g => g.id === goal.id));
 
   const [title, setTitle] = useState('');
+  const [titleError, setTitleError] = useState('');
+  const titleInputRef = useRef<HTMLInputElement>(null);
   const [description, setDescription] = useState('');
   const [visionWhy, setVisionWhy] = useState('');
   const [year, setYear] = useState<number>(today.year);
@@ -65,6 +67,7 @@ export const GoalModal: React.FC<Props> = ({
   // Synchronize state on open or whenever goal/existingGoals change
   useEffect(() => {
     if (!isOpen) return;
+    setTitleError('');
 
     if (isEdit && goal) {
       setTitle(goal.title || '');
@@ -176,7 +179,13 @@ export const GoalModal: React.FC<Props> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title.trim()) return;
+    if (!title.trim()) {
+      setTitleError('لطفاً عنوان هدف را وارد نمایید');
+      titleInputRef.current?.focus();
+      titleInputRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return;
+    }
+    setTitleError('');
 
     const timestampNow = getCurrentPersianDateTimeString();
     const effectiveYear = isCustomYear 
@@ -256,47 +265,97 @@ export const GoalModal: React.FC<Props> = ({
   const selectedCategory = categories.find(c => c.id === categoryId);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 backdrop-blur-xs p-4 overflow-y-auto">
-      <div className="bg-white rounded-2xl w-full max-w-lg p-6 shadow-2xl border border-emerald-100 relative my-8 animate-scale-up">
-        {/* Close button */}
-        <button
-          onClick={onClose}
-          className="absolute top-4 left-4 p-1.5 text-gray-400 hover:text-gray-600 rounded-full hover:bg-gray-100 transition-colors"
-        >
-          <X className="w-5 h-5" />
-        </button>
-
-        {/* Header */}
-        <div className="flex items-center gap-2.5 mb-4">
-          <div className={`p-2.5 rounded-xl ${isEdit ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}`}>
-            {isEdit ? <Edit3 className="w-5 h-5" /> : <Target className="w-5 h-5" />}
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-3 sm:p-4 overflow-hidden">
+      <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl border border-emerald-100 flex flex-col max-h-[92vh] overflow-hidden animate-scale-up relative">
+        {/* Sticky Header */}
+        <div className="px-5 py-3.5 border-b border-gray-100 bg-white flex items-center justify-between shrink-0">
+          <div className="flex items-center gap-2.5">
+            <div className={`p-2 rounded-xl ${isEdit ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}`}>
+              {isEdit ? <Edit3 className="w-5 h-5" /> : <Target className="w-5 h-5" />}
+            </div>
+            <div>
+              <h3 className="text-sm sm:text-base font-bold text-gray-900">
+                {isEdit ? 'ویرایش هدف انتخابی' : 'تعریف هدف جدید'}
+              </h3>
+              <p className="text-[11px] text-gray-500">
+                {isEdit 
+                  ? `ویرایش و بروزرسانی هدف «${title || goal?.title || ''}»`
+                  : 'مشخصات، دسته‌بندی، سال و زمانبندی هدف جدید'}
+              </p>
+            </div>
           </div>
-          <div>
-            <h3 className="text-base font-bold text-gray-900">
-              {isEdit ? 'ویرایش هدف انتخابی' : 'تعریف هدف جدید'}
-            </h3>
-            <p className="text-[11px] text-gray-500">
-              {isEdit 
-                ? `ویرایش و بروزرسانی هدف «${title || goal?.title || ''}»`
-                : 'مشخصات، دسته‌بندی، سال و زمانبندی هدف جدید'}
-            </p>
-          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-1.5 text-gray-400 hover:text-gray-600 rounded-full hover:bg-gray-100 transition-colors cursor-pointer"
+          >
+            <X className="w-5 h-5" />
+          </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4 text-xs">
-          {/* Title */}
-          <div>
-            <label className="block font-semibold text-gray-700 mb-1">
-              عنوان هدف *
-            </label>
+        {/* Scrollable Form Body */}
+        <form id="goal-form" onSubmit={handleSubmit} className="flex-1 overflow-y-auto px-5 py-4 space-y-4 text-xs">
+          {/* Title - PROMINENT & ALWAYS VISIBLE */}
+          <div className="bg-emerald-50/70 p-3.5 rounded-xl border border-emerald-300/80 shadow-2xs space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="font-bold text-gray-900 flex items-center gap-1.5 text-xs">
+                <Edit3 className="w-4 h-4 text-emerald-600" />
+                <span>
+                  عنوان هدف {period === 'SEASONAL' ? 'فصلی' : period === 'MONTHLY' ? 'ماهانه' : 'سالانه'} *
+                </span>
+              </label>
+              <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-md border border-emerald-200">
+                الزامی
+              </span>
+            </div>
             <input
+              ref={titleInputRef}
               type="text"
-              required
-              placeholder="مثلاً: یادگیری مکالمه انگلیسی یا توسعه محصول جدید"
+              autoFocus
+              placeholder={
+                period === 'SEASONAL'
+                  ? 'مثلاً: دویدن ۱۵ کیلومتر در هوای پاییزی یا مطالعه کتاب'
+                  : period === 'MONTHLY'
+                  ? 'مثلاً: اجرای برنامه تمرینی این ماه'
+                  : 'مثلاً: یادگیری مکالمه انگلیسی یا توسعه محصول جدید'
+              }
               value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              className="w-full px-3.5 py-2.5 rounded-xl border border-gray-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100 outline-hidden transition-all text-xs font-medium"
+              onChange={(e) => {
+                setTitle(e.target.value);
+                if (titleError) setTitleError('');
+              }}
+              className={`w-full px-3.5 py-2.5 rounded-xl border bg-white outline-hidden transition-all text-xs font-semibold ${
+                titleError 
+                  ? 'border-rose-400 ring-2 ring-rose-100 text-rose-900' 
+                  : 'border-gray-300 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100 text-gray-900'
+              }`}
             />
+            {titleError && (
+              <p className="text-[11px] font-bold text-rose-600 flex items-center gap-1">
+                <AlertCircle className="w-3.5 h-3.5" />
+                <span>{titleError}</span>
+              </p>
+            )}
+
+            {/* Quick Title Suggestion when parent goal exists */}
+            {parentGoal && (
+              <div className="pt-1 flex flex-wrap gap-1.5 items-center">
+                <span className="text-[10px] text-gray-500 font-medium">💡 پیشنهاد عنوان:</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const sName = seasonIndex !== undefined ? SEASON_OPTIONS[seasonIndex]?.name : 'فصل';
+                    setTitle(period === 'SEASONAL' ? `گام فصل ${sName}: ${parentGoal.title}` : `گام ماهانه: ${parentGoal.title}`);
+                    if (titleError) setTitleError('');
+                  }}
+                  className="text-[10px] text-emerald-800 bg-white hover:bg-emerald-100 px-2 py-0.5 rounded-md border border-emerald-200 transition-colors cursor-pointer"
+                >
+                  {period === 'SEASONAL' 
+                    ? `«گام فصل ${SEASON_OPTIONS[seasonIndex ?? 0]?.name}: ${parentGoal.title}»`
+                    : `«گام: ${parentGoal.title}»`}
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Parent Goal link (if intermediate) */}
@@ -707,27 +766,29 @@ export const GoalModal: React.FC<Props> = ({
             />
           </div>
 
-          {/* Actions */}
-          <div className="pt-2 flex gap-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex-1 py-2.5 rounded-xl border border-gray-200 text-gray-600 font-semibold hover:bg-gray-50 transition-colors cursor-pointer"
-            >
-              انصراف
-            </button>
-            <button
-              type="submit"
-              className={`flex-1 py-2.5 rounded-xl text-white font-bold transition-all shadow-sm cursor-pointer ${
-                isEdit
-                  ? 'bg-amber-600 hover:bg-amber-700'
-                  : 'bg-emerald-600 hover:bg-emerald-700'
-              }`}
-            >
-              {isEdit ? 'ذخیره تغییرات هدف' : 'ایجاد و ثبت هدف جدید'}
-            </button>
-          </div>
         </form>
+
+        {/* Sticky Footer */}
+        <div className="shrink-0 px-5 py-3.5 border-t border-gray-100 bg-gray-50/95 backdrop-blur-xs flex items-center justify-end gap-2.5 z-10">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 rounded-xl border border-gray-200 text-gray-600 font-semibold hover:bg-gray-100 text-xs transition-colors cursor-pointer"
+          >
+            انصراف
+          </button>
+          <button
+            type="submit"
+            form="goal-form"
+            className={`px-5 py-2 rounded-xl text-white font-bold text-xs transition-all shadow-xs cursor-pointer ${
+              isEdit
+                ? 'bg-amber-600 hover:bg-amber-700'
+                : 'bg-emerald-600 hover:bg-emerald-700'
+            }`}
+          >
+            {isEdit ? 'ذخیره تغییرات هدف' : 'ایجاد و ثبت هدف جدید'}
+          </button>
+        </div>
       </div>
     </div>
   );

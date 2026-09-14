@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { AppTask, Category, Goal } from '../types';
 import { getTodayJalali, jalaliToFormattedString, toPersianDigits, PERSIAN_MONTHS, addDaysJalali } from '../calendar/jalali';
 import { X, Calendar, Clock, Bell, Repeat, Folder, Target } from 'lucide-react';
@@ -32,19 +32,6 @@ export const TaskModal: React.FC<Props> = ({
   const [goalId, setGoalId] = useState<string | null>(task?.goalId || null);
   const [isInheritedFromGoal, setIsInheritedFromGoal] = useState(Boolean(initialGoal?.categoryId));
 
-  const handleGoalChange = (newGoalId: string | null) => {
-    setGoalId(newGoalId);
-    if (newGoalId) {
-      const g = goals.find(item => item.id === newGoalId);
-      if (g?.categoryId) {
-        setCategoryId(g.categoryId);
-        setIsInheritedFromGoal(true);
-      }
-    } else {
-      setIsInheritedFromGoal(false);
-    }
-  };
-  
   // Due date state
   const initialDate = task ? task.dueDate : jalaliToFormattedString(today);
   const [dateParts, setDateParts] = useState(() => {
@@ -60,7 +47,56 @@ export const TaskModal: React.FC<Props> = ({
   const [weekOfMonth, setWeekOfMonth] = useState<number | undefined>(task?.weekOfMonth ?? 1);
   const [dayOfWeek, setDayOfWeek] = useState<number | undefined>(task?.dayOfWeek ?? (today.day % 7));
 
+  useEffect(() => {
+    if (!isOpen) return;
+    if (task) {
+      setTitle(task.title || '');
+      setNotes(task.notes || '');
+      const linkedGoal = goals.find(g => g.id === task.goalId);
+      setCategoryId(task.categoryId || linkedGoal?.categoryId || categories[0]?.id || 'cat-work');
+      setGoalId(task.goalId || null);
+      setIsInheritedFromGoal(Boolean(task.goalId));
+      
+      const p = (task.dueDate || jalaliToFormattedString(today)).split('/').map(v => parseInt(v, 10));
+      setDateParts({ year: p[0] || today.year, month: p[1] || today.month, day: p[2] || today.day });
+      setTime(task.time || '10:00');
+      setHasTime(Boolean(task.time));
+      setReminderMinutes(task.reminderMinutesBefore ?? null);
+      setRepeatType(task.repeatType || 'NONE');
+      setTimerMinutes(Math.floor((task.timerSecondsTarget || 1500) / 60));
+      setWeekOfMonth(task.weekOfMonth ?? 1);
+      setDayOfWeek(task.dayOfWeek ?? (today.day % 7));
+    } else {
+      setTitle('');
+      setNotes('');
+      setCategoryId(categories[0]?.id || 'cat-work');
+      setGoalId(null);
+      setIsInheritedFromGoal(false);
+      setDateParts({ year: today.year, month: today.month, day: today.day });
+      setTime('10:00');
+      setHasTime(false);
+      setReminderMinutes(null);
+      setRepeatType('NONE');
+      setTimerMinutes(25);
+      setWeekOfMonth(1);
+      setDayOfWeek(today.day % 7);
+    }
+  }, [isOpen, task, categories, goals]);
+
   if (!isOpen) return null;
+
+  const handleGoalChange = (newGoalId: string | null) => {
+    setGoalId(newGoalId);
+    if (newGoalId) {
+      const g = goals.find(item => item.id === newGoalId);
+      if (g?.categoryId) {
+        setCategoryId(g.categoryId);
+        setIsInheritedFromGoal(true);
+      }
+    } else {
+      setIsInheritedFromGoal(false);
+    }
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();

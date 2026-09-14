@@ -443,10 +443,23 @@ export const App: React.FC = () => {
     const foundParent = parentId ? goals.find(g => g.id === parentId) : null;
     const initialCategory = foundParent?.categoryId || categories[0]?.id || 'cat-work';
     const initialCatObj = categories.find(c => c.id === initialCategory);
+    const seasonNames = ['بهار', 'تابستان', 'پاییز', 'زمستان'];
+
+    let prefillTitle = '';
+    if (foundParent) {
+      const targetSeasonIdx = seasonIndex !== undefined ? seasonIndex : foundParent.seasonIndex;
+      if (period === 'SEASONAL' && targetSeasonIdx !== undefined) {
+        prefillTitle = `گام فصل ${seasonNames[targetSeasonIdx]}: ${foundParent.title}`;
+      } else if (period === 'SEASONAL') {
+        prefillTitle = `گام فصلی: ${foundParent.title}`;
+      } else if (period === 'MONTHLY') {
+        prefillTitle = `گام ماهانه: ${foundParent.title}`;
+      }
+    }
 
     setEditingGoal({
       id: '', // Empty ID ensures it is treated as a clean new goal
-      title: '',
+      title: prefillTitle,
       description: '',
       visionWhy: '',
       year: foundParent?.year || today.year,
@@ -749,6 +762,7 @@ export const App: React.FC = () => {
       />
 
       <TaskModal
+        key={isTaskModalOpen ? (editingTask?.id || 'new-task-modal') : 'task-modal-closed'}
         isOpen={isTaskModalOpen}
         task={editingTask}
         categories={categories}
@@ -758,6 +772,7 @@ export const App: React.FC = () => {
       />
 
       <HabitModal
+        key={isHabitModalOpen ? (editingHabit?.id || 'new-habit-modal') : 'habit-modal-closed'}
         isOpen={isHabitModalOpen}
         habit={editingHabit}
         categories={categories}
@@ -767,7 +782,7 @@ export const App: React.FC = () => {
       />
 
       <GoalModal
-        key={isGoalModalOpen ? (editingGoal?.id || `new-goal-modal-${Date.now()}`) : 'goal-modal-closed'}
+        key={isGoalModalOpen ? (editingGoal?.id || `new-goal-${editingGoal?.parentId || 'root'}-${editingGoal?.period || 'annual'}-${editingGoal?.seasonIndex ?? 'noseason'}`) : 'goal-modal-closed'}
         isOpen={isGoalModalOpen}
         goal={editingGoal}
         categories={categories}
