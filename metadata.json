@@ -1,0 +1,7 @@
+{
+  "name": "جوانه - مدیریت تسک، عادت و اهداف",
+  "description": "اپلیکیشن مدیریت تسک‌ها، عادت‌ها و اهداف سالانه بر پایه تقویم شمسی با نماد رشد گیاه، تایمر و تقویم تعطیلات رسمی ایران",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+

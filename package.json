@@ -1,0 +1,14 @@
+{
+  "name": "javaneh-app",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "workspaces": [
+    "web"
+  ],
+  "scripts": {
+    "dev": "npm --prefix web run dev",
+    "build": "npm --prefix web run build",
+    "start": "node web/server.cjs"
+  }
+}
