@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Goal, AppTask, Habit, GoalStatus, Category } from '../types';
-import { toPersianDigits, PERSIAN_MONTHS, getTodayJalali, jalaliToFormattedString } from '../calendar/jalali';
+import { toPersianDigits, PERSIAN_MONTHS, getTodayJalali, jalaliToFormattedString, parseJalaliString } from '../calendar/jalali';
 import { 
   Plus, 
   Target, 
@@ -130,6 +130,29 @@ export const GoalsScreen: React.FC<Props> = ({
 
   // Compute automatic progress for a goal based on linked tasks and habits
   const calculateAutoGoalProgress = (goalId: string): number => {
+    const targetGoal = (goals || []).find(g => g && g.id === goalId);
+    if (!targetGoal) return 0;
+
+    // A goal for a future season or future month that has not arrived yet should NOT score automatically (0%)
+    const goalYear = targetGoal.year || today.year;
+    if (goalYear > today.year) {
+      return 0;
+    }
+    if (goalYear === today.year) {
+      if (targetGoal.period === 'SEASONAL' && targetGoal.seasonIndex !== undefined) {
+        if (targetGoal.seasonIndex > currentSeasonIdx) {
+          // Future season in the current year: has not arrived yet!
+          return 0;
+        }
+      }
+      if (targetGoal.period === 'MONTHLY' && targetGoal.monthIndex !== undefined) {
+        if (targetGoal.monthIndex > today.month) {
+          // Future month in the current year: has not arrived yet!
+          return 0;
+        }
+      }
+    }
+
     const allRelevantGoalIds = getGoalDescendantIds(goalId);
 
     const linkedTasks = (tasks || []).filter(t => t && t.goalId && allRelevantGoalIds.includes(t.goalId));
@@ -151,8 +174,30 @@ export const GoalsScreen: React.FC<Props> = ({
     if (linkedHabits.length > 0) {
       let totalHabitChecks = 0;
       linkedHabits.forEach(h => {
-        totalHabitChecks += Object.values(h.completionHistory || {}).filter(Boolean).length;
+        const historyEntries = Object.entries(h.completionHistory || {});
+        historyEntries.forEach(([dateStr, isDone]) => {
+          if (!isDone) return;
+          const parsed = parseJalaliString(dateStr);
+          if (!parsed) return;
+
+          // For seasonal/monthly goals, only count habit checks within the goal's relevant period
+          if (targetGoal.year && parsed.year !== targetGoal.year) return;
+
+          if (targetGoal.period === 'SEASONAL' && targetGoal.seasonIndex !== undefined) {
+            const seasonStartMonth = targetGoal.seasonIndex * 3 + 1;
+            const seasonEndMonth = seasonStartMonth + 2;
+            if (parsed.month < seasonStartMonth || parsed.month > seasonEndMonth) return;
+          }
+
+          if (targetGoal.period === 'MONTHLY' && targetGoal.monthIndex !== undefined) {
+            if (parsed.month !== targetGoal.monthIndex) return;
+          }
+
+          totalHabitChecks++;
+        });
       });
+
+      // Calibrate habit contribution based on checks within the timeframe
       const habitPortion = Math.min(1, totalHabitChecks / (linkedHabits.length * 10));
       score += habitPortion * 40;
       maxScore += 40;
@@ -167,11 +212,58 @@ export const GoalsScreen: React.FC<Props> = ({
     if (goal.isManualProgressActive && goal.manualProgress !== undefined && goal.manualProgress !== null) {
       return { progress: Math.max(0, Math.min(100, goal.manualProgress)), isManual: true, auto };
     }
+    if (goal.status === 'COMPLETED') {
+      return { progress: 100, isManual: true, auto };
+    }
     return { progress: auto, isManual: false, auto };
   };
 
-  const topLevelGoals = (goals || []).filter(g => !g.parentId || g.period === 'ANNUAL' || !goals.some(p => p.id === g.parentId));
-  const getSubGoals = (parentId: string) => (goals || []).filter(g => g.parentId === parentId);
+  const topLevelGoals = (goals || [])
+    .filter(g => !g.parentId || g.period === 'ANNUAL' || !goals.some(p => p.id === g.parentId))
+    .sort((a, b) => {
+      // Annual goals: sort by year descending (latest first), then by creation date
+      const aYear = a.year || today.year;
+      const bYear = b.year || today.year;
+      if (aYear !== bYear) return bYear - aYear;
+      return (a.createdAt || '').localeCompare(b.createdAt || '');
+    });
+
+  const getSubGoals = (parentId: string) => {
+    const list = (goals || []).filter(g => g.parentId === parentId);
+    return list.sort((a, b) => {
+      // 1. Both seasonal: sort chronologically by seasonIndex (0: بهار, 1: تابستان, 2: پاییز, 3: زمستان)
+      if (a.period === 'SEASONAL' && b.period === 'SEASONAL') {
+        const aYear = a.year || today.year;
+        const bYear = b.year || today.year;
+        if (aYear !== bYear) return aYear - bYear;
+        return (a.seasonIndex ?? 0) - (b.seasonIndex ?? 0);
+      }
+      // 2. Seasonal vs Monthly: order by calendar sequence
+      if (a.period === 'SEASONAL' && b.period === 'MONTHLY') {
+        const aYear = a.year || today.year;
+        const bYear = b.year || today.year;
+        if (aYear !== bYear) return aYear - bYear;
+        const aMonth = (a.seasonIndex ?? 0) * 3 + 1;
+        return aMonth - (b.monthIndex ?? 1);
+      }
+      if (a.period === 'MONTHLY' && b.period === 'SEASONAL') {
+        const aYear = a.year || today.year;
+        const bYear = b.year || today.year;
+        if (aYear !== bYear) return aYear - bYear;
+        const bMonth = (b.seasonIndex ?? 0) * 3 + 1;
+        return (a.monthIndex ?? 1) - bMonth;
+      }
+      // 3. Both monthly: sort by monthIndex (1 to 12)
+      if (a.period === 'MONTHLY' && b.period === 'MONTHLY') {
+        const aYear = a.year || today.year;
+        const bYear = b.year || today.year;
+        if (aYear !== bYear) return aYear - bYear;
+        return (a.monthIndex ?? 1) - (b.monthIndex ?? 1);
+      }
+      // 4. Default: chronological by startDate or createdAt ascending
+      return (a.startDate || a.createdAt || '').localeCompare(b.startDate || b.createdAt || '');
+    });
+  };
   const getTasksForGoal = (goalId: string) => (tasks || []).filter(t => t.goalId === goalId);
   const getHabitsForGoal = (goalId: string) => (habits || []).filter(h => h.goalId === goalId);
 
@@ -571,6 +663,7 @@ export const GoalsScreen: React.FC<Props> = ({
                         const seasonalGoal = subGoals.find(g => g.period === 'SEASONAL' && g.seasonIndex === sIdx);
                         const isPast = annual.year < today.year || (annual.year === today.year && sIdx < currentSeasonIdx);
                         const isCurrent = annual.year === today.year && sIdx === currentSeasonIdx;
+                        const isFuture = annual.year > today.year || (annual.year === today.year && sIdx > currentSeasonIdx);
                         const pendingTasksForSeason = seasonalGoal ? tasks.filter(t => t.goalId === seasonalGoal.id && !t.isCompleted) : [];
 
                         return (
@@ -596,6 +689,11 @@ export const GoalsScreen: React.FC<Props> = ({
                               )}
                               {isPast && (
                                 <span className="text-[9px] text-gray-400">گذشته</span>
+                              )}
+                              {isFuture && (
+                                <span className="text-[9px] font-bold text-sky-700 bg-sky-100/70 px-1.5 py-0.2 rounded">
+                                  در پیش‌رو
+                                </span>
                               )}
                             </div>
 

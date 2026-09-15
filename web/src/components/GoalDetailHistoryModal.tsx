@@ -228,7 +228,15 @@ export const GoalDetailHistoryModal: React.FC<Props> = ({
               </span>
             </div>
             <div className="flex gap-1.5 overflow-x-auto pb-1 text-[11px]">
-              {subGoals.map(sg => {
+              {[...subGoals].sort((a, b) => {
+                if (a.period === 'SEASONAL' && b.period === 'SEASONAL') {
+                  return (a.seasonIndex ?? 0) - (b.seasonIndex ?? 0);
+                }
+                if (a.period === 'MONTHLY' && b.period === 'MONTHLY') {
+                  return (a.monthIndex ?? 1) - (b.monthIndex ?? 1);
+                }
+                return (a.startDate || a.createdAt || '').localeCompare(b.startDate || b.createdAt || '');
+              }).map(sg => {
                 const isDone = sg.status === 'COMPLETED';
                 return (
                   <div

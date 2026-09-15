@@ -1,0 +1,19 @@
+{
+  "name": "جوانه - مدیریت رشد، عادات و اهداف",
+  "short_name": "جوانه",
+  "description": "اپلیکیشن سبک و شیک مدیریت وظایف، عادات و اهداف سالانه با تقویم شمسی و تعطیلات ایران",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#FAF9F6",
+  "theme_color": "#2E7D32",
+  "dir": "rtl",
+  "lang": "fa-IR",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

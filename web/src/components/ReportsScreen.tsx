@@ -166,6 +166,36 @@ export const ReportsScreen: React.FC<Props> = ({ tasks, habits, goals, categorie
 
   // --- Calculate Goal Achievement Percentage ---
   const calculateGoalMetrics = (goal: Goal) => {
+    // If user has set manual progress
+    if (goal.isManualProgressActive && goal.manualProgress !== undefined && goal.manualProgress !== null) {
+      return {
+        percent: Math.max(0, Math.min(100, goal.manualProgress)),
+        completedTasks: 0,
+        totalTasks: 0,
+        linkedHabitsCount: 0,
+        habitChecks: 0,
+        tasks: [],
+      };
+    }
+
+    // A goal for a future season or future month that has not arrived yet should not score automatically
+    const goalYear = goal.year || today.year;
+    const currentSeasonIdx = Math.floor((today.month - 1) / 3);
+    const isFutureYear = goalYear > today.year;
+    const isFutureSeason = goalYear === today.year && goal.period === 'SEASONAL' && goal.seasonIndex !== undefined && goal.seasonIndex > currentSeasonIdx;
+    const isFutureMonth = goalYear === today.year && goal.period === 'MONTHLY' && goal.monthIndex !== undefined && goal.monthIndex > today.month;
+
+    if ((isFutureYear || isFutureSeason || isFutureMonth) && goal.status !== 'COMPLETED') {
+      return {
+        percent: 0,
+        completedTasks: 0,
+        totalTasks: 0,
+        linkedHabitsCount: 0,
+        habitChecks: 0,
+        tasks: [],
+      };
+    }
+
     // Collect all sub-goal IDs
     const childGoals = goals.filter(g => g.parentId === goal.id);
     const relevantGoalIds = [goal.id, ...childGoals.map(c => c.id)];
@@ -178,7 +208,23 @@ export const ReportsScreen: React.FC<Props> = ({ tasks, habits, goals, categorie
 
     let totalHabitChecks = 0;
     linkedHabits.forEach(h => {
-      totalHabitChecks += Object.values(h.completionHistory).filter(Boolean).length;
+      const historyEntries = Object.entries(h.completionHistory || {});
+      historyEntries.forEach(([dateStr, isDone]) => {
+        if (!isDone) return;
+        const parsed = parseJalaliString(dateStr);
+        if (!parsed) return;
+
+        if (goal.year && parsed.year !== goal.year) return;
+        if (goal.period === 'SEASONAL' && goal.seasonIndex !== undefined) {
+          const startM = goal.seasonIndex * 3 + 1;
+          const endM = startM + 2;
+          if (parsed.month < startM || parsed.month > endM) return;
+        }
+        if (goal.period === 'MONTHLY' && goal.monthIndex !== undefined) {
+          if (parsed.month !== goal.monthIndex) return;
+        }
+        totalHabitChecks++;
+      });
     });
 
     if (totalLinkedTasks === 0 && linkedHabits.length === 0) {
@@ -209,7 +255,7 @@ export const ReportsScreen: React.FC<Props> = ({ tasks, habits, goals, categorie
     const percent = maxScore > 0 ? Math.round((score / maxScore) * 100) : 0;
 
     return {
-      percent,
+      percent: goal.status === 'COMPLETED' ? 100 : percent,
       completedTasks: completedLinkedTasks,
       totalTasks: totalLinkedTasks,
       linkedHabitsCount: linkedHabits.length,
