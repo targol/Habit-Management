@@ -21,6 +21,7 @@ import {
   Bell, 
   Target
 } from 'lucide-react';
+import { EntityBadge, EntityIcon } from './EntityIcon';
 
 interface Props {
   tasks: AppTask[];
@@ -242,6 +243,8 @@ export const TasksScreen: React.FC<Props> = ({
                       
                       {/* Meta badges */}
                       <div className="flex flex-wrap items-center gap-2 mt-2.5 text-[11px]">
+                        <EntityBadge type="TASK" size="xs" />
+
                         {cat && (
                           <span
                             className="px-2 py-0.5 rounded-md font-medium text-[10px]"
@@ -284,10 +287,11 @@ export const TasksScreen: React.FC<Props> = ({
                         )}
 
                         {goal && (
-                          <span className="flex items-center gap-1 text-indigo-700 bg-indigo-50 border border-indigo-100 px-1.5 py-0.5 rounded-md text-[10px]">
-                            <Target className="w-3 h-3" />
-                            <span className="truncate max-w-[120px]">{goal.title}</span>
-                          </span>
+                          <EntityBadge
+                            type={goal.period === 'ANNUAL' ? 'ANNUAL_GOAL' : 'INTERMEDIATE_GOAL'}
+                            customLabel={goal.title}
+                            size="xs"
+                          />
                         )}
                       </div>
                     </div>

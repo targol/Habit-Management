@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useId } from 'react';
 
 export interface PlantTypeOption {
   id: string;
@@ -7,21 +7,22 @@ export interface PlantTypeOption {
 }
 
 export const ALL_PLANT_TYPES: PlantTypeOption[] = [
-  { id: 'برگ انجیری', name: 'برگ انجیری (مونسترا)', description: 'نماد پشتکار، برگ‌های پهن و طراوت سبز' },
+  { id: 'برگ انجیری', name: 'برگ انجیری (مونسترا)', description: 'نماد پشتکار، برگ‌های پهن و طراوت سبز پایدار' },
   { id: 'بونسای', name: 'بونسای خردمند', description: 'نماد صبر، مهارت، تسلط و آرامش پایدار' },
-  { id: 'کاکتوس گلدار', name: 'کاکتوس گلدار', description: 'نماد سرسختی، مقاومت و امید در شرایط سخت' },
-  { id: 'نیلوفر آبی', name: 'نیلوفر آبی صورتی', description: 'نماد پاکی، تمرکز، صلح درونی و زیبایی' },
+  { id: 'کاکتوس گلدار', name: 'کاکتوس گلدار', description: 'نماد سرسختی، مقاومت و امید در روزهای سخت' },
+  { id: 'نیلوفر آبی', name: 'نیلوفر آبی صورتی', description: 'نماد پاکی، تمرکز، صلح درونی و شکوه' },
   { id: 'آفتابگردان', name: 'آفتابگردان شاداب', description: 'نماد شادابی، انگیزه، وفاداری و انرژی مثبت' },
-  { id: 'گل سرخ', name: 'گل سرخ / رز', description: 'نماد شکوه، عشق به کار، شور و تعهد عمیق' },
-  { id: 'بامبو شانس', name: 'بامبو شانس و ثروت', description: 'نماد انعطاف، رشد سریع و خیر و برکت' },
-  { id: 'پیچک رونده', name: 'پیچک رونده سبز', description: 'نماد پیوستگی و بالا رفتن مداوم' },
-  { id: 'ریحان و نعنا', name: 'ریحان و نعنای معطر', description: 'نماد طراوت ذهن و سلامتی پایدار روزانه' },
+  { id: 'گل سرخ', name: 'گل سرخ / رز', description: 'نماد شور، عشق به هدف، تعهد عمیق و زیبایی' },
+  { id: 'بامبو شانس', name: 'بامبو شانس و ثروت', description: 'نماد انعطاف، صعود مداوم و برکت پایدار' },
+  { id: 'پیچک رونده', name: 'پیچک رونده سبز', description: 'نماد پیوستگی، پشتکار و بالا رفتن مداوم' },
+  { id: 'ریحان و نعنا', name: 'ریحان و نعنای معطر', description: 'نماد طراوت ذهن، شادابی و سلامتی روزانه' },
   { id: 'ارکیده', name: 'ارکیده باشکوه', description: 'نماد ظرافت، تمرکز عمیق و خلاقیت ناب' },
+  { id: 'درختچه زیتون', name: 'درختچه زیتون بارور', description: 'نماد صلح، باروری، اصالت و موفقیت جاودان' },
 ];
 
 interface Props {
   type?: string;
-  size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl';
+  size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | '2xl';
   className?: string;
   animated?: boolean;
 }
@@ -32,352 +33,455 @@ export const PlantIcon: React.FC<Props> = ({
   className = '',
   animated = false,
 }) => {
-  const sizeMap = {
-    xs: 'w-4 h-4',
-    sm: 'w-6 h-6',
-    md: 'w-8 h-8',
-    lg: 'w-12 h-12',
-    xl: 'w-16 h-16',
+  const uid = useId().replace(/[:]/g, '');
+
+  const sizeMap: Record<string, string> = {
+    xs: 'w-6 h-6',
+    sm: 'w-8 h-8',
+    md: 'w-12 h-12',
+    lg: 'w-16 h-16',
+    xl: 'w-24 h-24',
+    '2xl': 'w-32 h-32',
   };
 
   const animClass = animated ? 'animate-bounce-subtle' : '';
 
   // Render refined, high-craft botanical vector icons
   const renderSVG = () => {
-    switch (type) {
+    // Normalize aliases
+    let plantKey = type || 'برگ انجیری';
+    if (plantKey === 'بامبو') plantKey = 'بامبو شانس';
+    if (plantKey === 'زیتون') plantKey = 'درختچه زیتون';
+
+    switch (plantKey) {
       case 'برگ انجیری':
         return (
-          <svg viewBox="0 0 64 64" fill="none" className="w-full h-full drop-shadow-xs" xmlns="http://www.w3.org/2000/svg">
+          <svg viewBox="0 0 64 64" fill="none" className="w-full h-full drop-shadow-sm" xmlns="http://www.w3.org/2000/svg">
             <defs>
-              <linearGradient id="monsteraPot" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor="#E29578" />
-                <stop offset="100%" stopColor="#C86D51" />
+              <linearGradient id={`mPot_${uid}`} x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#EA580C" />
+                <stop offset="60%" stopColor="#C2410C" />
+                <stop offset="100%" stopColor="#9A3412" />
               </linearGradient>
-              <linearGradient id="monsteraLeaf1" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor="#52B788" />
-                <stop offset="100%" stopColor="#1B4332" />
+              <linearGradient id={`mLeafMain_${uid}`} x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#4ADE80" />
+                <stop offset="40%" stopColor="#22C55E" />
+                <stop offset="100%" stopColor="#14532D" />
               </linearGradient>
-              <linearGradient id="monsteraLeaf2" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor="#74C69D" />
-                <stop offset="100%" stopColor="#2D6A4F" />
+              <linearGradient id={`mLeafSide_${uid}`} x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#86EFAC" />
+                <stop offset="60%" stopColor="#16A34A" />
+                <stop offset="100%" stopColor="#14532D" />
               </linearGradient>
             </defs>
-            {/* Minimalist Ceramic Cylinder Pot */}
-            <path d="M20 46 L22 58 Q23 60 26 60 L38 60 Q41 60 42 58 L44 46 Z" fill="url(#monsteraPot)" />
-            <rect x="18.5" y="43" width="27" height="4" rx="2" fill="#D36B4F" />
-            <ellipse cx="32" cy="45" rx="12" ry="2" fill="#3D2619" opacity="0.4" />
-            {/* Main Center Stems */}
-            <path d="M32 45 Q31 34 22 23" stroke="#2D6A4F" strokeWidth="2.2" strokeLinecap="round" />
-            <path d="M32 45 Q35 32 44 24" stroke="#2D6A4F" strokeWidth="2.2" strokeLinecap="round" />
-            <path d="M32 45 Q32 28 32 14" stroke="#2D6A4F" strokeWidth="2.4" strokeLinecap="round" />
-            {/* Left Monstera Leaf with cutouts */}
-            <path d="M22 23 C14 21 11 31 19 36 C22 37 25 35 25 32 C25 28 23 24 22 23 Z" fill="url(#monsteraLeaf1)" />
-            <ellipse cx="17" cy="27" rx="1.2" ry="2.5" transform="rotate(-30 17 27)" fill="#FEFAE0" opacity="0.85" />
-            {/* Right Monstera Leaf with cutouts */}
-            <path d="M44 24 C52 22 54 32 46 37 C43 38 40 36 40 33 C40 29 42 25 44 24 Z" fill="url(#monsteraLeaf1)" />
-            <ellipse cx="48" cy="29" rx="1.2" ry="2.5" transform="rotate(30 48 29)" fill="#FEFAE0" opacity="0.85" />
-            {/* Grand Center Leaf */}
-            <path d="M32 12 C24 7 19 18 27 27 C30 30 34 30 37 27 C45 18 40 7 32 12 Z" fill="url(#monsteraLeaf2)" />
-            <path d="M32 14 L32 28" stroke="#B7E4C7" strokeWidth="1.2" strokeLinecap="round" opacity="0.8" />
-            <ellipse cx="27" cy="18" rx="1" ry="2.4" transform="rotate(-20 27 18)" fill="#FEFAE0" opacity="0.9" />
-            <ellipse cx="37" cy="18" rx="1" ry="2.4" transform="rotate(20 37 18)" fill="#FEFAE0" opacity="0.9" />
-            {/* Subtle pot accent ring */}
-            <line x1="22" y1="52" x2="42" y2="52" stroke="#FEFAE0" strokeWidth="1.2" opacity="0.4" />
+            {/* Ceramic Pot with Rim & Pedestal */}
+            <ellipse cx="32" cy="59" rx="14" ry="2" fill="#000" opacity="0.1" />
+            <path d="M19 45 L22 58 Q23 60 26 60 L38 60 Q41 60 42 58 L45 45 Z" fill={`url(#mPot_${uid})`} />
+            <rect x="17" y="42" width="30" height="4.5" rx="2.2" fill="#C2410C" />
+            <line x1="20" y1="43" x2="44" y2="43" stroke="#FDBA74" strokeWidth="0.8" opacity="0.6" />
+            <ellipse cx="32" cy="44" rx="13" ry="2.2" fill="#3E2723" opacity="0.5" />
+            {/* Stems */}
+            <path d="M32 44 Q31 34 20 22" stroke="#15803D" strokeWidth="2.5" strokeLinecap="round" />
+            <path d="M32 44 Q35 33 45 23" stroke="#15803D" strokeWidth="2.5" strokeLinecap="round" />
+            <path d="M32 44 Q32 26 32 10" stroke="#16A34A" strokeWidth="2.8" strokeLinecap="round" />
+            {/* Left Monstera Leaf with splits */}
+            <path d="M20 22 C11 20 8 32 17 38 C21 39 25 37 25 33 C25 28 22 23 20 22 Z" fill={`url(#mLeafSide_${uid})`} />
+            <path d="M20 22 Q21 32 18 36" stroke="#BBF7D0" strokeWidth="1" strokeLinecap="round" opacity="0.8" />
+            <ellipse cx="14.5" cy="27.5" rx="1.5" ry="3.2" transform="rotate(-35 14.5 27.5)" fill="#FAF9F6" opacity="0.9" />
+            <ellipse cx="19.5" cy="33.5" rx="1.2" ry="2.5" transform="rotate(-20 19.5 33.5)" fill="#FAF9F6" opacity="0.9" />
+            {/* Right Monstera Leaf with splits */}
+            <path d="M44 23 C53 21 56 33 47 39 C43 40 39 38 39 34 C39 29 42 24 44 23 Z" fill={`url(#mLeafSide_${uid})`} />
+            <path d="M44 23 Q43 33 46 37" stroke="#BBF7D0" strokeWidth="1" strokeLinecap="round" opacity="0.8" />
+            <ellipse cx="49.5" cy="28.5" rx="1.5" ry="3.2" transform="rotate(35 49.5 28.5)" fill="#FAF9F6" opacity="0.9" />
+            <ellipse cx="44.5" cy="34.5" rx="1.2" ry="2.5" transform="rotate(20 44.5 34.5)" fill="#FAF9F6" opacity="0.9" />
+            {/* Center Magnificent Master Leaf */}
+            <path d="M32 8 C22 3 16 16 25 27 C29 31 35 31 39 27 C48 16 42 3 32 8 Z" fill={`url(#mLeafMain_${uid})`} />
+            <path d="M32 9 L32 29" stroke="#86EFAC" strokeWidth="1.5" strokeLinecap="round" />
+            {/* Fenestration Cuts */}
+            <ellipse cx="26" cy="15" rx="1.4" ry="3.2" transform="rotate(-25 26 15)" fill="#FAF9F6" opacity="0.95" />
+            <ellipse cx="38" cy="15" rx="1.4" ry="3.2" transform="rotate(25 38 15)" fill="#FAF9F6" opacity="0.95" />
+            <ellipse cx="27" cy="22" rx="1.3" ry="2.8" transform="rotate(-30 27 22)" fill="#FAF9F6" opacity="0.95" />
+            <ellipse cx="37" cy="22" rx="1.3" ry="2.8" transform="rotate(30 37 22)" fill="#FAF9F6" opacity="0.95" />
+            <circle cx="32" cy="26" r="1.2" fill="#FAF9F6" opacity="0.9" />
           </svg>
         );
 
       case 'بونسای':
         return (
-          <svg viewBox="0 0 64 64" fill="none" className="w-full h-full drop-shadow-xs" xmlns="http://www.w3.org/2000/svg">
+          <svg viewBox="0 0 64 64" fill="none" className="w-full h-full drop-shadow-sm" xmlns="http://www.w3.org/2000/svg">
             <defs>
-              <linearGradient id="bonsaiDish" x1="0%" y1="0%" x2="100%" y2="0%">
-                <stop offset="0%" stopColor="#374151" />
-                <stop offset="50%" stopColor="#4B5563" />
-                <stop offset="100%" stopColor="#1F2937" />
+              <linearGradient id={`bDish_${uid}`} x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stopColor="#1F2937" />
+                <stop offset="50%" stopColor="#374151" />
+                <stop offset="100%" stopColor="#111827" />
               </linearGradient>
-              <linearGradient id="bonsaiFoliage" x1="0%" y1="0%" x2="0%" y2="100%">
-                <stop offset="0%" stopColor="#4ADE80" />
-                <stop offset="50%" stopColor="#16A34A" />
+              <linearGradient id={`bCloud_${uid}`} x1="0%" y1="0%" x2="0%" y2="100%">
+                <stop offset="0%" stopColor="#86EFAC" />
+                <stop offset="35%" stopColor="#22C55E" />
                 <stop offset="100%" stopColor="#14532D" />
               </linearGradient>
+              <linearGradient id={`bTrunk_${uid}`} x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#A16207" />
+                <stop offset="50%" stopColor="#78350F" />
+                <stop offset="100%" stopColor="#451A03" />
+              </linearGradient>
             </defs>
-            {/* Shallow Zen Dish on Feet */}
-            <ellipse cx="32" cy="56" rx="23" ry="4.5" fill="url(#bonsaiDish)" />
-            <rect x="14" y="58" width="5" height="2" rx="1" fill="#111827" />
-            <rect x="45" y="58" width="5" height="2" rx="1" fill="#111827" />
-            <ellipse cx="32" cy="55" rx="19" ry="2.5" fill="#3E2723" />
-            <ellipse cx="32" cy="54.5" rx="16" ry="1.8" fill="#556B2F" opacity="0.7" />
-            {/* Masterfully Sculpted Trunk */}
-            <path d="M31 55 Q36 46 29 38 Q22 31 27 24 Q31 17 35 15" stroke="#795548" strokeWidth="4.2" strokeLinecap="round" />
-            <path d="M29 38 Q39 34 45 31" stroke="#6D4C41" strokeWidth="3" strokeLinecap="round" />
-            <path d="M27 25 Q20 22 17 21" stroke="#6D4C41" strokeWidth="2.2" strokeLinecap="round" />
-            {/* Left Cloud Tier */}
-            <circle cx="17" cy="20" r="5.5" fill="#15803D" />
-            <circle cx="21" cy="18" r="6.5" fill="#22C55E" />
-            <circle cx="16" cy="17" r="4.5" fill="#4ADE80" />
-            {/* Right Cloud Tier */}
-            <circle cx="46" cy="30" r="6" fill="#15803D" />
-            <circle cx="42" cy="27" r="6.5" fill="#22C55E" />
-            <circle cx="47" cy="26" r="4.5" fill="#86EFAC" />
-            {/* Crown Cloud Top */}
-            <ellipse cx="35" cy="14" rx="9" ry="6.5" fill="#14532D" />
-            <ellipse cx="34" cy="12" rx="8" ry="5.5" fill="url(#bonsaiFoliage)" />
-            <ellipse cx="32" cy="10" rx="6" ry="4" fill="#86EFAC" opacity="0.9" />
+            {/* Ground Shadow */}
+            <ellipse cx="32" cy="61" rx="24" ry="2.5" fill="#000" opacity="0.12" />
+            {/* Low-profile Zen Pot on 4 feet */}
+            <ellipse cx="32" cy="56" rx="25" ry="4.5" fill={`url(#bDish_${uid})`} />
+            <rect x="12" y="58" width="6" height="2.5" rx="1" fill="#111827" />
+            <rect x="46" y="58" width="6" height="2.5" rx="1" fill="#111827" />
+            <ellipse cx="32" cy="55" rx="21" ry="2.8" fill="#3E2723" />
+            <ellipse cx="32" cy="54.2" rx="18" ry="2.2" fill="#4D7C0F" opacity="0.85" />
+            {/* Sculpted Weathered Trunk with Limbs */}
+            <path d="M31 55 Q38 46 29 37 Q21 29 27 22 Q32 15 36 12" stroke={`url(#bTrunk_${uid})`} strokeWidth="4.5" strokeLinecap="round" />
+            <path d="M29 37 Q41 33 48 30" stroke={`url(#bTrunk_${uid})`} strokeWidth="3.2" strokeLinecap="round" />
+            <path d="M27 23 Q19 20 16 18" stroke={`url(#bTrunk_${uid})`} strokeWidth="2.5" strokeLinecap="round" />
+            {/* Foliage Cloud Tier 1: Left */}
+            <circle cx="15" cy="18" r="6" fill="#14532D" />
+            <circle cx="19" cy="16" r="6.5" fill="#16A34A" />
+            <circle cx="15" cy="15" r="4.8" fill="#4ADE80" />
+            {/* Foliage Cloud Tier 2: Right */}
+            <circle cx="49" cy="29" r="6.5" fill="#14532D" />
+            <circle cx="45" cy="26" r="7" fill="#16A34A" />
+            <circle cx="49" cy="25" r="5" fill="#86EFAC" />
+            {/* Foliage Cloud Tier 3: Top Crown */}
+            <ellipse cx="36" cy="12" rx="11" ry="7.5" fill="#14532D" />
+            <ellipse cx="35" cy="10" rx="9.5" ry="6.2" fill={`url(#bCloud_${uid})`} />
+            <ellipse cx="33" cy="8" rx="7" ry="4.2" fill="#BBF7D0" opacity="0.9" />
           </svg>
         );
 
       case 'کاکتوس گلدار':
         return (
-          <svg viewBox="0 0 64 64" fill="none" className="w-full h-full drop-shadow-xs" xmlns="http://www.w3.org/2000/svg">
+          <svg viewBox="0 0 64 64" fill="none" className="w-full h-full drop-shadow-sm" xmlns="http://www.w3.org/2000/svg">
             <defs>
-              <linearGradient id="cactusBody" x1="0%" y1="0%" x2="100%" y2="0%">
-                <stop offset="0%" stopColor="#1E6F5C" />
-                <stop offset="35%" stopColor="#289672" />
-                <stop offset="70%" stopColor="#29BB89" />
-                <stop offset="100%" stopColor="#1E6F5C" />
+              <linearGradient id={`cBody_${uid}`} x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stopColor="#065F46" />
+                <stop offset="35%" stopColor="#059669" />
+                <stop offset="70%" stopColor="#10B981" />
+                <stop offset="100%" stopColor="#047857" />
               </linearGradient>
-              <linearGradient id="terracotta" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor="#F4A261" />
-                <stop offset="100%" stopColor="#E76F51" />
+              <linearGradient id={`cPot_${uid}`} x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#F97316" />
+                <stop offset="50%" stopColor="#EA580C" />
+                <stop offset="100%" stopColor="#C2410C" />
               </linearGradient>
+              <radialGradient id={`cFlower_${uid}`} cx="50%" cy="50%" r="50%">
+                <stop offset="0%" stopColor="#FEF08A" />
+                <stop offset="30%" stopColor="#F43F5E" />
+                <stop offset="100%" stopColor="#BE123C" />
+              </radialGradient>
             </defs>
-            {/* Chic Minimalist Pot */}
-            <path d="M22 46 L24 58 Q24 60 27 60 L37 60 Q40 60 40 58 L42 46 Z" fill="url(#terracotta)" />
-            <rect x="20" y="43" width="24" height="4" rx="2" fill="#D35400" />
-            {/* Main Ribbed Cactus Column */}
-            <path d="M25 45 C25 23 39 23 39 45 Z" fill="url(#cactusBody)" />
-            {/* Vertical Rib lines */}
-            <path d="M28 45 C28 27 30 25 32 23" stroke="#134E3F" strokeWidth="1.2" opacity="0.5" />
-            <path d="M36 45 C36 27 34 25 32 23" stroke="#134E3F" strokeWidth="1.2" opacity="0.5" />
-            <line x1="32" y1="45" x2="32" y2="22" stroke="#E8F5E9" strokeWidth="1.2" opacity="0.7" />
-            {/* Side Branch */}
-            <path d="M25 36 Q17 36 17 28 Q17 25 20 25 Q23 25 23 28 L24 37" fill="#289672" stroke="#134E3F" strokeWidth="0.8" />
-            <path d="M39 34 Q47 34 47 27 Q47 24 44 24 Q41 24 41 27 L40 36" fill="#289672" stroke="#134E3F" strokeWidth="0.8" />
-            {/* Star Needle dots */}
-            <circle cx="28" cy="32" r="0.7" fill="#FFF9C4" />
-            <circle cx="36" cy="32" r="0.7" fill="#FFF9C4" />
-            <circle cx="32" cy="37" r="0.7" fill="#FFF9C4" />
-            <circle cx="32" cy="28" r="0.7" fill="#FFF9C4" />
-            {/* Exquisite Desert Flower Blossom on top */}
-            <circle cx="32" cy="20" r="4.5" fill="#E63946" />
-            <circle cx="29" cy="18" r="3.2" fill="#F72585" />
-            <circle cx="35" cy="18" r="3.2" fill="#F72585" />
-            <circle cx="32" cy="16" r="3.5" fill="#FF70A6" />
-            <circle cx="32" cy="18.5" r="1.8" fill="#FFD166" />
+            <ellipse cx="32" cy="59" rx="13" ry="2" fill="#000" opacity="0.1" />
+            {/* Elegant Terracotta Pot */}
+            <path d="M21 45 L23 58 Q24 60 27 60 L37 60 Q40 60 41 58 L43 45 Z" fill={`url(#cPot_${uid})`} />
+            <rect x="19" y="42" width="26" height="4.2" rx="2" fill="#C2410C" />
+            <line x1="22" y1="52" x2="42" y2="52" stroke="#FED7AA" strokeWidth="1" strokeDasharray="2 2" opacity="0.7" />
+            {/* Cactus Column */}
+            <path d="M23 44 C23 20 41 20 41 44 Z" fill={`url(#cBody_${uid})`} />
+            {/* Rib Lines */}
+            <path d="M27 44 C27 24 29 22 32 20" stroke="#064E3B" strokeWidth="1.4" opacity="0.6" />
+            <path d="M37 44 C37 24 35 22 32 20" stroke="#064E3B" strokeWidth="1.4" opacity="0.6" />
+            <line x1="32" y1="44" x2="32" y2="19" stroke="#A7F3D0" strokeWidth="1.5" opacity="0.85" />
+            {/* Side Arms */}
+            <path d="M23 35 Q15 35 15 27 Q15 23 19 23 Q22 23 22 26 L23 36" fill="#059669" stroke="#064E3B" strokeWidth="1" />
+            <path d="M41 33 Q49 33 49 25 Q49 22 45 22 Q42 22 42 25 L41 34" fill="#059669" stroke="#064E3B" strokeWidth="1" />
+            {/* Spine Clusters */}
+            <circle cx="27" cy="30" r="0.9" fill="#FEF9C3" />
+            <circle cx="37" cy="30" r="0.9" fill="#FEF9C3" />
+            <circle cx="32" cy="26" r="0.9" fill="#FEF9C3" />
+            <circle cx="32" cy="35" r="0.9" fill="#FEF9C3" />
+            <circle cx="18" cy="25" r="0.8" fill="#FEF9C3" />
+            <circle cx="46" cy="24" r="0.8" fill="#FEF9C3" />
+            {/* Crown Desert Blossom */}
+            <circle cx="32" cy="18" r="6" fill={`url(#cFlower_${uid})`} />
+            <circle cx="28" cy="16" r="4" fill="#FB7185" />
+            <circle cx="36" cy="16" r="4" fill="#FB7185" />
+            <circle cx="32" cy="13.5" r="4.2" fill="#FDA4AF" />
+            <circle cx="32" cy="16.5" r="2.2" fill="#FACC15" />
           </svg>
         );
 
       case 'نیلوفر آبی':
         return (
-          <svg viewBox="0 0 64 64" fill="none" className="w-full h-full drop-shadow-xs" xmlns="http://www.w3.org/2000/svg">
+          <svg viewBox="0 0 64 64" fill="none" className="w-full h-full drop-shadow-sm" xmlns="http://www.w3.org/2000/svg">
             <defs>
-              <linearGradient id="lotusWater" x1="0%" y1="0%" x2="0%" y2="100%">
-                <stop offset="0%" stopColor="#E0F2FE" stopOpacity="0.8" />
-                <stop offset="100%" stopColor="#7DD3FC" stopOpacity="0.4" />
+              <linearGradient id={`lotusWater_${uid}`} x1="0%" y1="0%" x2="0%" y2="100%">
+                <stop offset="0%" stopColor="#BAE6FD" stopOpacity="0.9" />
+                <stop offset="100%" stopColor="#38BDF8" stopOpacity="0.4" />
               </linearGradient>
-              <linearGradient id="lotusPetal" x1="0%" y1="0%" x2="0%" y2="100%">
-                <stop offset="0%" stopColor="#FF758F" />
-                <stop offset="60%" stopColor="#FFB3C1" />
-                <stop offset="100%" stopColor="#FFF0F3" />
+              <linearGradient id={`lotusPetal_${uid}`} x1="0%" y1="0%" x2="0%" y2="100%">
+                <stop offset="0%" stopColor="#F43F5E" />
+                <stop offset="50%" stopColor="#FB7185" />
+                <stop offset="100%" stopColor="#FFF1F2" />
               </linearGradient>
             </defs>
-            {/* Serene Water pool & Lily pad */}
-            <ellipse cx="32" cy="54" rx="25" ry="5.5" fill="url(#lotusWater)" />
-            <path d="M12 51 C12 44 52 44 52 51 C52 57 37 58 32 52 C27 58 12 57 12 51 Z" fill="#2D6A4F" />
-            <ellipse cx="32" cy="51" rx="18" ry="3.5" fill="#40916C" />
-            {/* Outer Petals */}
-            <path d="M18 46 C21 34 29 46 29 46 Z" fill="#E01E5A" opacity="0.85" />
-            <path d="M46 46 C43 34 35 46 35 46 Z" fill="#E01E5A" opacity="0.85" />
-            <path d="M22 47 C26 30 35 47 35 47 Z" fill="#F72585" />
-            <path d="M42 47 C38 30 29 47 29 47 Z" fill="#F72585" />
-            {/* Center Layer Petals */}
-            <path d="M26 47 C29 25 37 47 37 47 Z" fill="url(#lotusPetal)" />
-            <path d="M38 47 C35 25 27 47 27 47 Z" fill="url(#lotusPetal)" />
-            <path d="M32 47 C29 22 35 22 32 47 Z" fill="#FFF0F3" />
-            {/* Golden Core */}
-            <circle cx="32" cy="40" r="3.2" fill="#FFB703" />
-            <circle cx="32" cy="40" r="1.6" fill="#FB8500" />
+            {/* Water Ripple Base */}
+            <ellipse cx="32" cy="55" rx="27" ry="6" fill={`url(#lotusWater_${uid})`} />
+            <ellipse cx="32" cy="55" rx="22" ry="4" stroke="#0284C7" strokeWidth="0.8" opacity="0.4" />
+            {/* Rich Emerald Lily Pad */}
+            <path d="M10 52 C10 44 54 44 54 52 C54 58 38 60 32 53 C26 60 10 58 10 52 Z" fill="#15803D" />
+            <ellipse cx="32" cy="52" rx="19" ry="4" fill="#22C55E" />
+            {/* Outer Deep Rose Petals */}
+            <path d="M16 46 C19 32 30 46 30 46 Z" fill="#BE123C" opacity="0.9" />
+            <path d="M48 46 C45 32 34 46 34 46 Z" fill="#BE123C" opacity="0.9" />
+            <path d="M21 47 C25 28 36 47 36 47 Z" fill="#E11D48" />
+            <path d="M43 47 C39 28 28 47 28 47 Z" fill="#E11D48" />
+            {/* Center Glowing Blush Petals */}
+            <path d="M25 47 C29 23 38 47 38 47 Z" fill={`url(#lotusPetal_${uid})`} />
+            <path d="M39 47 C35 23 26 47 26 47 Z" fill={`url(#lotusPetal_${uid})`} />
+            <path d="M32 47 C29 19 35 19 32 47 Z" fill="#FFF1F2" />
+            {/* Golden Core & Receptacle */}
+            <circle cx="32" cy="38" r="3.8" fill="#FACC15" />
+            <circle cx="32" cy="38" r="2" fill="#EA580C" />
           </svg>
         );
 
       case 'آفتابگردان':
         return (
-          <svg viewBox="0 0 64 64" fill="none" className="w-full h-full drop-shadow-xs" xmlns="http://www.w3.org/2000/svg">
+          <svg viewBox="0 0 64 64" fill="none" className="w-full h-full drop-shadow-sm" xmlns="http://www.w3.org/2000/svg">
             <defs>
-              <linearGradient id="sunflowerPetals" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor="#FFD166" />
-                <stop offset="100%" stopColor="#F77F00" />
+              <linearGradient id={`sunPot_${uid}`} x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#4D7C0F" />
+                <stop offset="100%" stopColor="#365314" />
               </linearGradient>
+              <linearGradient id={`sunPetals_${uid}`} x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#FDE047" />
+                <stop offset="60%" stopColor="#F59E0B" />
+                <stop offset="100%" stopColor="#D97706" />
+              </linearGradient>
+              <radialGradient id={`sunCore_${uid}`} cx="50%" cy="50%" r="50%">
+                <stop offset="0%" stopColor="#92400E" />
+                <stop offset="70%" stopColor="#451A03" />
+                <stop offset="100%" stopColor="#291102" />
+              </radialGradient>
             </defs>
-            {/* Plant Pot */}
-            <path d="M24 47 L26 58 Q26 60 28 60 L36 60 Q38 60 38 58 L40 47 Z" fill="#4F772D" />
-            <rect x="22" y="44" width="20" height="3.5" rx="1.5" fill="#31572C" />
-            {/* Sturdy Stem and Leaves */}
-            <path d="M32 46 L32 26" stroke="#588157" strokeWidth="3" strokeLinecap="round" />
-            <path d="M32 38 Q22 35 24 30 Q28 32 32 36" fill="#588157" />
-            <path d="M32 34 Q42 31 40 26 Q36 28 32 32" fill="#3A5A40" />
-            {/* Sunflower Golden Petals Array */}
-            <circle cx="32" cy="21" r="16" fill="url(#sunflowerPetals)" />
-            <circle cx="32" cy="21" r="14" fill="#FCBF49" />
-            {/* Rich Seed Center */}
-            <circle cx="32" cy="21" r="8.5" fill="#582F0E" />
-            <circle cx="32" cy="21" r="6.5" fill="#3F1D0B" />
-            <circle cx="30.5" cy="20" r="1" fill="#7F4F24" />
-            <circle cx="33.5" cy="20" r="1" fill="#7F4F24" />
-            <circle cx="32" cy="23" r="1" fill="#7F4F24" />
+            <ellipse cx="32" cy="59" rx="12" ry="2" fill="#000" opacity="0.1" />
+            {/* Planter */}
+            <path d="M23 46 L25 58 Q26 60 28 60 L36 60 Q38 60 39 58 L41 46 Z" fill={`url(#sunPot_${uid})`} />
+            <rect x="21" y="43" width="22" height="4" rx="2" fill="#365314" />
+            {/* Strong Stem & Leaves */}
+            <path d="M32 45 L32 26" stroke="#15803D" strokeWidth="3.2" strokeLinecap="round" />
+            <path d="M32 39 Q20 36 22 29 Q27 32 32 36" fill="#16A34A" />
+            <path d="M32 34 Q44 31 42 24 Q37 27 32 31" fill="#15803D" />
+            {/* Sunflower Corona Petals */}
+            <circle cx="32" cy="20" r="17" fill={`url(#sunPetals_${uid})`} />
+            <circle cx="32" cy="20" r="14.5" fill="#FBBF24" />
+            {/* Center Seed Disc with texture */}
+            <circle cx="32" cy="20" r="9" fill={`url(#sunCore_${uid})`} />
+            <circle cx="32" cy="20" r="7" stroke="#F59E0B" strokeWidth="0.6" strokeDasharray="1.5 1.5" />
+            <circle cx="30" cy="19" r="1" fill="#B45309" />
+            <circle cx="34" cy="19" r="1" fill="#B45309" />
+            <circle cx="32" cy="22" r="1" fill="#B45309" />
           </svg>
         );
 
       case 'گل سرخ':
         return (
-          <svg viewBox="0 0 64 64" fill="none" className="w-full h-full drop-shadow-xs" xmlns="http://www.w3.org/2000/svg">
+          <svg viewBox="0 0 64 64" fill="none" className="w-full h-full drop-shadow-sm" xmlns="http://www.w3.org/2000/svg">
             <defs>
-              <linearGradient id="rosePot" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor="#9C6644" />
-                <stop offset="100%" stopColor="#7F4F24" />
+              <linearGradient id={`rosePot_${uid}`} x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#A16207" />
+                <stop offset="100%" stopColor="#713F12" />
               </linearGradient>
-              <linearGradient id="rosePetalGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor="#D90429" />
-                <stop offset="50%" stopColor="#EF233C" />
-                <stop offset="100%" stopColor="#9B2226" />
-              </linearGradient>
+              <radialGradient id={`roseBlooms_${uid}`} cx="45%" cy="45%" r="55%">
+                <stop offset="0%" stopColor="#FDA4AF" />
+                <stop offset="25%" stopColor="#F43F5E" />
+                <stop offset="70%" stopColor="#E11D48" />
+                <stop offset="100%" stopColor="#881337" />
+              </radialGradient>
             </defs>
-            {/* Ceramic Glazed Planter */}
-            <path d="M23 47 L25 58 Q25 60 28 60 L36 60 Q39 60 39 58 L41 47 Z" fill="url(#rosePot)" />
-            <rect x="21" y="44" width="22" height="4" rx="2" fill="#582F0E" />
+            <ellipse cx="32" cy="59" rx="12" ry="2" fill="#000" opacity="0.1" />
+            {/* Terracotta Urn */}
+            <path d="M22 46 L24 58 Q25 60 28 60 L36 60 Q39 60 40 58 L42 46 Z" fill={`url(#rosePot_${uid})`} />
+            <rect x="20" y="43" width="24" height="4" rx="2" fill="#713F12" />
             {/* Thorny Rose Stem */}
-            <path d="M32 45 Q31 34 32 25" stroke="#2D6A4F" strokeWidth="2.8" strokeLinecap="round" />
-            <path d="M32 38 Q24 35 25 41" stroke="#2D6A4F" strokeWidth="2" fill="#52B788" />
-            <path d="M32 33 Q40 30 39 36" stroke="#2D6A4F" strokeWidth="2" fill="#40916C" />
-            {/* Velvety Spiral Rose Flower */}
-            <circle cx="32" cy="20" r="12" fill="url(#rosePetalGrad)" />
-            <circle cx="30" cy="19" r="8.5" fill="#EF233C" />
-            <circle cx="34" cy="19" r="7" fill="#E63946" />
-            <circle cx="32" cy="18" r="5" fill="#FF4D6D" />
-            <circle cx="32" cy="17" r="3" fill="#FF758F" />
-            <path d="M30 17 Q32 15 34 17" stroke="#FFF" strokeWidth="1" strokeLinecap="round" opacity="0.9" />
+            <path d="M32 45 Q31 34 32 25" stroke="#15803D" strokeWidth="3" strokeLinecap="round" />
+            {/* Serrated Leaves */}
+            <path d="M32 39 Q22 36 24 42 Q28 40 32 40" fill="#16A34A" />
+            <path d="M32 33 Q42 30 40 37 Q36 34 32 35" fill="#15803D" />
+            {/* Lush Spiraled Velvety Rose */}
+            <circle cx="32" cy="20" r="13" fill={`url(#roseBlooms_${uid})`} />
+            <circle cx="30" cy="19" r="9.5" fill="#E11D48" />
+            <circle cx="34" cy="19" r="8" fill="#F43F5E" />
+            <circle cx="32" cy="18" r="5.5" fill="#FB7185" />
+            <circle cx="32" cy="17" r="3.2" fill="#FDA4AF" />
+            <path d="M30 17 Q32 14.5 34 17" stroke="#FFF" strokeWidth="1.2" strokeLinecap="round" opacity="0.9" />
           </svg>
         );
 
       case 'بامبو شانس':
         return (
-          <svg viewBox="0 0 64 64" fill="none" className="w-full h-full drop-shadow-xs" xmlns="http://www.w3.org/2000/svg">
+          <svg viewBox="0 0 64 64" fill="none" className="w-full h-full drop-shadow-sm" xmlns="http://www.w3.org/2000/svg">
             <defs>
-              <linearGradient id="bambooGlass" x1="0%" y1="0%" x2="0%" y2="100%">
+              <linearGradient id={`bambooGlass_${uid}`} x1="0%" y1="0%" x2="0%" y2="100%">
                 <stop offset="0%" stopColor="#E0F2FE" stopOpacity="0.9" />
-                <stop offset="100%" stopColor="#BAE6FD" stopOpacity="0.6" />
+                <stop offset="100%" stopColor="#BAE6FD" stopOpacity="0.5" />
               </linearGradient>
             </defs>
-            {/* Glass Vase with Pebbles */}
-            <rect x="21" y="42" width="22" height="18" rx="3" fill="url(#bambooGlass)" stroke="#38BDF8" strokeWidth="1.2" />
-            <ellipse cx="27" cy="56" rx="3.5" ry="2" fill="#94A3B8" />
-            <ellipse cx="37" cy="56" rx="3.5" ry="2" fill="#64748B" />
-            <ellipse cx="32" cy="57" rx="3.8" ry="2" fill="#CBD5E1" />
-            {/* Bamboo Stalk 1 */}
-            <rect x="24" y="20" width="4.2" height="26" rx="1.5" fill="#22C55E" />
-            <line x1="23" y1="28" x2="29" y2="28" stroke="#15803D" strokeWidth="1.5" />
-            <line x1="23" y1="36" x2="29" y2="36" stroke="#15803D" strokeWidth="1.5" />
+            <ellipse cx="32" cy="59" rx="14" ry="2" fill="#000" opacity="0.1" />
+            {/* Crystal Glass Cylinder with Water & River Stones */}
+            <rect x="20" y="40" width="24" height="20" rx="3.5" fill={`url(#bambooGlass_${uid})`} stroke="#38BDF8" strokeWidth="1.4" />
+            <ellipse cx="26" cy="55" rx="3.8" ry="2.2" fill="#64748B" />
+            <ellipse cx="38" cy="55" rx="3.8" ry="2.2" fill="#475569" />
+            <ellipse cx="32" cy="56" rx="4.2" ry="2.4" fill="#94A3B8" />
+            <line x1="21" y1="44" x2="43" y2="44" stroke="#7DD3FC" strokeWidth="1" strokeDasharray="3 2" />
+            {/* Bamboo Stalk 1 (Left) */}
+            <rect x="23" y="19" width="4.6" height="27" rx="1.8" fill="#16A34A" />
+            <line x1="22" y1="28" x2="28" y2="28" stroke="#FDE047" strokeWidth="1.6" />
+            <line x1="22" y1="36" x2="28" y2="36" stroke="#FDE047" strokeWidth="1.6" />
             {/* Bamboo Stalk 2 (Center tall) */}
-            <rect x="30" y="11" width="4.5" height="35" rx="1.5" fill="#4ADE80" />
-            <line x1="29" y1="19" x2="35.5" y2="19" stroke="#16A34A" strokeWidth="1.5" />
-            <line x1="29" y1="29" x2="35.5" y2="29" stroke="#16A34A" strokeWidth="1.5" />
-            {/* Bamboo Stalk 3 */}
-            <rect x="36" y="15" width="4.2" height="31" rx="1.5" fill="#16A34A" />
-            <line x1="35" y1="23" x2="41" y2="23" stroke="#15803D" strokeWidth="1.5" />
-            <line x1="35" y1="32" x2="41" y2="32" stroke="#15803D" strokeWidth="1.5" />
-            {/* Graceful Arching Shoots */}
-            <path d="M25 18 Q19 15 21 11" stroke="#22C55E" strokeWidth="2.2" strokeLinecap="round" />
-            <path d="M32 9 Q32 3 36 5" stroke="#4ADE80" strokeWidth="2.2" strokeLinecap="round" />
-            <path d="M38 13 Q45 11 43 7" stroke="#16A34A" strokeWidth="2.2" strokeLinecap="round" />
+            <rect x="29.7" y="10" width="4.8" height="36" rx="1.8" fill="#22C55E" />
+            <line x1="28.7" y1="19" x2="35.5" y2="19" stroke="#FDE047" strokeWidth="1.6" />
+            <line x1="28.7" y1="29" x2="35.5" y2="29" stroke="#FDE047" strokeWidth="1.6" />
+            {/* Bamboo Stalk 3 (Right) */}
+            <rect x="36.4" y="14" width="4.6" height="32" rx="1.8" fill="#15803D" />
+            <line x1="35.4" y1="23" x2="42" y2="23" stroke="#FDE047" strokeWidth="1.6" />
+            <line x1="35.4" y1="32" x2="42" y2="32" stroke="#FDE047" strokeWidth="1.6" />
+            {/* Curled Lucky Bamboo Shoots */}
+            <path d="M24 17 Q17 14 20 9 Q23 9 24 13" stroke="#22C55E" strokeWidth="2.5" strokeLinecap="round" fill="none" />
+            <path d="M32 9 Q32 2 37 4 Q38 8 34 10" stroke="#4ADE80" strokeWidth="2.5" strokeLinecap="round" fill="none" />
+            <path d="M39 12 Q47 9 44 5 Q41 5 40 9" stroke="#16A34A" strokeWidth="2.5" strokeLinecap="round" fill="none" />
           </svg>
         );
 
       case 'پیچک رونده':
         return (
-          <svg viewBox="0 0 64 64" fill="none" className="w-full h-full drop-shadow-xs" xmlns="http://www.w3.org/2000/svg">
-            {/* Hanging Planter Cord */}
-            <line x1="22" y1="39" x2="32" y2="10" stroke="#B45309" strokeWidth="1.2" />
-            <line x1="42" y1="39" x2="32" y2="10" stroke="#B45309" strokeWidth="1.2" />
-            <circle cx="32" cy="10" r="2" fill="#92400E" />
+          <svg viewBox="0 0 64 64" fill="none" className="w-full h-full drop-shadow-sm" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id={`ivyPot_${uid}`} x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#B45309" />
+                <stop offset="100%" stopColor="#78350F" />
+              </linearGradient>
+            </defs>
+            {/* Braided Macrame Hanging Cords */}
+            <line x1="20" y1="38" x2="32" y2="6" stroke="#D97706" strokeWidth="1.5" />
+            <line x1="44" y1="38" x2="32" y2="6" stroke="#D97706" strokeWidth="1.5" />
+            <circle cx="32" cy="6" r="2.5" fill="#92400E" stroke="#FDE68A" strokeWidth="0.8" />
             {/* Clay Hanging Bowl */}
-            <path d="M19 39 L23 49 Q24 51 27 51 L37 51 Q40 51 41 49 L45 39 Z" fill="#9A3412" />
-            {/* Gracefully Cascading Ivy Tendrils */}
-            <path d="M23 44 Q15 50 17 60" stroke="#16A34A" strokeWidth="2" strokeLinecap="round" />
-            <path d="M32 46 Q33 54 30 63" stroke="#15803D" strokeWidth="2" strokeLinecap="round" />
-            <path d="M41 44 Q47 52 44 61" stroke="#22C55E" strokeWidth="2" strokeLinecap="round" />
-            {/* Heart/Star-shaped Ivy Leaves */}
-            <circle cx="16" cy="51" r="3.2" fill="#4ADE80" />
-            <circle cx="18" cy="58" r="2.8" fill="#22C55E" />
-            <circle cx="31" cy="53" r="3.6" fill="#22C55E" />
-            <circle cx="29" cy="61" r="2.8" fill="#15803D" />
-            <circle cx="45" cy="52" r="3.4" fill="#86EFAC" />
-            <circle cx="43" cy="59" r="2.8" fill="#16A34A" />
+            <path d="M18 38 L22 49 Q24 52 27 52 L37 52 Q40 52 42 49 L46 38 Z" fill={`url(#ivyPot_${uid})`} />
+            <rect x="16" y="36" width="32" height="3.5" rx="1.7" fill="#78350F" />
+            {/* Cascading Vine Tendrils */}
+            <path d="M22 44 Q14 50 16 62" stroke="#16A34A" strokeWidth="2.4" strokeLinecap="round" />
+            <path d="M32 46 Q34 54 30 63" stroke="#15803D" strokeWidth="2.4" strokeLinecap="round" />
+            <path d="M42 44 Q48 52 45 62" stroke="#22C55E" strokeWidth="2.4" strokeLinecap="round" />
+            {/* Variegated Ivy Leaves */}
+            <circle cx="15" cy="51" r="3.6" fill="#4ADE80" />
+            <circle cx="17" cy="59" r="3.2" fill="#16A34A" />
+            <circle cx="32" cy="53" r="4" fill="#22C55E" />
+            <circle cx="29" cy="61" r="3.2" fill="#14532D" />
+            <circle cx="46" cy="52" r="3.8" fill="#86EFAC" />
+            <circle cx="44" cy="60" r="3.2" fill="#16A34A" />
+            {/* Leaf Vein Highlights */}
+            <circle cx="15" cy="51" r="1.5" fill="#DCFCE7" />
+            <circle cx="32" cy="53" r="1.8" fill="#DCFCE7" />
+            <circle cx="46" cy="52" r="1.6" fill="#DCFCE7" />
           </svg>
         );
 
       case 'ارکیده':
         return (
-          <svg viewBox="0 0 64 64" fill="none" className="w-full h-full drop-shadow-xs" xmlns="http://www.w3.org/2000/svg">
+          <svg viewBox="0 0 64 64" fill="none" className="w-full h-full drop-shadow-sm" xmlns="http://www.w3.org/2000/svg">
             <defs>
-              <linearGradient id="orchidPot" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor="#E2E8F0" />
+              <linearGradient id={`orchPot_${uid}`} x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#F1F5F9" />
                 <stop offset="100%" stopColor="#94A3B8" />
               </linearGradient>
-              <linearGradient id="orchidPetals" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor="#FDF4FF" />
-                <stop offset="100%" stopColor="#E879F9" />
+              <radialGradient id={`orchWing_${uid}`} cx="50%" cy="50%" r="50%">
+                <stop offset="0%" stopColor="#FAF5FF" />
+                <stop offset="60%" stopColor="#F0ABFC" />
+                <stop offset="100%" stopColor="#C026D3" />
+              </radialGradient>
+            </defs>
+            <ellipse cx="32" cy="59" rx="13" ry="2" fill="#000" opacity="0.1" />
+            {/* Porcelain Pot */}
+            <path d="M22 46 L24 58 Q25 60 28 60 L36 60 Q39 60 40 58 L42 46 Z" fill={`url(#orchPot_${uid})`} />
+            <rect x="20" y="43" width="24" height="4" rx="2" fill="#64748B" />
+            {/* Broad Fleshy Base Leaves */}
+            <ellipse cx="23" cy="46" rx="9" ry="3.8" transform="rotate(-18 23 46)" fill="#15803D" />
+            <ellipse cx="41" cy="46" rx="9" ry="3.8" transform="rotate(18 41 46)" fill="#16A34A" />
+            {/* Slender Bamboo Stake & Arching Stem */}
+            <line x1="31" y1="45" x2="31" y2="18" stroke="#D97706" strokeWidth="1.5" />
+            <path d="M31 44 Q30 28 36 18 Q41 10 48 12" stroke="#15803D" strokeWidth="2.5" strokeLinecap="round" />
+            {/* Lower Blossom */}
+            <circle cx="36" cy="19" r="6" fill={`url(#orchWing_${uid})`} />
+            <ellipse cx="31" cy="19" rx="4.5" ry="2.6" transform="rotate(-25 31 19)" fill="#F0ABFC" />
+            <ellipse cx="41" cy="19" rx="4.5" ry="2.6" transform="rotate(25 41 19)" fill="#F0ABFC" />
+            <circle cx="36" cy="20" r="2.5" fill="#A21CAF" />
+            <circle cx="36" cy="20" r="1.1" fill="#FACC15" />
+            {/* Upper Blossom */}
+            <circle cx="46" cy="12" r="5" fill={`url(#orchWing_${uid})`} />
+            <ellipse cx="42" cy="12" rx="3.5" ry="2.2" transform="rotate(-25 42 12)" fill="#F0ABFC" />
+            <ellipse cx="50" cy="12" rx="3.5" ry="2.2" transform="rotate(25 50 12)" fill="#F0ABFC" />
+            <circle cx="46" cy="13" r="2" fill="#A21CAF" />
+            <circle cx="46" cy="13" r="0.9" fill="#FACC15" />
+          </svg>
+        );
+
+      case 'درختچه زیتون':
+        return (
+          <svg viewBox="0 0 64 64" fill="none" className="w-full h-full drop-shadow-sm" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id={`olivePot_${uid}`} x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#EA580C" />
+                <stop offset="100%" stopColor="#9A3412" />
               </linearGradient>
             </defs>
-            {/* Ceramic Pot */}
-            <path d="M23 47 L25 58 Q25 60 28 60 L36 60 Q39 60 39 58 L41 47 Z" fill="url(#orchidPot)" />
-            <rect x="21" y="44" width="22" height="4" rx="2" fill="#64748B" />
-            {/* Slender Arched Stem */}
-            <path d="M32 45 Q31 30 36 20 Q40 12 47 14" stroke="#15803D" strokeWidth="2.2" strokeLinecap="round" />
-            {/* Base Leaves */}
-            <ellipse cx="25" cy="46" rx="8" ry="3" transform="rotate(-15 25 46)" fill="#16A34A" />
-            <ellipse cx="39" cy="46" rx="8" ry="3" transform="rotate(15 39 46)" fill="#15803D" />
-            {/* Main Orchid Flower 1 */}
-            <circle cx="36" cy="20" r="5" fill="url(#orchidPetals)" />
-            <ellipse cx="32" cy="20" rx="3.5" ry="2" transform="rotate(-30 32 20)" fill="#F0ABFC" />
-            <ellipse cx="40" cy="20" rx="3.5" ry="2" transform="rotate(30 40 20)" fill="#F0ABFC" />
-            <circle cx="36" cy="21" r="2" fill="#C026D3" />
-            <circle cx="36" cy="21" r="0.8" fill="#FACC15" />
-            {/* Orchid Flower 2 (Top bud) */}
-            <circle cx="45" cy="14" r="4" fill="url(#orchidPetals)" />
-            <circle cx="45" cy="14.5" r="1.5" fill="#C026D3" />
+            <ellipse cx="32" cy="59" rx="13" ry="2" fill="#000" opacity="0.1" />
+            {/* Terracotta Planter */}
+            <path d="M22 46 L24 58 Q25 60 28 60 L36 60 Q39 60 40 58 L42 46 Z" fill={`url(#olivePot_${uid})`} />
+            <rect x="20" y="43" width="24" height="4" rx="2" fill="#9A3412" />
+            {/* Gnarled Olive Trunk */}
+            <path d="M32 45 Q30 36 34 28 Q37 20 32 14" stroke="#78350F" strokeWidth="3.2" strokeLinecap="round" />
+            <path d="M34 28 Q24 24 20 20" stroke="#78350F" strokeWidth="2.2" strokeLinecap="round" />
+            <path d="M34 24 Q44 21 47 18" stroke="#78350F" strokeWidth="2.2" strokeLinecap="round" />
+            {/* Silvery-green Olive Foliage Clusters */}
+            <ellipse cx="20" cy="18" rx="8" ry="5.5" fill="#4D7C0F" opacity="0.9" />
+            <ellipse cx="46" cy="17" rx="8" ry="5.5" fill="#3F6212" opacity="0.9" />
+            <ellipse cx="32" cy="12" rx="10" ry="7" fill="#65A30D" opacity="0.95" />
+            <ellipse cx="32" cy="10" rx="7" ry="4.5" fill="#A3E635" opacity="0.75" />
+            {/* Olives hanging */}
+            <circle cx="23" cy="22" r="2" fill="#1E1B4B" />
+            <circle cx="27" cy="25" r="1.8" fill="#4D7C0F" />
+            <circle cx="39" cy="21" r="2" fill="#1E1B4B" />
+            <circle cx="43" cy="23" r="1.8" fill="#365314" />
           </svg>
         );
 
       case 'ریحان و نعنا':
       default:
         return (
-          <svg viewBox="0 0 64 64" fill="none" className="w-full h-full drop-shadow-xs" xmlns="http://www.w3.org/2000/svg">
+          <svg viewBox="0 0 64 64" fill="none" className="w-full h-full drop-shadow-sm" xmlns="http://www.w3.org/2000/svg">
             <defs>
-              <linearGradient id="herbPot" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor="#A3B18A" />
-                <stop offset="100%" stopColor="#588157" />
+              <linearGradient id={`herbPot_${uid}`} x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#4D7C0F" />
+                <stop offset="100%" stopColor="#365314" />
               </linearGradient>
             </defs>
-            {/* Earthy Sage Pot */}
-            <path d="M22 46 L24 58 Q24 60 27 60 L37 60 Q40 60 40 58 L42 46 Z" fill="url(#herbPot)" />
-            <rect x="20" y="43" width="24" height="4" rx="2" fill="#3A5A40" />
+            <ellipse cx="32" cy="59" rx="13" ry="2" fill="#000" opacity="0.1" />
+            {/* Rustic Sage Pot */}
+            <path d="M21 45 L23 58 Q24 60 27 60 L37 60 Q40 60 41 58 L43 45 Z" fill={`url(#herbPot_${uid})`} />
+            <rect x="19" y="42" width="26" height="4.2" rx="2" fill="#365314" />
             {/* Stems */}
-            <path d="M32 44 L32 24" stroke="#344E41" strokeWidth="2.2" strokeLinecap="round" />
+            <path d="M32 44 L32 22" stroke="#14532D" strokeWidth="2.5" strokeLinecap="round" />
             {/* Lush Paired Basil & Mint Leaves */}
-            <ellipse cx="27" cy="38" rx="5.5" ry="4" transform="rotate(-25 27 38)" fill="#588157" />
-            <ellipse cx="37" cy="38" rx="5.5" ry="4" transform="rotate(25 37 38)" fill="#3A5A40" />
-            <ellipse cx="25" cy="29" rx="6.5" ry="4.5" transform="rotate(-30 25 29)" fill="#84A98C" />
-            <ellipse cx="39" cy="29" rx="6.5" ry="4.5" transform="rotate(30 39 29)" fill="#588157" />
-            <circle cx="32" cy="19" r="6.5" fill="#A7C957" />
-            <circle cx="32" cy="14" r="4.5" fill="#6A994E" />
-            <path d="M32 12 L32 23" stroke="#F1FAEE" strokeWidth="1" opacity="0.6" strokeLinecap="round" />
+            <ellipse cx="25" cy="37" rx="6.5" ry="4.8" transform="rotate(-25 25 37)" fill="#15803D" />
+            <ellipse cx="39" cy="37" rx="6.5" ry="4.8" transform="rotate(25 39 37)" fill="#16A34A" />
+            <ellipse cx="23" cy="27" rx="7.5" ry="5.2" transform="rotate(-30 23 27)" fill="#22C55E" />
+            <ellipse cx="41" cy="27" rx="7.5" ry="5.2" transform="rotate(30 41 27)" fill="#15803D" />
+            {/* Center Bushy Dome */}
+            <circle cx="32" cy="18" r="7.5" fill="#4ADE80" />
+            <circle cx="32" cy="12" r="5.5" fill="#86EFAC" />
+            <path d="M32 10 L32 22" stroke="#F0FDF4" strokeWidth="1.2" opacity="0.7" strokeLinecap="round" />
           </svg>
         );
     }
   };
 
   return (
-    <div className={`inline-flex items-center justify-center shrink-0 ${sizeMap[size]} ${animClass} ${className}`}>
+    <div className={`inline-flex items-center justify-center shrink-0 ${sizeMap[size] || sizeMap.md} ${animClass} ${className}`}>
       {renderSVG()}
     </div>
   );

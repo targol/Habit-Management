@@ -7,7 +7,7 @@ import {
   PERSIAN_MONTHS, 
   getCurrentPersianDateTimeString 
 } from '../calendar/jalali';
-import { X, Target, Calendar, Folder, Sprout, Check, Sparkles, Edit3, AlertCircle } from 'lucide-react';
+import { X, Target, Calendar, Folder, Sprout, Check, Sparkles, Edit3, AlertCircle, Lock } from 'lucide-react';
 import { PlantIcon, ALL_PLANT_TYPES } from './PlantIcon';
 
 interface Props {
@@ -458,38 +458,61 @@ export const GoalModal: React.FC<Props> = ({
               </div>
             </div>
 
-            {/* Visual Category Chips */}
-            <div className="flex flex-wrap gap-1.5">
-              {categories.map((c) => {
-                const isSelected = categoryId === c.id;
-                return (
-                  <button
-                    key={c.id}
-                    type="button"
-                    onClick={() => handleCategorySelect(c.id)}
-                    className={`px-2.5 py-1.5 rounded-lg font-semibold text-xs transition-all cursor-pointer flex items-center gap-1.5 border ${
-                      isSelected
-                        ? 'text-white shadow-xs font-bold'
-                        : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-100'
-                    }`}
+            {/* Visual Category Chips or Locked Inherited Info */}
+            {parentGoal ? (
+              <div className="p-2.5 rounded-lg bg-emerald-50/80 border border-emerald-200 text-emerald-900 text-xs flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Lock className="w-4 h-4 text-emerald-700 shrink-0" />
+                  <span>
+                    دسته‌بندی این مرحله میانی یکسان با هدف مادر («{parentGoal.title}») است و به طور خودکار تعیین شده است.
+                  </span>
+                </div>
+                {selectedCategory && (
+                  <span
+                    className="px-2 py-0.5 rounded-md font-bold text-[11px] shrink-0 border"
                     style={{
-                      backgroundColor: isSelected ? c.colorHex : undefined,
-                      borderColor: isSelected ? c.colorHex : `${c.colorHex}40`,
+                      backgroundColor: `${selectedCategory.colorHex}20`,
+                      color: selectedCategory.colorHex,
+                      borderColor: `${selectedCategory.colorHex}50`,
                     }}
                   >
-                    <span
-                      className="w-2 h-2 rounded-full shrink-0"
-                      style={{ backgroundColor: isSelected ? '#ffffff' : c.colorHex }}
-                    />
-                    <span>{c.title}</span>
-                    {c.plantType && (
-                      <span className="text-[10px] opacity-80">({c.plantType})</span>
-                    )}
-                    {isSelected && <Check className="w-3 h-3 text-white mr-0.5" />}
-                  </button>
-                );
-              })}
-            </div>
+                    {selectedCategory.title}
+                  </span>
+                )}
+              </div>
+            ) : (
+              <div className="flex flex-wrap gap-1.5">
+                {categories.map((c) => {
+                  const isSelected = categoryId === c.id;
+                  return (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => handleCategorySelect(c.id)}
+                      className={`px-2.5 py-1.5 rounded-lg font-semibold text-xs transition-all cursor-pointer flex items-center gap-1.5 border ${
+                        isSelected
+                          ? 'text-white shadow-xs font-bold'
+                          : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-100'
+                      }`}
+                      style={{
+                        backgroundColor: isSelected ? c.colorHex : undefined,
+                        borderColor: isSelected ? c.colorHex : `${c.colorHex}40`,
+                      }}
+                    >
+                      <span
+                        className="w-2 h-2 rounded-full shrink-0"
+                        style={{ backgroundColor: isSelected ? '#ffffff' : c.colorHex }}
+                      />
+                      <span>{c.title}</span>
+                      {c.plantType && (
+                        <span className="text-[10px] opacity-80">({c.plantType})</span>
+                      )}
+                      {isSelected && <Check className="w-3 h-3 text-white mr-0.5" />}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           {/* Vision Why */}

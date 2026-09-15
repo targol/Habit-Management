@@ -24,10 +24,24 @@
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
     <script>
+      // Ensure preview in iframe does not get intercepted or cached by service workers
       if ('serviceWorker' in navigator) {
-        window.addEventListener('load', () => {
-          navigator.serviceWorker.register('./sw.js').catch(console.error);
-        });
+        if (window.self !== window.top) {
+          // Inside preview iframe: unregister any workers to ensure live reload and fresh preview
+          navigator.serviceWorker.getRegistrations().then(function(registrations) {
+            for (var i = 0; i < registrations.length; i++) {
+              registrations[i].unregister();
+            }
+          }).catch(function() {});
+        } else if (window.location.protocol === 'https:' || window.location.hostname === 'localhost') {
+          window.addEventListener('load', () => {
+            navigator.serviceWorker.register('./sw.js')
+              .then((reg) => {
+                if (reg && reg.update) reg.update();
+              })
+              .catch(console.error);
+          });
+        }
       }
     </script>
   </body>

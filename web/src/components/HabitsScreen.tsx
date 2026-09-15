@@ -23,6 +23,7 @@ import {
   Filter
 } from 'lucide-react';
 import { PlantIcon } from './PlantIcon';
+import { EntityBadge, EntityIcon } from './EntityIcon';
 
 interface Props {
   habits: Habit[];
@@ -225,6 +226,8 @@ export const HabitsScreen: React.FC<Props> = ({
                           {h.title}
                         </h3>
                         <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                          <EntityBadge type="HABIT" size="xs" />
+
                           {cat && (
                             <span
                               className="text-[10px] font-bold px-2 py-0.5 rounded-md border"
@@ -243,10 +246,11 @@ export const HabitsScreen: React.FC<Props> = ({
                           </span>
 
                           {goal && (
-                            <span className="text-[10px] font-medium text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md border border-indigo-100 flex items-center gap-1 max-w-[120px] truncate">
-                              <Target className="w-2.5 h-2.5 shrink-0" />
-                              <span className="truncate">{goal.title}</span>
-                            </span>
+                            <EntityBadge
+                              type={goal.period === 'ANNUAL' ? 'ANNUAL_GOAL' : 'INTERMEDIATE_GOAL'}
+                              customLabel={goal.title}
+                              size="xs"
+                            />
                           )}
                         </div>
                       </div>
