@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Goal, AppTask, Habit, GoalStatus, Category } from '../types';
 import { toPersianDigits, PERSIAN_MONTHS, getTodayJalali, jalaliToFormattedString, parseJalaliString } from '../calendar/jalali';
 import { 
@@ -22,12 +22,22 @@ import {
   Sliders,
   Repeat,
   AlertCircle,
-  X
+  X,
+  Search,
+  LayoutGrid,
+  ListTree,
+  Eye,
+  EyeOff,
+  Copy
 } from 'lucide-react';
 import { PlantIcon } from './PlantIcon';
 import { GoalProgressModal } from './GoalProgressModal';
 import { TransferPeriodItemsModal } from './TransferPeriodItemsModal';
 import { EntityIcon, EntityBadge } from './EntityIcon';
+import { SeasonBadge } from './SeasonBadge';
+import { TransferTaskModal } from './TransferTaskModal';
+import { SeasonGardenCard } from './SeasonGardenCard';
+import { YearGardenOverviewCard } from './YearGardenOverviewCard';
 
 interface Props {
   goals: Goal[];
@@ -46,6 +56,7 @@ interface Props {
   onOpenTimer: (title: string, minutes: number, onDone: () => void) => void;
   onUpdateGoalProgress?: (goalId: string, manualProgress: number | null, isManualActive: boolean) => void;
   onTransferSeasonItems?: (fromGoalId: string, targetSeasonIndex?: number) => void;
+  onDeleteCategory?: (catId: string) => void;
   onTransferGoalItems?: (
     fromGoalId: string,
     targetGoalId: string,
@@ -59,6 +70,17 @@ interface Props {
     targetMonthIndex?: number,
     targetYear?: number
   ) => void;
+  onCloseGoalPendingItems?: (goalId: string) => void;
+  onTransferTask?: (taskId: string, targetGoalId: string | null, closeTask: boolean, noteAppend?: string) => void;
+  onCreateSeasonalGoalAndTransfer?: (
+    taskId: string, 
+    seasonIdx: number, 
+    year: number, 
+    title: string,
+    parentAnnualId?: string | null, 
+    categoryId?: string
+  ) => void;
+  onDuplicateTask?: (task: AppTask) => void;
 }
 
 const SEASON_CONFIG = [
@@ -113,37 +135,82 @@ export const GoalsScreen: React.FC<Props> = ({
   onOpenTimer,
   onUpdateGoalProgress,
   onTransferSeasonItems,
+  onDeleteCategory,
+  onTransferGoalItems,
+  onCreateTargetAndTransfer,
+  onCloseGoalPendingItems,
+  onTransferTask,
+  onCreateSeasonalGoalAndTransfer,
+  onDuplicateTask,
 }) => {
   const today = getTodayJalali();
   const todayStr = jalaliToFormattedString(today);
   const currentSeasonIdx = Math.floor((today.month - 1) / 3);
 
   // States
+  const [viewMode, setViewMode] = useState<'TREE' | 'SEASONS'>('TREE');
+  const [searchQuery, setSearchQuery] = useState('');
   const [expandedGoals, setExpandedGoals] = useState<Record<string, boolean>>({});
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>('ALL');
   const [selectedYearFilter, setSelectedYearFilter] = useState<string | number>('ALL');
+  const [categoryToDelete, setCategoryToDelete] = useState<Category | null>(null);
 
   // Modal states for Progress adjustment & Transfer
   const [selectedGoalForProgress, setSelectedGoalForProgress] = useState<Goal | null>(null);
   const [transferGoal, setTransferGoal] = useState<Goal | null>(null);
+  const [taskToTransfer, setTaskToTransfer] = useState<AppTask | null>(null);
   const [dismissedRolloverNotice, setDismissedRolloverNotice] = useState<boolean>(false);
 
+  // Sanitize and flatten goals array so nested arrays can never break rendering
+  const cleanGoals = useMemo(() => {
+    if (!Array.isArray(goals)) return [];
+    const flat: Goal[] = [];
+    function walk(item: any) {
+      if (!item) return;
+      if (Array.isArray(item)) {
+        item.forEach(walk);
+      } else if (typeof item === 'object' && item.id && item.title) {
+        flat.push({
+          ...item,
+          history: Array.isArray(item.history) ? item.history : [],
+        });
+      }
+    }
+    goals.forEach(walk);
+    return flat;
+  }, [goals]);
+
   const toggleExpand = (goalId: string) => {
-    setExpandedGoals(prev => ({ ...prev, [goalId]: !prev[goalId] }));
+    setExpandedGoals(prev => {
+      const current = prev[goalId] !== undefined ? prev[goalId] : true;
+      return { ...prev, [goalId]: !current };
+    });
+  };
+
+  const handleExpandAll = () => {
+    const next: Record<string, boolean> = {};
+    topLevelGoals.forEach(g => { next[g.id] = true; });
+    setExpandedGoals(next);
+  };
+
+  const handleCollapseAll = () => {
+    const next: Record<string, boolean> = {};
+    topLevelGoals.forEach(g => { next[g.id] = false; });
+    setExpandedGoals(next);
   };
 
   // Recursively collect all descendant IDs with cycle prevention
   const getGoalDescendantIds = (goalId: string, visited = new Set<string>()): string[] => {
     if (visited.has(goalId)) return [];
     visited.add(goalId);
-    const directChildren = (goals || []).filter(g => g && g.parentId === goalId && g.id !== goalId);
+    const directChildren = cleanGoals.filter(g => g && g.parentId === goalId && g.id !== goalId);
     const grandChildIds = directChildren.flatMap(c => getGoalDescendantIds(c.id, visited));
     return [goalId, ...directChildren.map(c => c.id), ...grandChildIds];
   };
 
   // Compute automatic progress for a goal based on linked tasks and habits
   const calculateAutoGoalProgress = (goalId: string): number => {
-    const targetGoal = (goals || []).find(g => g && g.id === goalId);
+    const targetGoal = cleanGoals.find(g => g && g.id === goalId);
     if (!targetGoal) return 0;
 
     // A goal for a future season or future month that has not arrived yet should NOT score automatically (0%)
@@ -154,22 +221,31 @@ export const GoalsScreen: React.FC<Props> = ({
     if (goalYear === today.year) {
       if (targetGoal.period === 'SEASONAL' && targetGoal.seasonIndex !== undefined) {
         if (targetGoal.seasonIndex > currentSeasonIdx) {
-          // Future season in the current year: has not arrived yet!
           return 0;
         }
       }
       if (targetGoal.period === 'MONTHLY' && targetGoal.monthIndex !== undefined) {
         if (targetGoal.monthIndex > today.month) {
-          // Future month in the current year: has not arrived yet!
           return 0;
         }
       }
     }
 
     const allRelevantGoalIds = getGoalDescendantIds(goalId);
-
     const linkedTasks = (tasks || []).filter(t => t && t.goalId && allRelevantGoalIds.includes(t.goalId));
-    const linkedHabits = (habits || []).filter(h => h && h.goalId && allRelevantGoalIds.includes(h.goalId));
+    
+    // Direct or descendant habits
+    const directHabits = (habits || []).filter(h => h && h.goalId && allRelevantGoalIds.includes(h.goalId));
+    
+    // An active habit linked to an annual goal inherits to all seasonal subgoals under it
+    const inheritedAnnualHabits = (targetGoal.period === 'SEASONAL' && targetGoal.parentId)
+      ? (habits || []).filter(h => h && h.goalId === targetGoal.parentId && !h.isClosed)
+      : [];
+
+    const habitsMap = new Map<string, Habit>();
+    directHabits.forEach(h => habitsMap.set(h.id, h));
+    inheritedAnnualHabits.forEach(h => habitsMap.set(h.id, h));
+    const linkedHabits = Array.from(habitsMap.values());
 
     if (linkedTasks.length === 0 && linkedHabits.length === 0) {
       return 0;
@@ -193,7 +269,6 @@ export const GoalsScreen: React.FC<Props> = ({
           const parsed = parseJalaliString(dateStr);
           if (!parsed) return;
 
-          // For seasonal/monthly goals, only count habit checks within the goal's relevant period
           if (targetGoal.year && parsed.year !== targetGoal.year) return;
 
           if (targetGoal.period === 'SEASONAL' && targetGoal.seasonIndex !== undefined) {
@@ -210,7 +285,6 @@ export const GoalsScreen: React.FC<Props> = ({
         });
       });
 
-      // Calibrate habit contribution based on checks within the timeframe
       const habitPortion = Math.min(1, totalHabitChecks / (linkedHabits.length * 10));
       score += habitPortion * 40;
       maxScore += 40;
@@ -231,18 +305,19 @@ export const GoalsScreen: React.FC<Props> = ({
     return { progress: auto, isManual: false, auto };
   };
 
-  const topLevelGoals = (goals || [])
-    .filter(g => !g.parentId || g.period === 'ANNUAL' || !goals.some(p => p.id === g.parentId))
-    .sort((a, b) => {
-      // Annual goals: sort by year descending (latest first), then by creation date
-      const aYear = a.year || today.year;
-      const bYear = b.year || today.year;
-      if (aYear !== bYear) return bYear - aYear;
-      return (a.createdAt || '').localeCompare(b.createdAt || '');
-    });
+  const topLevelGoals = useMemo(() => {
+    return cleanGoals
+      .filter(g => !g.parentId || g.period === 'ANNUAL' || !cleanGoals.some(p => p.id === g.parentId))
+      .sort((a, b) => {
+        const aYear = a.year || today.year;
+        const bYear = b.year || today.year;
+        if (aYear !== bYear) return bYear - aYear;
+        return (a.createdAt || '').localeCompare(b.createdAt || '');
+      });
+  }, [cleanGoals, today.year]);
 
   const getSubGoals = (parentId: string) => {
-    const list = (goals || []).filter(g => g.parentId === parentId);
+    const list = cleanGoals.filter(g => g.parentId === parentId);
     return list.sort((a, b) => {
       // 1. Both seasonal: sort chronologically by seasonIndex (0: بهار, 1: تابستان, 2: پاییز, 3: زمستان)
       if (a.period === 'SEASONAL' && b.period === 'SEASONAL') {
@@ -278,14 +353,29 @@ export const GoalsScreen: React.FC<Props> = ({
     });
   };
   const getTasksForGoal = (goalId: string) => (tasks || []).filter(t => t.goalId === goalId);
-  const getHabitsForGoal = (goalId: string) => (habits || []).filter(h => h.goalId === goalId);
+  const getHabitsForGoal = (goalId: string) => {
+    const goal = cleanGoals.find(g => g.id === goalId);
+    const direct = (habits || []).filter(h => h.goalId === goalId);
+    if (goal?.period === 'SEASONAL') {
+      const parentGoal = goal.parentId
+        ? cleanGoals.find(p => p.id === goal.parentId)
+        : cleanGoals.find(p => p.period === 'ANNUAL' && p.categoryId === goal.categoryId && (p.year === goal.year || !goal.year));
+      if (parentGoal?.period === 'ANNUAL') {
+        const annualHabits = (habits || []).filter(h => h.goalId === parentGoal.id && !h.isClosed);
+        const directIds = new Set(direct.map(h => h.id));
+        const inherited = annualHabits.filter(h => !directIds.has(h.id));
+        return [...direct, ...inherited];
+      }
+    }
+    return direct;
+  };
 
   // Available unique years in goals
-  const availableYears = Array.from(new Set(goals.map(g => g.year || today.year))).sort((a, b) => a - b);
-  if (!availableYears.includes(today.year)) {
-    availableYears.push(today.year);
-    availableYears.sort((a, b) => a - b);
-  }
+  const availableYears = useMemo(() => {
+    const setYears = new Set(cleanGoals.map(g => g.year || today.year));
+    if (!setYears.has(today.year)) setYears.add(today.year);
+    return Array.from(setYears).sort((a, b) => a - b);
+  }, [cleanGoals, today.year]);
 
   const getStatusBadge = (s: GoalStatus) => {
     switch (s) {
@@ -303,32 +393,79 @@ export const GoalsScreen: React.FC<Props> = ({
 
   const getCategory = (catId?: string) => categories.find(c => c.id === catId);
 
-  // Filtered top-level goals by Category and Year
-  const filteredTopLevelGoals = topLevelGoals.filter(g => {
-    if (selectedCategoryFilter !== 'ALL' && g.categoryId !== selectedCategoryFilter) {
-      return false;
-    }
-    if (selectedYearFilter !== 'ALL' && g.year !== Number(selectedYearFilter)) {
-      return false;
-    }
-    return true;
-  });
+  // Filtered top-level goals by Category, Year, and Search
+  const filteredTopLevelGoals = useMemo(() => {
+    return topLevelGoals.filter(g => {
+      if (selectedCategoryFilter !== 'ALL' && g.categoryId !== selectedCategoryFilter) {
+        return false;
+      }
+      if (selectedYearFilter !== 'ALL' && g.year !== Number(selectedYearFilter)) {
+        return false;
+      }
+      if (searchQuery.trim()) {
+        const q = searchQuery.trim().toLowerCase();
+        const matchesTitle = g.title.toLowerCase().includes(q);
+        const matchesDesc = (g.description || '').toLowerCase().includes(q);
+        const children = getSubGoals(g.id);
+        const matchesChild = children.some(c => 
+          c.title.toLowerCase().includes(q) || (c.description || '').toLowerCase().includes(q)
+        );
+        return matchesTitle || matchesDesc || matchesChild;
+      }
+      return true;
+    });
+  }, [topLevelGoals, selectedCategoryFilter, selectedYearFilter, searchQuery, cleanGoals]);
+
+  // Seasonal Matrix: grouped by seasonIndex (0: بهار, 1: تابستان, 2: پاییز, 3: زمستان)
+  const seasonalGoalsBySeason = useMemo(() => {
+    const effYear = selectedYearFilter !== 'ALL' ? Number(selectedYearFilter) : today.year;
+    const grouped: Record<number, Array<{ goal: Goal; parentAnnual?: Goal }>> = {
+      0: [],
+      1: [],
+      2: [],
+      3: [],
+    };
+
+    cleanGoals.forEach(g => {
+      if (g.period === 'SEASONAL' && g.seasonIndex !== undefined) {
+        const gYear = g.year || today.year;
+        if (selectedYearFilter !== 'ALL' && gYear !== effYear) return;
+        if (selectedCategoryFilter !== 'ALL' && g.categoryId !== selectedCategoryFilter) return;
+        if (searchQuery.trim()) {
+          const q = searchQuery.trim().toLowerCase();
+          const matches = g.title.toLowerCase().includes(q) || (g.description || '').toLowerCase().includes(q);
+          const parent = g.parentId ? cleanGoals.find(p => p.id === g.parentId) : undefined;
+          const parentMatches = parent ? parent.title.toLowerCase().includes(q) : false;
+          if (!matches && !parentMatches) return;
+        }
+
+        const parentAnnual = g.parentId ? cleanGoals.find(p => p.id === g.parentId) : undefined;
+        if (g.seasonIndex >= 0 && g.seasonIndex <= 3) {
+          grouped[g.seasonIndex].push({ goal: g, parentAnnual });
+        }
+      }
+    });
+
+    return grouped;
+  }, [cleanGoals, selectedYearFilter, selectedCategoryFilter, searchQuery, today.year]);
 
   // Find any past goals (seasonal, monthly, or past year) with pending uncompleted items
-  const pastGoalsWithPending = goals.filter(g => {
-    let isPast = false;
-    if (g.period === 'SEASONAL' && g.seasonIndex !== undefined) {
-      isPast = g.year < today.year || (g.year === today.year && g.seasonIndex < currentSeasonIdx);
-    } else if (g.period === 'MONTHLY' && g.monthIndex !== undefined) {
-      isPast = g.year < today.year || (g.year === today.year && g.monthIndex < today.month);
-    } else if (g.period === 'ANNUAL') {
-      isPast = g.year < today.year;
-    }
-    if (!isPast) return false;
-    const pendingTasks = tasks.filter(t => t.goalId === g.id && !t.isCompleted);
-    const linkedHabits = habits.filter(h => h.goalId === g.id);
-    return pendingTasks.length > 0 || linkedHabits.length > 0;
-  });
+  const pastGoalsWithPending = useMemo(() => {
+    return cleanGoals.filter(g => {
+      let isPast = false;
+      if (g.period === 'SEASONAL' && g.seasonIndex !== undefined) {
+        isPast = g.year < today.year || (g.year === today.year && g.seasonIndex < currentSeasonIdx);
+      } else if (g.period === 'MONTHLY' && g.monthIndex !== undefined) {
+        isPast = g.year < today.year || (g.year === today.year && g.monthIndex < today.month);
+      } else if (g.period === 'ANNUAL') {
+        isPast = g.year < today.year;
+      }
+      if (!isPast) return false;
+      const pendingTasks = (tasks || []).filter(t => t.goalId === g.id && !t.isCompleted);
+      const linkedHabits = (habits || []).filter(h => h.goalId === g.id);
+      return pendingTasks.length > 0 || linkedHabits.length > 0;
+    });
+  }, [cleanGoals, today.year, today.month, currentSeasonIdx, tasks, habits]);
 
   const firstPendingRolloverGoal = pastGoalsWithPending[0];
 
@@ -338,39 +475,215 @@ export const GoalsScreen: React.FC<Props> = ({
 
   return (
     <div className="space-y-4 animate-fade-in pb-14" dir="rtl">
-      {/* Header & Quick Action */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-emerald-100 shadow-xs">
-        <div>
-          <h2 className="text-base font-bold text-gray-900 flex items-center gap-2">
-            <Target className="w-5 h-5 text-emerald-600" />
-            <span>اهداف و برنامه‌ریزی</span>
-            <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
-              {toPersianDigits(goals.length)} هدف
-            </span>
-          </h2>
-          <p className="text-xs text-gray-400 mt-0.5">
-            اهداف سالانه، گام‌های میانی فصلی و اقدامات اجرایی
-          </p>
+      {/* Sticky Header & Navigation Toolbar */}
+      <div className="sticky -top-5 z-20 pt-5 pb-2.5 bg-[#F8F9F5]/95 backdrop-blur-md space-y-2.5 -mx-4 px-4 sm:mx-0 sm:px-0">
+        {/* Header & Quick Action */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-emerald-100 shadow-xs">
+          <div>
+            <h2 className="text-base font-bold text-gray-900 flex items-center gap-2">
+              <Target className="w-5 h-5 text-emerald-600" />
+              <span>اهداف و برنامه‌ریزی</span>
+              <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                {toPersianDigits(goals.length)} هدف
+              </span>
+            </h2>
+            <p className="text-xs text-gray-400 mt-0.5">
+              اهداف سالانه، گام‌های میانی فصلی و اقدامات اجرایی
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={onOpenAnnualWizard}
+              className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>طراحی هدف سالانه</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => onNewGoal(null, 'ANNUAL')}
+              className="px-3 py-2 bg-gray-50 hover:bg-gray-100 text-gray-700 text-xs font-semibold rounded-xl border border-gray-200 flex items-center gap-1 transition-colors cursor-pointer"
+            >
+              <Plus className="w-3.5 h-3.5 text-emerald-600" />
+              <span>هدف جدید</span>
+            </button>
+          </div>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
-          <button
-            type="button"
-            onClick={onOpenAnnualWizard}
-            className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs flex items-center gap-1.5 transition-colors cursor-pointer"
-          >
-            <Sparkles className="w-3.5 h-3.5" />
-            <span>طراحی هدف سالانه</span>
-          </button>
+        {/* Navigation & Search Toolbar */}
+        <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 bg-white p-3 rounded-2xl border border-gray-200 text-xs shadow-2xs">
+          {/* View Mode Switcher */}
+          <div className="flex items-center gap-1 bg-gray-100 p-1 rounded-xl shrink-0">
+            <button
+              type="button"
+              onClick={() => setViewMode('TREE')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                viewMode === 'TREE'
+                  ? 'bg-white text-emerald-900 shadow-xs'
+                  : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              <ListTree className="w-3.5 h-3.5 text-emerald-700" />
+              <span>ساختار سالانه</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('SEASONS')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                viewMode === 'SEASONS'
+                  ? 'bg-white text-amber-950 shadow-xs'
+                  : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              <LayoutGrid className="w-3.5 h-3.5 text-amber-700" />
+              <span>تفکیک فصلی (۴ فصل)</span>
+              <span className="text-[10px] bg-amber-100 text-amber-900 font-extrabold px-1.5 py-0.2 rounded-full">
+                ویژه
+              </span>
+            </button>
+          </div>
 
-          <button
-            type="button"
-            onClick={() => onNewGoal(null, 'ANNUAL')}
-            className="px-3 py-2 bg-gray-50 hover:bg-gray-100 text-gray-700 text-xs font-semibold rounded-xl border border-gray-200 flex items-center gap-1 transition-colors cursor-pointer"
-          >
-            <Plus className="w-3.5 h-3.5 text-emerald-600" />
-            <span>هدف جدید</span>
-          </button>
+          {/* Live Search Box */}
+          <div className="relative flex-1 min-w-[200px]">
+            <Search className="w-3.5 h-3.5 text-gray-400 absolute right-3 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="جستجو در اهداف، گام‌های فصلی و ماهانه (مثلاً: دو، شنا...)"
+              className="w-full pr-8 pl-8 py-1.5 rounded-xl border border-gray-200 bg-gray-50/60 focus:bg-white text-xs font-medium text-gray-900 focus:border-emerald-500 outline-hidden placeholder:text-gray-400 transition-colors"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-0.5 cursor-pointer"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+
+          {/* Tree Expand / Collapse Controls */}
+          {viewMode === 'TREE' && (
+            <div className="flex items-center gap-1.5 shrink-0 self-end md:self-auto">
+              <button
+                type="button"
+                onClick={handleExpandAll}
+                className="px-2.5 py-1 text-[11px] font-bold text-gray-700 hover:text-gray-900 bg-gray-50 hover:bg-gray-100 rounded-lg border border-gray-200 flex items-center gap-1 cursor-pointer transition-colors"
+                title="باز کردن همه اهداف برای دیدن تمام گام‌های فصلی"
+              >
+                <Eye className="w-3 h-3 text-emerald-600" />
+                <span>باز کردن همه</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleCollapseAll}
+                className="px-2.5 py-1 text-[11px] font-bold text-gray-700 hover:text-gray-900 bg-gray-50 hover:bg-gray-100 rounded-lg border border-gray-200 flex items-center gap-1 cursor-pointer transition-colors"
+                title="بستن کارت‌های اهداف"
+              >
+                <EyeOff className="w-3 h-3 text-gray-400" />
+                <span>بستن همه</span>
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Minimal Filter Pills: Year & Category */}
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 bg-white p-3 rounded-2xl border border-gray-200 text-xs shadow-2xs">
+          {/* Year Filter */}
+          <div className="flex items-center gap-1.5 overflow-x-auto w-full sm:w-auto pb-1 sm:pb-0 no-scrollbar">
+            <span className="text-[11px] font-bold text-gray-500 shrink-0 ml-1">سال:</span>
+            <button
+              type="button"
+              onClick={() => setSelectedYearFilter('ALL')}
+              className={`px-2.5 py-1 rounded-lg font-bold transition-all shrink-0 cursor-pointer ${
+                selectedYearFilter === 'ALL'
+                  ? 'bg-emerald-700 text-white shadow-xs'
+                  : 'bg-gray-50 text-gray-600 hover:bg-gray-100'
+              }`}
+            >
+              همه
+            </button>
+            {availableYears.map((y) => {
+              const isSelected = selectedYearFilter === y;
+              const isCurrentYear = y === today.year;
+              return (
+                <button
+                  key={y}
+                  type="button"
+                  onClick={() => setSelectedYearFilter(y)}
+                  className={`px-2.5 py-1 rounded-lg font-semibold transition-all shrink-0 cursor-pointer border ${
+                    isSelected
+                      ? 'bg-emerald-700 text-white border-emerald-800 shadow-xs font-bold'
+                      : isCurrentYear
+                      ? 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
+                      : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
+                  }`}
+                >
+                  {toPersianDigits(y)} {isCurrentYear && '(امسال)'}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Category Filter */}
+          <div className="flex items-center gap-1.5 overflow-x-auto w-full sm:w-auto pb-1 sm:pb-0 no-scrollbar">
+            <span className="text-[11px] font-bold text-gray-500 shrink-0 ml-1">دسته:</span>
+            <button
+              type="button"
+              onClick={() => setSelectedCategoryFilter('ALL')}
+              className={`px-2.5 py-1 rounded-lg font-bold transition-all shrink-0 cursor-pointer ${
+                selectedCategoryFilter === 'ALL'
+                  ? 'bg-emerald-700 text-white shadow-xs'
+                  : 'bg-gray-50 text-gray-600 hover:bg-gray-100'
+              }`}
+            >
+              همه
+            </button>
+            {categories.map((c) => {
+              const isSelected = selectedCategoryFilter === c.id;
+              return (
+                <div key={c.id} className="inline-flex items-center shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedCategoryFilter(c.id)}
+                    className={`px-2.5 py-1 rounded-lg font-semibold transition-all shrink-0 cursor-pointer flex items-center gap-1 border ${
+                      isSelected
+                        ? 'text-white font-bold shadow-xs'
+                        : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
+                    }`}
+                    style={{
+                      backgroundColor: isSelected ? c.colorHex : undefined,
+                      borderColor: isSelected ? c.colorHex : `${c.colorHex}30`,
+                    }}
+                  >
+                    <span
+                      className="w-1.5 h-1.5 rounded-full"
+                      style={{ backgroundColor: isSelected ? '#ffffff' : c.colorHex }}
+                    />
+                    <span>{c.title}</span>
+                    {isSelected && onDeleteCategory && categories.length > 1 && (
+                      <span
+                        role="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setCategoryToDelete(c);
+                        }}
+                        title="حذف این دسته"
+                        className="mr-1 p-0.5 rounded-full hover:bg-black/25 text-white transition-colors"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </span>
+                    )}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
         </div>
       </div>
 
@@ -410,88 +723,320 @@ export const GoalsScreen: React.FC<Props> = ({
         </div>
       )}
 
-      {/* Minimal Filter Pills: Year & Category */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 bg-white p-3 rounded-2xl border border-gray-200 text-xs">
-        {/* Year Filter */}
-        <div className="flex items-center gap-1.5 overflow-x-auto w-full sm:w-auto pb-1 sm:pb-0 no-scrollbar">
-          <span className="text-[11px] font-bold text-gray-500 shrink-0 ml-1">سال:</span>
-          <button
-            type="button"
-            onClick={() => setSelectedYearFilter('ALL')}
-            className={`px-2.5 py-1 rounded-lg font-bold transition-all shrink-0 cursor-pointer ${
-              selectedYearFilter === 'ALL'
-                ? 'bg-emerald-700 text-white shadow-xs'
-                : 'bg-gray-50 text-gray-600 hover:bg-gray-100'
-            }`}
-          >
-            همه
-          </button>
-          {availableYears.map((y) => {
-            const isSelected = selectedYearFilter === y;
-            const isCurrentYear = y === today.year;
-            return (
-              <button
-                key={y}
-                type="button"
-                onClick={() => setSelectedYearFilter(y)}
-                className={`px-2.5 py-1 rounded-lg font-semibold transition-all shrink-0 cursor-pointer border ${
-                  isSelected
-                    ? 'bg-emerald-700 text-white border-emerald-800 shadow-xs font-bold'
-                    : isCurrentYear
-                    ? 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
-                    : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
-                }`}
-              >
-                {toPersianDigits(y)} {isCurrentYear && '(امسال)'}
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Category Filter */}
-        <div className="flex items-center gap-1.5 overflow-x-auto w-full sm:w-auto pb-1 sm:pb-0 no-scrollbar">
-          <span className="text-[11px] font-bold text-gray-500 shrink-0 ml-1">دسته:</span>
-          <button
-            type="button"
-            onClick={() => setSelectedCategoryFilter('ALL')}
-            className={`px-2.5 py-1 rounded-lg font-bold transition-all shrink-0 cursor-pointer ${
-              selectedCategoryFilter === 'ALL'
-                ? 'bg-emerald-700 text-white shadow-xs'
-                : 'bg-gray-50 text-gray-600 hover:bg-gray-100'
-            }`}
-          >
-            همه
-          </button>
-          {categories.map((c) => {
-            const isSelected = selectedCategoryFilter === c.id;
-            return (
-              <button
-                key={c.id}
-                type="button"
-                onClick={() => setSelectedCategoryFilter(c.id)}
-                className={`px-2.5 py-1 rounded-lg font-semibold transition-all shrink-0 cursor-pointer flex items-center gap-1 border ${
-                  isSelected
-                    ? 'text-white font-bold shadow-xs'
-                    : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
-                }`}
-                style={{
-                  backgroundColor: isSelected ? c.colorHex : undefined,
-                  borderColor: isSelected ? c.colorHex : `${c.colorHex}30`,
-                }}
-              >
-                <span
-                  className="w-1.5 h-1.5 rounded-full"
-                  style={{ backgroundColor: isSelected ? '#ffffff' : c.colorHex }}
-                />
-                <span>{c.title}</span>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
       {/* Main Content: Goals Cards List */}
-      {goals.length === 0 ? (
+      {viewMode === 'SEASONS' ? (
+        /* Seasonal View: All 4 seasons laid out with all seasonal goals */
+        <div className="space-y-6">
+          <div className="bg-emerald-50/70 border border-emerald-200/80 rounded-2xl p-3.5 flex items-center justify-between gap-3 text-xs">
+            <div className="flex items-center gap-2">
+              <span className="text-xl">🍂</span>
+              <div>
+                <h4 className="font-extrabold text-emerald-950">نمای تفکیک فصلی اهداف</h4>
+                <p className="text-emerald-800 text-[11px] mt-0.5">
+                  تمام اهداف میانی فصلی در ۴ فصل سال به همراه تسک‌ها و عادات متصل به آن‌ها
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={onOpenAnnualWizard}
+              className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-xl transition-colors cursor-pointer shadow-xs shrink-0 flex items-center gap-1"
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>هدف‌گذاری سالانه و فصلی</span>
+            </button>
+          </div>
+
+          {/* Annual Garden Overview Card */}
+          <YearGardenOverviewCard
+            goals={cleanGoals}
+            tasks={tasks}
+            habits={habits}
+            targetYear={typeof selectedYearFilter === 'number' ? selectedYearFilter : today.year}
+          />
+
+          {[0, 1, 2, 3].map((sIdx) => {
+            const sConfig = SEASON_CONFIG[sIdx];
+            const seasonGoals = seasonalGoalsBySeason[sIdx] || [];
+            const isCurrentSeason = sIdx === currentSeasonIdx;
+            const seasonMonths = [
+              ['فروردین', 'اردیبهشت', 'خرداد'],
+              ['تیر', 'مرداد', 'شهریور'],
+              ['مهر', 'آبان', 'آذر'],
+              ['دی', 'بهمن', 'اسفند'],
+            ][sIdx];
+
+            return (
+              <div
+                key={sIdx}
+                className={`rounded-2xl border p-4 sm:p-5 transition-all shadow-xs space-y-4 ${
+                  isCurrentSeason
+                    ? 'bg-emerald-50/40 border-emerald-300 ring-2 ring-emerald-500/20'
+                    : 'bg-white border-gray-200'
+                }`}
+              >
+                {/* Season Header */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-gray-100">
+                  <div className="flex items-center gap-2.5">
+                    <span className="text-2xl">{sConfig.icon}</span>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-base font-extrabold text-gray-900">
+                          فصل {sConfig.name}
+                        </h3>
+                        {isCurrentSeason && (
+                          <span className="text-[10px] font-bold bg-emerald-600 text-white px-2 py-0.5 rounded-full">
+                            فصل جاری (اکنون)
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-gray-500 mt-0.5">
+                        ماه‌های شامل: {seasonMonths.join('، ')}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-gray-600 bg-gray-100 px-2.5 py-1 rounded-lg">
+                      {toPersianDigits(seasonGoals.length)} هدف فصلی
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => onNewGoal(null, 'SEASONAL', sIdx)}
+                      className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold rounded-xl transition-colors cursor-pointer shadow-xs flex items-center gap-1"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>+ هدف جدید {sConfig.name}</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Seasonal Garden Summary Card */}
+                <SeasonGardenCard
+                  seasonIndex={sIdx}
+                  year={typeof selectedYearFilter === 'number' ? selectedYearFilter : today.year}
+                  goals={cleanGoals}
+                  tasks={tasks}
+                  habits={habits}
+                />
+
+                {/* Season Goals List */}
+                {seasonGoals.length === 0 ? (
+                  <div className="bg-gray-50/70 rounded-xl border border-dashed border-gray-200 p-6 text-center space-y-2">
+                    <p className="text-xs text-gray-500">
+                      هنوز هدفی برای فصل {sConfig.name} تعریف نشده است.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => onNewGoal(null, 'SEASONAL', sIdx)}
+                      className="inline-flex items-center gap-1 text-xs font-bold text-emerald-700 bg-white hover:bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-lg shadow-2xs cursor-pointer transition-colors"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>تعریف اولین هدف برای فصل {sConfig.name}</span>
+                    </button>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                    {seasonGoals.map(({ goal: sGoal, parentAnnual }) => {
+                      const { progress: sProg, isManual: isSManual } = getEffectiveGoalProgress(sGoal);
+                      const sCat = getCategory(sGoal.categoryId) || (parentAnnual ? getCategory(parentAnnual.categoryId) : undefined);
+                      const sTasks = getTasksForGoal(sGoal.id);
+                      const sHabits = getHabitsForGoal(sGoal.id);
+                      const sColor = sGoal.colorHex || sCat?.colorHex || '#10B981';
+
+                      return (
+                        <div
+                          key={sGoal.id}
+                          className="bg-white rounded-xl border p-3.5 space-y-3 shadow-2xs hover:shadow-xs transition-shadow"
+                          style={{
+                            borderColor: `${sColor}40`,
+                            borderRightWidth: '4px',
+                            borderRightColor: sColor,
+                          }}
+                        >
+                          {/* Top: Title & Parent Tag */}
+                          <div className="space-y-1">
+                            {parentAnnual && (
+                              <div className="flex items-center gap-1 text-[10px] text-gray-500 font-medium">
+                                <Target className="w-3 h-3 text-emerald-600" />
+                                <span>ذیل هدف سالانه:</span>
+                                <span className="font-bold text-gray-800 truncate max-w-[200px]">
+                                  {parentAnnual.title}
+                                </span>
+                              </div>
+                            )}
+                            <div className="flex items-start justify-between gap-2">
+                              <h4 className="text-sm font-extrabold text-gray-900 leading-snug">
+                                {sGoal.title}
+                              </h4>
+                              <div className="flex items-center gap-1 shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={() => onEditGoal(sGoal)}
+                                  className="p-1 text-gray-400 hover:text-blue-600 rounded transition-colors cursor-pointer"
+                                  title="ویرایش"
+                                >
+                                  <Edit3 className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => onDeleteGoal(sGoal.id)}
+                                  className="p-1 text-gray-400 hover:text-rose-600 rounded transition-colors cursor-pointer"
+                                  title="حذف"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </div>
+                            {sGoal.description && (
+                              <p className="text-xs text-gray-600 line-clamp-2 leading-relaxed">
+                                {sGoal.description}
+                              </p>
+                            )}
+                          </div>
+
+                          {/* Badges */}
+                          <div className="flex flex-wrap items-center gap-1.5 text-[10px]">
+                            {sCat && (
+                              <span
+                                className="font-bold px-2 py-0.5 rounded-md flex items-center gap-1"
+                                style={{
+                                  backgroundColor: `${sCat.colorHex}20`,
+                                  color: sCat.colorHex,
+                                }}
+                              >
+                                <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: sCat.colorHex }} />
+                                <span>{sCat.title}</span>
+                              </span>
+                            )}
+                            <span className="bg-gray-100 text-gray-700 px-2 py-0.5 rounded-md font-medium">
+                              {getStatusBadge(sGoal.status).label}
+                            </span>
+                          </div>
+
+                          {/* Progress Bar */}
+                          <div className="space-y-1 bg-gray-50/80 p-2 rounded-lg border border-gray-100">
+                            <div className="flex items-center justify-between text-[11px]">
+                              <span className="text-gray-700 font-semibold">پیشرفت: %{toPersianDigits(sProg)}</span>
+                              <button
+                                type="button"
+                                onClick={() => setSelectedGoalForProgress(sGoal)}
+                                className="text-[10px] text-emerald-700 font-bold hover:underline flex items-center gap-0.5 cursor-pointer"
+                              >
+                                <Sliders className="w-2.5 h-2.5" />
+                                <span>تنظیم درصد</span>
+                              </button>
+                            </div>
+                            <div className="h-1.5 w-full bg-gray-200 rounded-full overflow-hidden">
+                              <div
+                                className="h-full rounded-full transition-all duration-500"
+                                style={{ width: `${sProg}%`, backgroundColor: sColor }}
+                              />
+                            </div>
+                          </div>
+
+                          {/* Tasks and Habits */}
+                          <div className="space-y-1.5 pt-1 border-t border-gray-100">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] font-bold text-gray-500">
+                                تسک‌ها ({toPersianDigits(sTasks.length)}) و عادات ({toPersianDigits(sHabits.length)})
+                              </span>
+                              <div className="flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => onNewTaskForGoal(sGoal.id)}
+                                  className="text-[10px] text-emerald-800 bg-emerald-50 hover:bg-emerald-100 font-bold px-2 py-0.5 rounded border border-emerald-200 cursor-pointer"
+                                >
+                                  + تسک
+                                </button>
+                                {onNewHabitForGoal && (
+                                  <button
+                                    type="button"
+                                    onClick={() => onNewHabitForGoal(sGoal.id)}
+                                    className="text-[10px] text-amber-800 bg-amber-50 hover:bg-amber-100 font-bold px-2 py-0.5 rounded border border-amber-200 cursor-pointer"
+                                  >
+                                    + عادت
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+
+                            {sTasks.map((t) => (
+                              <div key={t.id} className="flex items-center justify-between p-1.5 bg-gray-50 rounded-lg text-xs">
+                                <div className="flex items-center gap-1.5 truncate max-w-[80%]">
+                                  <button type="button" onClick={() => onToggleTask(t.id)} className="text-emerald-600 cursor-pointer shrink-0">
+                                    {t.isCompleted ? <CheckCircle2 className="w-3.5 h-3.5 fill-emerald-600 text-white" /> : <Circle className="w-3.5 h-3.5 text-gray-300" />}
+                                  </button>
+                                  <span className={`truncate text-[11px] ${t.isCompleted ? 'line-through text-gray-400' : 'text-gray-800 font-medium'}`}>
+                                    {t.title}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-1 shrink-0">
+                                  {onDuplicateTask && (
+                                    <button
+                                      type="button"
+                                      onClick={() => onDuplicateTask(t)}
+                                      className="p-1 text-gray-400 hover:text-emerald-700 hover:bg-emerald-50 rounded transition-colors cursor-pointer"
+                                      title="کپی گرفتن از تسک (داپلیکیت)"
+                                    >
+                                      <Copy className="w-3 h-3" />
+                                    </button>
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={() => setTaskToTransfer(t)}
+                                    className="p-1 text-gray-400 hover:text-amber-700 hover:bg-amber-50 rounded transition-colors cursor-pointer"
+                                    title="انتقال یا بستن تسک"
+                                  >
+                                    <Repeat className="w-3 h-3" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => onOpenTimer(t.title, Math.round(t.timerSecondsTarget / 60) || 25, () => onToggleTask(t.id))}
+                                    className="p-1 text-gray-400 hover:text-emerald-700 cursor-pointer"
+                                    title="تایمر تمرکز"
+                                  >
+                                    <Play className="w-2.5 h-2.5" />
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+
+                            {sHabits.map((h) => {
+                              const isDone = Boolean(h.completionHistory?.[todayStr]);
+                              const isAnnualInherited = h.goalId !== sGoal.id;
+                              return (
+                                <div key={h.id} className="flex items-center justify-between p-1.5 bg-amber-50/50 border border-amber-100 rounded-lg text-xs">
+                                  <div className="flex items-center gap-1.5 truncate max-w-[75%]">
+                                    <button type="button" onClick={() => onToggleHabitToday?.(h.id)} className="text-amber-600 cursor-pointer shrink-0">
+                                      {isDone ? <CheckCircle2 className="w-3.5 h-3.5 fill-amber-600 text-white" /> : <Circle className="w-3.5 h-3.5 text-gray-300" />}
+                                    </button>
+                                    <span className="truncate text-[11px] text-gray-800 font-medium">{h.title}</span>
+                                  </div>
+                                  <div className="flex items-center gap-1 shrink-0">
+                                    {isAnnualInherited && (
+                                      <span className="text-[9px] text-blue-800 bg-blue-100 px-1.5 py-0.2 rounded font-bold">
+                                        عادت سالانه
+                                      </span>
+                                    )}
+                                    <span className="text-[9px] text-amber-800 bg-amber-100 px-1 py-0.2 rounded font-medium">
+                                      {h.frequency === 'DAILY' ? 'روزانه' : 'هفتگی'}
+                                    </span>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      ) : cleanGoals.length === 0 ? (
         <div className="bg-white rounded-2xl border border-dashed border-gray-200 p-10 text-center text-xs text-gray-400 space-y-3">
           <Target className="w-8 h-8 text-emerald-600/40 mx-auto" />
           <p>هنوز هدفی ثبت نشده است.</p>
@@ -506,10 +1051,10 @@ export const GoalsScreen: React.FC<Props> = ({
         </div>
       ) : filteredTopLevelGoals.length === 0 ? (
         <div className="bg-white rounded-2xl border border-gray-200 p-8 text-center text-xs text-gray-500 space-y-2">
-          <p>هدفی با این فیلتر یافت نشد.</p>
+          <p>هدفی با این فیلتر یا عبارت جستجو یافت نشد.</p>
           <button
             type="button"
-            onClick={() => { setSelectedCategoryFilter('ALL'); setSelectedYearFilter('ALL'); }}
+            onClick={() => { setSelectedCategoryFilter('ALL'); setSelectedYearFilter('ALL'); setSearchQuery(''); }}
             className="text-xs text-emerald-700 font-bold hover:underline cursor-pointer"
           >
             مشاهده همه اهداف
@@ -517,24 +1062,44 @@ export const GoalsScreen: React.FC<Props> = ({
         </div>
       ) : (
         <div className="space-y-4">
+          {/* Annual Garden Overview Card */}
+          <YearGardenOverviewCard
+            goals={cleanGoals}
+            tasks={tasks}
+            habits={habits}
+            targetYear={typeof selectedYearFilter === 'number' ? selectedYearFilter : today.year}
+          />
+
           {filteredTopLevelGoals.map((annual) => {
             const { progress: effectiveProgress, isManual } = getEffectiveGoalProgress(annual);
             const subGoals = getSubGoals(annual.id);
             const directTasks = getTasksForGoal(annual.id);
             const directHabits = getHabitsForGoal(annual.id);
-            const isExpanded = expandedGoals[annual.id] !== false; // default expanded
+            const isExpanded = expandedGoals[annual.id] !== undefined ? expandedGoals[annual.id] : true;
             const statusInfo = getStatusBadge(annual.status);
             const StatusIcon = statusInfo.icon;
             const annualCat = getCategory(annual.categoryId);
             const isCurrentYear = annual.year === today.year;
+            const goalColor = annual.colorHex || annualCat?.colorHex || '#10B981';
+            const seasonalSubGoals = subGoals.filter(g => g.period === 'SEASONAL');
 
             return (
               <div
                 key={annual.id}
-                className="bg-white rounded-2xl border border-emerald-100/80 p-4 sm:p-5 shadow-xs transition-all space-y-3.5"
+                className="rounded-2xl border p-4 sm:p-5 shadow-xs transition-all space-y-3.5"
+                style={{
+                  backgroundColor: `${goalColor}12`,
+                  borderColor: `${goalColor}40`,
+                  borderRightWidth: '6px',
+                  borderRightColor: goalColor,
+                  boxShadow: `0 4px 14px -3px ${goalColor}20`,
+                }}
               >
                 {/* Top Row: Title & Actions at the Top */}
-                <div className="flex items-start justify-between gap-3">
+                <div 
+                  onClick={() => toggleExpand(annual.id)}
+                  className="flex items-start justify-between gap-3 cursor-pointer select-none"
+                >
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
                       <EntityIcon type="ANNUAL_GOAL" size="sm" />
@@ -544,12 +1109,12 @@ export const GoalsScreen: React.FC<Props> = ({
                     </div>
 
                     {annual.description && (
-                      <p className="text-xs text-gray-500 mt-1 leading-relaxed">
+                      <p className="text-xs text-gray-600 mt-1 leading-relaxed">
                         {annual.description}
                       </p>
                     )}
 
-                    {/* Meta Tags Row: Clean, subtle and less prominent than the title */}
+                    {/* Meta Tags Row */}
                     <div className="flex flex-wrap items-center gap-1.5 mt-2.5 text-xs">
                       {/* Entity Type Badge */}
                       <EntityBadge type="ANNUAL_GOAL" size="xs" />
@@ -557,9 +1122,9 @@ export const GoalsScreen: React.FC<Props> = ({
                       {/* Category Badge */}
                       {annualCat && (
                         <span
-                          className="text-[11px] font-medium px-2 py-0.5 rounded-md flex items-center gap-1"
+                          className="text-[11px] font-bold px-2 py-0.5 rounded-md flex items-center gap-1"
                           style={{
-                            backgroundColor: `${annualCat.colorHex}15`,
+                            backgroundColor: `${annualCat.colorHex}22`,
                             color: annualCat.colorHex,
                           }}
                         >
@@ -577,10 +1142,48 @@ export const GoalsScreen: React.FC<Props> = ({
                         <span>{statusInfo.label}</span>
                       </span>
                     </div>
+
+                    {/* Prominent Seasonal Steps Chip Strip */}
+                    {seasonalSubGoals.length > 0 && (
+                      <div className="flex flex-wrap items-center gap-1.5 mt-2.5 pt-2 border-t border-black/5">
+                        <span className="text-[11px] font-bold text-gray-700 flex items-center gap-1 shrink-0">
+                          <Layers className="w-3.5 h-3.5 text-emerald-600" />
+                          <span>گام‌های فصلی ({toPersianDigits(seasonalSubGoals.length)}):</span>
+                        </span>
+                        {seasonalSubGoals.map((s) => {
+                          const sConf = SEASON_CONFIG[s.seasonIndex ?? 0];
+                          const isCur = annual.year === today.year && s.seasonIndex === currentSeasonIdx;
+                          const { progress: sProg } = getEffectiveGoalProgress(s);
+                          return (
+                            <div
+                              key={s.id}
+                              className={`inline-flex items-center gap-1.5 text-[10px] sm:text-[11px] px-2 py-0.5 rounded-lg border transition-all ${
+                                isCur
+                                  ? 'bg-emerald-100 text-emerald-950 border-emerald-300 font-bold ring-1 ring-emerald-400'
+                                  : sConf ? sConf.badgeClass : 'bg-white text-gray-800 border-gray-200'
+                              }`}
+                              title={s.description || s.title}
+                            >
+                              <span>{sConf?.icon}</span>
+                              <span className="font-semibold">{sConf?.name}:</span>
+                              <span className="font-bold text-gray-900">{s.title}</span>
+                              <span className="text-[9px] bg-black/5 px-1 py-0.2 rounded font-mono font-bold">
+                                %{toPersianDigits(sProg)}
+                              </span>
+                              {isCur && (
+                                <span className="text-[8px] bg-emerald-700 text-white px-1 rounded font-bold">
+                                  اکنون
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
 
                   {/* Actions */}
-                  <div className="flex items-center gap-1 shrink-0 pt-0.5">
+                  <div className="flex items-center gap-1 shrink-0 pt-0.5" onClick={(e) => e.stopPropagation()}>
                     <button
                       type="button"
                       onClick={() => handleOpenTransferModal(annual)}
@@ -621,7 +1224,7 @@ export const GoalsScreen: React.FC<Props> = ({
                       type="button"
                       onClick={() => toggleExpand(annual.id)}
                       title={isExpanded ? 'بستن' : 'باز کردن'}
-                      className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors cursor-pointer"
+                      className="p-1.5 text-gray-500 hover:text-gray-700 hover:bg-white/80 rounded-lg transition-colors cursor-pointer"
                     >
                       {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                     </button>
@@ -629,11 +1232,17 @@ export const GoalsScreen: React.FC<Props> = ({
                 </div>
 
                 {/* Progress Bar with Manual / Auto Indicator & Adjust Button */}
-                <div className="bg-gray-50/70 p-2.5 rounded-xl border border-gray-100 space-y-1.5">
+                <div 
+                  className="p-2.5 rounded-xl border space-y-1.5"
+                  style={{
+                    backgroundColor: '#ffffffdd',
+                    borderColor: `${goalColor}35`,
+                  }}
+                >
                   <div className="flex justify-between items-center text-xs">
                     <div className="flex items-center gap-1.5">
                       <span className="font-semibold text-gray-700">میزان پیشرفت:</span>
-                      <strong className="font-bold text-emerald-800 text-sm">
+                      <strong className="font-bold text-gray-900 text-sm">
                         {toPersianDigits(effectiveProgress)}٪
                       </strong>
                       <span className={`text-[10px] px-1.5 py-0.2 rounded font-medium border ${
@@ -648,7 +1257,7 @@ export const GoalsScreen: React.FC<Props> = ({
                     <button
                       type="button"
                       onClick={() => setSelectedGoalForProgress(annual)}
-                      className="text-[11px] font-bold text-emerald-700 hover:text-emerald-900 bg-white hover:bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-lg flex items-center gap-1 transition-colors cursor-pointer shadow-2xs"
+                      className="text-[11px] font-bold text-gray-700 hover:text-gray-900 bg-white hover:bg-gray-50 border border-gray-200 px-2 py-0.5 rounded-lg flex items-center gap-1 transition-colors cursor-pointer shadow-2xs"
                       title="تغییر یا تنظیم درصد پیشرفت"
                     >
                       <Sliders className="w-3 h-3 text-emerald-600" />
@@ -658,8 +1267,8 @@ export const GoalsScreen: React.FC<Props> = ({
 
                   <div className="h-2 w-full bg-gray-200/80 rounded-full overflow-hidden">
                     <div
-                      className="h-full bg-gradient-to-r from-emerald-500 to-green-600 rounded-full transition-all duration-500"
-                      style={{ width: `${effectiveProgress}%` }}
+                      className="h-full rounded-full transition-all duration-500"
+                      style={{ width: `${effectiveProgress}%`, backgroundColor: goalColor }}
                     />
                   </div>
                 </div>
@@ -703,6 +1312,47 @@ export const GoalsScreen: React.FC<Props> = ({
                         </div>
                       </div>
 
+                      {/* 4 Seasons Quick Strip for this Annual Goal */}
+                      <div className="flex items-center gap-1.5 overflow-x-auto py-1 no-scrollbar">
+                        {[0, 1, 2, 3].map((sIdx) => {
+                          const sConf = SEASON_CONFIG[sIdx];
+                          const sGoal = subGoals.find(g => g.period === 'SEASONAL' && g.seasonIndex === sIdx);
+                          const mGoals = subGoals.filter(g => g.period === 'MONTHLY' && g.monthIndex && Math.floor((Number(g.monthIndex) - 1) / 3) === sIdx);
+                          const hasGoals = Boolean(sGoal || mGoals.length > 0);
+                          const isCur = annual.year === today.year && sIdx === currentSeasonIdx;
+
+                          return (
+                            <button
+                              key={sIdx}
+                              type="button"
+                              onClick={() => {
+                                if (!hasGoals) {
+                                  onNewGoal(annual.id, 'SEASONAL', sIdx);
+                                }
+                              }}
+                              className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-all flex items-center gap-1.5 shrink-0 cursor-pointer ${
+                                hasGoals
+                                  ? isCur
+                                    ? 'bg-emerald-100 text-emerald-950 border-emerald-300 ring-1 ring-emerald-400 font-extrabold'
+                                    : sConf.badgeClass
+                                  : 'bg-white text-gray-500 border-dashed border-gray-300 hover:border-emerald-400 hover:text-emerald-700'
+                              }`}
+                              title={hasGoals ? `فصل ${sConf.name}: ${sGoal ? sGoal.title : 'دارای هدف ماهانه'}` : `افزودن هدف برای فصل ${sConf.name}`}
+                            >
+                              <span>{sConf.icon}</span>
+                              <span>{sConf.name}</span>
+                              {hasGoals ? (
+                                <span className="text-[9px] bg-black/5 px-1 rounded font-normal">
+                                  {sGoal ? sGoal.title : `${toPersianDigits(mGoals.length)} ماهانه`}
+                                </span>
+                              ) : (
+                                <span className="text-[9px] text-gray-400 font-normal">+ تعریف</span>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+
                       {/* If no sub-goals exist yet, show clean guidance card */}
                       {activeSeasons.length === 0 ? (
                         <div className="bg-gray-50/70 rounded-xl border border-dashed border-gray-200 p-4 text-center space-y-2">
@@ -723,11 +1373,11 @@ export const GoalsScreen: React.FC<Props> = ({
                         <div className="space-y-3.5">
                           {activeSeasons.map((sIdx) => {
                             const sConfig = SEASON_CONFIG[sIdx];
-                            const seasonalGoal = subGoals.find(g => g.period === 'SEASONAL' && g.seasonIndex === sIdx);
+                            const seasonalGoalsForSeason = subGoals.filter(g => g.period === 'SEASONAL' && g.seasonIndex === sIdx);
                             const monthlyGoals = subGoals.filter(g => g.period === 'MONTHLY' && g.monthIndex && Math.floor((Number(g.monthIndex) - 1) / 3) === sIdx);
                             const isPast = annual.year < today.year || (annual.year === today.year && sIdx < currentSeasonIdx);
                             const isCurrent = annual.year === today.year && sIdx === currentSeasonIdx;
-                            const pendingTasksForSeason = seasonalGoal ? tasks.filter(t => t.goalId === seasonalGoal.id && !t.isCompleted) : [];
+                            const pendingTasksForSeason = tasks.filter(t => seasonalGoalsForSeason.some(sg => sg.id === t.goalId) && !t.isCompleted);
 
                             return (
                               <div
@@ -737,10 +1387,7 @@ export const GoalsScreen: React.FC<Props> = ({
                                 {/* Season Header */}
                                 <div className="flex items-center justify-between pb-1 border-b border-black/5">
                                   <div className="flex items-center gap-2">
-                                    <span className="text-base">{sConfig.icon}</span>
-                                    <span className="text-xs font-extrabold text-gray-900">
-                                      فصل {sConfig.name}
-                                    </span>
+                                    <SeasonBadge seasonIndex={sIdx} showName={true} />
                                     {isCurrent && (
                                       <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100/90 px-2 py-0.2 rounded-md">
                                         فصل جاری
@@ -753,184 +1400,228 @@ export const GoalsScreen: React.FC<Props> = ({
                                     )}
                                   </div>
 
-                                  {seasonalGoal && isPast && pendingTasksForSeason.length > 0 && (
+                                  <div className="flex items-center gap-1.5">
+                                    {isPast && pendingTasksForSeason.length > 0 && seasonalGoalsForSeason[0] && (
+                                      <button
+                                        type="button"
+                                        onClick={() => handleOpenTransferModal(seasonalGoalsForSeason[0])}
+                                        className="px-2 py-0.5 bg-amber-500 hover:bg-amber-600 text-white rounded text-[10px] font-bold flex items-center gap-1 transition-colors cursor-pointer"
+                                      >
+                                        <Repeat className="w-2.5 h-2.5" />
+                                        <span>انتقال به بعد</span>
+                                      </button>
+                                    )}
                                     <button
                                       type="button"
-                                      onClick={() => handleOpenTransferModal(seasonalGoal)}
-                                      className="px-2 py-0.5 bg-amber-500 hover:bg-amber-600 text-white rounded text-[10px] font-bold flex items-center gap-1 transition-colors cursor-pointer"
+                                      onClick={() => onNewGoal(annual.id, 'SEASONAL', sIdx)}
+                                      className="px-2 py-0.5 bg-white hover:bg-gray-50 text-emerald-700 hover:text-emerald-800 border border-emerald-200/80 rounded-md text-[10px] font-bold flex items-center gap-0.5 transition-colors cursor-pointer"
+                                      title={`تعریف هدف فصلی برای ${sConfig.name}`}
                                     >
-                                      <Repeat className="w-2.5 h-2.5" />
-                                      <span>انتقال به بعد</span>
+                                      <Plus className="w-2.5 h-2.5" />
+                                      <span>+ هدف فصلی</span>
                                     </button>
-                                  )}
+                                  </div>
                                 </div>
 
-                                {/* Seasonal Goal (if defined for this season) */}
-                                {seasonalGoal && (() => {
-                                  const { progress: subProgress, isManual: isSubManual } = getEffectiveGoalProgress(seasonalGoal);
-                                  const subTasks = getTasksForGoal(seasonalGoal.id);
-                                  const subHabits = getHabitsForGoal(seasonalGoal.id);
+                                {/* Seasonal Goals for this season */}
+                                {seasonalGoalsForSeason.length === 0 ? (
+                                  <div className="bg-white/50 rounded-xl border border-dashed border-gray-300/80 p-3 text-center">
+                                    <button
+                                      type="button"
+                                      onClick={() => onNewGoal(annual.id, 'SEASONAL', sIdx)}
+                                      className="text-xs text-emerald-700 hover:text-emerald-800 font-bold inline-flex items-center gap-1 cursor-pointer"
+                                    >
+                                      <Plus className="w-3.5 h-3.5" />
+                                      <span>تعریف هدف برای فصل {sConfig.name}</span>
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <div className="space-y-2.5">
+                                    {seasonalGoalsForSeason.map((seasonalGoal) => {
+                                      const { progress: subProgress, isManual: isSubManual } = getEffectiveGoalProgress(seasonalGoal);
+                                      const subTasks = getTasksForGoal(seasonalGoal.id);
+                                      const subHabits = getHabitsForGoal(seasonalGoal.id);
 
-                                  return (
-                                    <div className="bg-white/80 rounded-xl border border-black/5 p-3 space-y-2">
-                                      <div className="flex items-start justify-between gap-2">
-                                        <div className="min-w-0">
-                                          <div className="flex items-center gap-1.5">
-                                            <EntityIcon type="INTERMEDIATE_GOAL" size="xs" />
-                                            <h4 className="text-xs sm:text-sm font-bold text-gray-900 truncate">
-                                              هدف فصلی: {seasonalGoal.title}
-                                            </h4>
-                                            <EntityBadge type="INTERMEDIATE_GOAL" customLabel="فصلی" size="xs" />
-                                          </div>
-                                        </div>
-
-                                        <div className="flex items-center gap-1 shrink-0">
-                                          <button
-                                            type="button"
-                                            onClick={() => handleOpenTransferModal(seasonalGoal)}
-                                            title="انتقال تسک‌ها و عادات به دوره بعد"
-                                            className="p-1 text-gray-400 hover:text-amber-700 hover:bg-amber-50 rounded-md transition-colors cursor-pointer"
-                                          >
-                                            <Repeat className="w-3.5 h-3.5" />
-                                          </button>
-                                          <button
-                                            type="button"
-                                            onClick={() => onEditGoal(seasonalGoal)}
-                                            title="ویرایش"
-                                            className="p-1 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-md transition-colors cursor-pointer"
-                                          >
-                                            <Edit3 className="w-3.5 h-3.5" />
-                                          </button>
-                                          <button
-                                            type="button"
-                                            onClick={() => onDeleteGoal(seasonalGoal.id)}
-                                            title="حذف"
-                                            className="p-1 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded-md transition-colors cursor-pointer"
-                                          >
-                                            <Trash2 className="w-3.5 h-3.5" />
-                                          </button>
-                                        </div>
-                                      </div>
-
-                                      {/* Progress */}
-                                      <div className="flex items-center justify-between text-[11px]">
-                                        <div className="flex items-center gap-1.5">
-                                          <span className="text-gray-500">پیشرفت:</span>
-                                          <strong className="font-bold text-emerald-800">{toPersianDigits(subProgress)}٪</strong>
-                                          <span className="text-[9px] text-gray-400">{isSubManual ? '(دستی)' : '(خودکار)'}</span>
-                                        </div>
-                                        <button
-                                          type="button"
-                                          onClick={() => setSelectedGoalForProgress(seasonalGoal)}
-                                          className="text-[10px] font-bold text-emerald-700 hover:underline flex items-center gap-1 cursor-pointer"
-                                        >
-                                          <Sliders className="w-2.5 h-2.5" />
-                                          <span>تنظیم درصد</span>
-                                        </button>
-                                      </div>
-                                      <div className="h-1.5 w-full bg-black/5 rounded-full overflow-hidden">
-                                        <div
-                                          className="h-full bg-emerald-600 rounded-full transition-all duration-300"
-                                          style={{ width: `${subProgress}%` }}
-                                        />
-                                      </div>
-
-                                      {/* Actions for Seasonal Goal */}
-                                      <div className="flex items-center justify-between pt-1 text-[10px]">
-                                        <span className="text-gray-500">
-                                          اقدامات: {toPersianDigits(subTasks.length)} تسک | {toPersianDigits(subHabits.length)} عادت
-                                        </span>
-                                        <div className="flex items-center gap-1">
-                                          <button
-                                            type="button"
-                                            onClick={() => onNewTaskForGoal(seasonalGoal.id)}
-                                            className="px-2 py-0.5 bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 rounded font-semibold transition-colors cursor-pointer"
-                                          >
-                                            + تسک
-                                          </button>
-                                          {onNewHabitForGoal && (
-                                            <button
-                                              type="button"
-                                              onClick={() => onNewHabitForGoal(seasonalGoal.id)}
-                                              className="px-2 py-0.5 bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 rounded font-semibold transition-colors cursor-pointer"
-                                            >
-                                              + عادت
-                                            </button>
-                                          )}
-                                        </div>
-                                      </div>
-
-                                      {/* Tasks & Habits for seasonal goal */}
-                                      {(subTasks.length > 0 || subHabits.length > 0) && (
-                                        <div className="space-y-1.5 pt-1 border-t border-black/5">
-                                          {subTasks.map((task) => (
-                                            <div
-                                              key={task.id}
-                                              className="p-1.5 rounded-lg bg-white/90 border border-black/5 flex items-center justify-between text-xs"
-                                            >
-                                              <div className="flex items-center gap-1.5 truncate max-w-[80%]">
-                                                <button
-                                                  type="button"
-                                                  onClick={() => onToggleTask(task.id)}
-                                                  className="cursor-pointer text-emerald-600 shrink-0"
-                                                >
-                                                  {task.isCompleted ? (
-                                                    <CheckCircle2 className="w-3.5 h-3.5 fill-emerald-600 text-white" />
-                                                  ) : (
-                                                    <Circle className="w-3.5 h-3.5 text-gray-300" />
-                                                  )}
-                                                </button>
-                                                <EntityIcon type="TASK" size="xs" showBackground={false} />
-                                                <span className={`truncate text-[11px] ${task.isCompleted ? 'line-through text-gray-400' : 'text-gray-800 font-medium'}`}>
-                                                  {task.title}
-                                                </span>
+                                      return (
+                                        <div key={seasonalGoal.id} className="bg-white/85 rounded-xl border border-black/5 p-3 space-y-2 shadow-2xs">
+                                          <div className="flex items-start justify-between gap-2">
+                                            <div className="min-w-0">
+                                              <div className="flex items-center gap-1.5">
+                                                <EntityIcon type="INTERMEDIATE_GOAL" size="xs" />
+                                                <h4 className="text-xs sm:text-sm font-bold text-gray-900 truncate">
+                                                  هدف فصلی: {seasonalGoal.title}
+                                                </h4>
+                                                <EntityBadge type="INTERMEDIATE_GOAL" customLabel="فصلی" size="xs" />
                                               </div>
+                                            </div>
+
+                                            <div className="flex items-center gap-1 shrink-0">
                                               <button
                                                 type="button"
-                                                onClick={() => onOpenTimer(task.title, Math.round(task.timerSecondsTarget / 60) || 25, () => onToggleTask(task.id))}
-                                                className="p-1 text-gray-400 hover:text-emerald-700 cursor-pointer"
-                                                title="تایمر تمرکز"
+                                                onClick={() => handleOpenTransferModal(seasonalGoal)}
+                                                title="انتقال تسک‌ها و عادات به دوره بعد"
+                                                className="p-1 text-gray-400 hover:text-amber-700 hover:bg-amber-50 rounded-md transition-colors cursor-pointer"
                                               >
-                                                <Play className="w-2.5 h-2.5" />
+                                                <Repeat className="w-3.5 h-3.5" />
+                                              </button>
+                                              <button
+                                                type="button"
+                                                onClick={() => onEditGoal(seasonalGoal)}
+                                                title="ویرایش"
+                                                className="p-1 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-md transition-colors cursor-pointer"
+                                              >
+                                                <Edit3 className="w-3.5 h-3.5" />
+                                              </button>
+                                              <button
+                                                type="button"
+                                                onClick={() => onDeleteGoal(seasonalGoal.id)}
+                                                title="حذف"
+                                                className="p-1 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded-md transition-colors cursor-pointer"
+                                              >
+                                                <Trash2 className="w-3.5 h-3.5" />
                                               </button>
                                             </div>
-                                          ))}
+                                          </div>
 
-                                          {subHabits.map((habit) => {
-                                            const isDoneToday = Boolean(habit.completionHistory?.[todayStr]);
-                                            return (
-                                              <div
-                                                key={habit.id}
-                                                className="p-1.5 rounded-lg bg-emerald-50/60 border border-emerald-100 flex items-center justify-between text-xs"
+                                          {/* Progress */}
+                                          <div className="flex items-center justify-between text-[11px]">
+                                            <div className="flex items-center gap-1.5">
+                                              <span className="text-gray-500">پیشرفت:</span>
+                                              <strong className="font-bold text-emerald-800">{toPersianDigits(subProgress)}٪</strong>
+                                              <span className="text-[9px] text-gray-400">{isSubManual ? '(دستی)' : '(خودکار)'}</span>
+                                            </div>
+                                            <button
+                                              type="button"
+                                              onClick={() => setSelectedGoalForProgress(seasonalGoal)}
+                                              className="text-[10px] font-bold text-emerald-700 hover:underline flex items-center gap-1 cursor-pointer"
+                                            >
+                                              <Sliders className="w-2.5 h-2.5" />
+                                              <span>تنظیم درصد</span>
+                                            </button>
+                                          </div>
+                                          <div className="h-1.5 w-full bg-black/5 rounded-full overflow-hidden">
+                                            <div
+                                              className="h-full bg-emerald-600 rounded-full transition-all duration-300"
+                                              style={{ width: `${subProgress}%` }}
+                                            />
+                                          </div>
+
+                                          {/* Actions for Seasonal Goal */}
+                                          <div className="flex items-center justify-between pt-1 text-[10px]">
+                                            <span className="text-gray-500">
+                                              اقدامات: {toPersianDigits(subTasks.length)} تسک | {toPersianDigits(subHabits.length)} عادت
+                                            </span>
+                                            <div className="flex items-center gap-1">
+                                              <button
+                                                type="button"
+                                                onClick={() => onNewTaskForGoal(seasonalGoal.id)}
+                                                className="px-2 py-0.5 bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 rounded font-semibold transition-colors cursor-pointer"
                                               >
-                                                <div className="flex items-center gap-1.5 truncate max-w-[80%]">
-                                                  <button
-                                                    type="button"
-                                                    onClick={() => onToggleHabitToday?.(habit.id)}
-                                                    className="cursor-pointer text-amber-600 shrink-0"
-                                                  >
-                                                    {isDoneToday ? (
-                                                      <CheckCircle2 className="w-3.5 h-3.5 fill-amber-600 text-white" />
-                                                    ) : (
-                                                      <Circle className="w-3.5 h-3.5 text-gray-300" />
-                                                    )}
-                                                  </button>
-                                                  <EntityIcon type="HABIT" size="xs" showBackground={false} />
-                                                  <span className="truncate text-[11px] text-gray-800 font-medium">
-                                                    {habit.title}
-                                                  </span>
+                                                + تسک
+                                              </button>
+                                              {onNewHabitForGoal && (
+                                                <button
+                                                  type="button"
+                                                  onClick={() => onNewHabitForGoal(seasonalGoal.id)}
+                                                  className="px-2 py-0.5 bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 rounded font-semibold transition-colors cursor-pointer"
+                                                >
+                                                  + عادت
+                                                </button>
+                                              )}
+                                            </div>
+                                          </div>
+
+                                          {/* Tasks & Habits for seasonal goal */}
+                                          {(subTasks.length > 0 || subHabits.length > 0) && (
+                                            <div className="space-y-1.5 pt-1 border-t border-black/5">
+                                              {subTasks.map((task) => (
+                                                <div
+                                                  key={task.id}
+                                                  className="p-1.5 rounded-lg bg-white/90 border border-black/5 flex items-center justify-between text-xs"
+                                                >
+                                                  <div className="flex items-center gap-1.5 truncate max-w-[80%]">
+                                                    <button
+                                                      type="button"
+                                                      onClick={() => onToggleTask(task.id)}
+                                                      className="cursor-pointer text-emerald-600 shrink-0"
+                                                    >
+                                                      {task.isCompleted ? (
+                                                        <CheckCircle2 className="w-3.5 h-3.5 fill-emerald-600 text-white" />
+                                                      ) : (
+                                                        <Circle className="w-3.5 h-3.5 text-gray-300" />
+                                                      )}
+                                                    </button>
+                                                    <EntityIcon type="TASK" size="xs" showBackground={false} />
+                                                    <span className={`truncate text-[11px] ${task.isCompleted ? 'line-through text-gray-400' : 'text-gray-800 font-medium'}`}>
+                                                      {task.title}
+                                                    </span>
+                                                  </div>
+                                                  <div className="flex items-center gap-1 shrink-0">
+                                                    <button
+                                                      type="button"
+                                                      onClick={() => setTaskToTransfer(task)}
+                                                      className="p-1 text-gray-400 hover:text-amber-700 hover:bg-amber-50 rounded transition-colors cursor-pointer"
+                                                      title="انتقال یا بستن تسک"
+                                                    >
+                                                      <Repeat className="w-3 h-3" />
+                                                    </button>
+                                                    <button
+                                                      type="button"
+                                                      onClick={() => onOpenTimer(task.title, Math.round(task.timerSecondsTarget / 60) || 25, () => onToggleTask(task.id))}
+                                                      className="p-1 text-gray-400 hover:text-emerald-700 cursor-pointer"
+                                                      title="تایمر تمرکز"
+                                                    >
+                                                      <Play className="w-2.5 h-2.5" />
+                                                    </button>
+                                                  </div>
                                                 </div>
-                                                <span className="text-[9px] text-emerald-800 bg-emerald-100 px-1 py-0.2 rounded shrink-0">
-                                                  {habit.frequency === 'DAILY' ? 'روزانه' : 'هفتگی'}
-                                                </span>
-                                              </div>
-                                            );
-                                          })}
+                                              ))}
+
+                                              {subHabits.map((habit) => {
+                                                const isDoneToday = Boolean(habit.completionHistory?.[todayStr]);
+                                                const isAnnualInherited = habit.goalId !== seasonalGoal.id;
+                                                return (
+                                                  <div
+                                                    key={habit.id}
+                                                    className="p-1.5 rounded-lg bg-emerald-50/60 border border-emerald-100 flex items-center justify-between text-xs"
+                                                  >
+                                                    <div className="flex items-center gap-1.5 truncate max-w-[75%]">
+                                                      <button
+                                                        type="button"
+                                                        onClick={() => onToggleHabitToday?.(habit.id)}
+                                                        className="cursor-pointer text-amber-600 shrink-0"
+                                                      >
+                                                        {isDoneToday ? (
+                                                          <CheckCircle2 className="w-3.5 h-3.5 fill-amber-600 text-white" />
+                                                        ) : (
+                                                          <Circle className="w-3.5 h-3.5 text-gray-300" />
+                                                        )}
+                                                      </button>
+                                                      <EntityIcon type="HABIT" size="xs" showBackground={false} />
+                                                      <span className="truncate text-[11px] text-gray-800 font-medium">
+                                                        {habit.title}
+                                                      </span>
+                                                    </div>
+                                                    <div className="flex items-center gap-1 shrink-0">
+                                                      {isAnnualInherited && (
+                                                        <span className="text-[9px] text-blue-800 bg-blue-100 px-1.5 py-0.2 rounded font-bold">
+                                                          عادت سالانه
+                                                        </span>
+                                                      )}
+                                                      <span className="text-[9px] text-emerald-800 bg-emerald-100 px-1 py-0.2 rounded shrink-0">
+                                                        {habit.frequency === 'DAILY' ? 'روزانه' : 'هفتگی'}
+                                                      </span>
+                                                    </div>
+                                                  </div>
+                                                );
+                                              })}
+                                            </div>
+                                          )}
                                         </div>
-                                      )}
-                                    </div>
-                                  );
-                                })()}
+                                      );
+                                    })}
+                                  </div>
+                                )}
 
                                 {/* Monthly Goals Belonging to This Season - Nested Directly Inside */}
                                 {monthlyGoals.length > 0 && (
@@ -1067,14 +1758,34 @@ export const GoalsScreen: React.FC<Props> = ({
                                                         {task.title}
                                                       </span>
                                                     </div>
-                                                    <button
-                                                      type="button"
-                                                      onClick={() => onOpenTimer(task.title, Math.round(task.timerSecondsTarget / 60) || 25, () => onToggleTask(task.id))}
-                                                      className="p-1 text-gray-400 hover:text-teal-700 cursor-pointer"
-                                                      title="تایمر تمرکز"
-                                                    >
-                                                      <Play className="w-2.5 h-2.5" />
-                                                    </button>
+                                                    <div className="flex items-center gap-1 shrink-0">
+                                                      {onDuplicateTask && (
+                                                        <button
+                                                          type="button"
+                                                          onClick={() => onDuplicateTask(task)}
+                                                          className="p-1 text-gray-400 hover:text-emerald-700 hover:bg-emerald-50 rounded transition-colors cursor-pointer"
+                                                          title="کپی گرفتن از تسک (داپلیکیت)"
+                                                        >
+                                                          <Copy className="w-3 h-3" />
+                                                        </button>
+                                                      )}
+                                                      <button
+                                                        type="button"
+                                                        onClick={() => setTaskToTransfer(task)}
+                                                        className="p-1 text-gray-400 hover:text-amber-700 hover:bg-amber-50 rounded transition-colors cursor-pointer"
+                                                        title="انتقال یا بستن تسک"
+                                                      >
+                                                        <Repeat className="w-3 h-3" />
+                                                      </button>
+                                                      <button
+                                                        type="button"
+                                                        onClick={() => onOpenTimer(task.title, Math.round(task.timerSecondsTarget / 60) || 25, () => onToggleTask(task.id))}
+                                                        className="p-1 text-gray-400 hover:text-teal-700 cursor-pointer"
+                                                        title="تایمر تمرکز"
+                                                      >
+                                                        <Play className="w-2.5 h-2.5" />
+                                                      </button>
+                                                    </div>
                                                   </div>
                                                 ))}
 
@@ -1131,24 +1842,55 @@ export const GoalsScreen: React.FC<Props> = ({
                           <div className="space-y-1">
                             {directTasks.map((t) => (
                               <div key={t.id} className="p-1.5 bg-white rounded-lg border border-blue-100 flex items-center justify-between text-[11px]">
-                                <div className="flex items-center gap-1.5 truncate">
-                                  <button type="button" onClick={() => onToggleTask(t.id)} className="cursor-pointer text-blue-600">
+                                <div className="flex items-center gap-1.5 truncate max-w-[80%]">
+                                  <button type="button" onClick={() => onToggleTask(t.id)} className="cursor-pointer text-blue-600 shrink-0">
                                     {t.isCompleted ? <CheckCircle2 className="w-3.5 h-3.5 fill-blue-600 text-white" /> : <Circle className="w-3.5 h-3.5 text-gray-300" />}
                                   </button>
                                   <EntityIcon type="TASK" size="xs" showBackground={false} />
                                   <span className={t.isCompleted ? 'line-through text-gray-400' : 'text-gray-800'}>{t.title}</span>
                                 </div>
+                                <div className="flex items-center gap-1 shrink-0">
+                                  {onDuplicateTask && (
+                                    <button
+                                      type="button"
+                                      onClick={() => onDuplicateTask(t)}
+                                      className="p-1 text-gray-400 hover:text-blue-700 hover:bg-blue-50 rounded transition-colors cursor-pointer"
+                                      title="کپی گرفتن از تسک (داپلیکیت)"
+                                    >
+                                      <Copy className="w-3 h-3" />
+                                    </button>
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={() => setTaskToTransfer(t)}
+                                    className="p-1 text-gray-400 hover:text-amber-700 hover:bg-amber-50 rounded transition-colors cursor-pointer"
+                                    title="انتقال یا بستن تسک (انتقال به فصلی یا سالانه)"
+                                  >
+                                    <Repeat className="w-3 h-3" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => onOpenTimer(t.title, Math.round(t.timerSecondsTarget / 60) || 25, () => onToggleTask(t.id))}
+                                    className="p-1 text-gray-400 hover:text-blue-700 cursor-pointer"
+                                    title="تایمر تمرکز"
+                                  >
+                                    <Play className="w-2.5 h-2.5" />
+                                  </button>
+                                </div>
                               </div>
                             ))}
                             {directHabits.map((h) => (
                               <div key={h.id} className="p-1.5 bg-white rounded-lg border border-amber-100 flex items-center justify-between text-[11px]">
-                                <div className="flex items-center gap-1.5 truncate">
-                                  <button type="button" onClick={() => onToggleHabitToday?.(h.id)} className="cursor-pointer text-amber-600">
+                                <div className="flex items-center gap-1.5 truncate max-w-[70%]">
+                                  <button type="button" onClick={() => onToggleHabitToday?.(h.id)} className="cursor-pointer text-amber-600 shrink-0">
                                     {h.completionHistory?.[todayStr] ? <CheckCircle2 className="w-3.5 h-3.5 fill-amber-600 text-white" /> : <Circle className="w-3.5 h-3.5 text-gray-300" />}
                                   </button>
                                   <EntityIcon type="HABIT" size="xs" showBackground={false} />
-                                  <span>{h.title}</span>
+                                  <span className="truncate">{h.title}</span>
                                 </div>
+                                <span className="text-[9px] text-blue-800 bg-blue-100 px-1.5 py-0.2 rounded font-bold shrink-0">
+                                  جاری در تمام فصول
+                                </span>
                               </div>
                             ))}
                           </div>
@@ -1191,7 +1933,78 @@ export const GoalsScreen: React.FC<Props> = ({
           onCreateTargetAndTransfer?.(fromGoal, targetTitle, targetPeriod, targetSeasonIndex, targetMonthIndex, targetYear);
           setTransferGoal(null);
         }}
+        onClosePendingItems={(fromGoalId) => {
+          onCloseGoalPendingItems?.(fromGoalId);
+          setTransferGoal(null);
+        }}
       />
+
+      {/* Transfer or Close Single Task Modal */}
+      <TransferTaskModal
+        isOpen={Boolean(taskToTransfer)}
+        task={taskToTransfer}
+        goals={goals}
+        categories={categories}
+        onClose={() => setTaskToTransfer(null)}
+        onTransfer={(taskId, targetGoalId, closeTask, noteAppend) => {
+          if (onTransferTask) {
+            onTransferTask(taskId, targetGoalId, closeTask, noteAppend);
+          }
+          setTaskToTransfer(null);
+        }}
+        onCreateSeasonalGoalAndTransfer={(taskId, seasonIdx, year, title, parentAnnualId, categoryId) => {
+          if (onCreateSeasonalGoalAndTransfer) {
+            onCreateSeasonalGoalAndTransfer(taskId, seasonIdx, year, title, parentAnnualId, categoryId);
+          }
+          setTaskToTransfer(null);
+        }}
+      />
+
+      {/* Delete Category Confirmation Dialog */}
+      {categoryToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4">
+          <div className="bg-white rounded-2xl p-5 max-w-sm w-full shadow-2xl border border-rose-100 animate-scale-up space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 rounded-xl bg-rose-100 text-rose-700 shrink-0">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-gray-900">حذف دسته‌بندی</h3>
+                <p className="text-xs text-gray-500">
+                  آیا از حذف دسته «{categoryToDelete.title}» اطمینان دارید؟
+                </p>
+              </div>
+            </div>
+
+            <p className="text-xs text-amber-800 bg-amber-50 p-2.5 rounded-xl border border-amber-200 leading-relaxed">
+              تمام اهداف، تسک‌ها و عادت‌های این دسته به صورت خودکار به دسته‌بندی پیش‌فرض دیگری منتقل خواهند شد تا هیچ موردی از بین نرود.
+            </p>
+
+            <div className="flex justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setCategoryToDelete(null)}
+                className="px-3.5 py-1.5 text-xs font-semibold text-gray-600 hover:bg-gray-100 rounded-xl transition-colors cursor-pointer"
+              >
+                انصراف
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (onDeleteCategory && categoryToDelete) {
+                    onDeleteCategory(categoryToDelete.id);
+                    setSelectedCategoryFilter('ALL');
+                    setCategoryToDelete(null);
+                  }
+                }}
+                className="px-4 py-1.5 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl transition-colors cursor-pointer shadow-xs"
+              >
+                تایید و حذف دسته
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -165,6 +165,13 @@ export function getWeekOfMonth(day: number): number {
   return 5;
 }
 
+export const PERSIAN_SEASONS = [
+  { index: 0, name: 'بهار', months: ['فروردین', 'اردیبهشت', 'خرداد'], iconName: 'Sprout', colorHex: '#10B981', bgClass: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+  { index: 1, name: 'تابستان', months: ['تیر', 'مرداد', 'شهریور'], iconName: 'Sun', colorHex: '#F59E0B', bgClass: 'bg-amber-50 text-amber-700 border-amber-200' },
+  { index: 2, name: 'پاییز', months: ['مهر', 'آبان', 'آذر'], iconName: 'Flame', colorHex: '#EA580C', bgClass: 'bg-orange-50 text-orange-700 border-orange-200' },
+  { index: 3, name: 'زمستان', months: ['دی', 'بهمن', 'اسفند'], iconName: 'Snowflake', colorHex: '#3B82F6', bgClass: 'bg-blue-50 text-blue-700 border-blue-200' },
+];
+
 export function getCurrentPersianDateTimeString(): string {
   const now = new Date();
   const j = gregorianToJalali(now.getFullYear(), now.getMonth() + 1, now.getDate());
@@ -173,5 +180,13 @@ export function getCurrentPersianDateTimeString(): string {
   const minutes = now.getMinutes().toString().padStart(2, '0');
   return `${dateStr} - ${toPersianDigits(`${hours}:${minutes}`)}`;
 }
+
+export function getSeasonByMonth(month: number): number {
+  if (month >= 1 && month <= 3) return 0;
+  if (month >= 4 && month <= 6) return 1;
+  if (month >= 7 && month <= 9) return 2;
+  return 3;
+}
+
 
 

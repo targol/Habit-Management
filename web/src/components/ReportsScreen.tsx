@@ -7,7 +7,8 @@ import {
   toPersianDigits, 
   WEEKDAYS_SHORT,
   PERSIAN_MONTHS,
-  parseJalaliString
+  parseJalaliString,
+  jalaliToGregorian
 } from '../calendar/jalali';
 import { 
   BarChart3, 
@@ -25,6 +26,7 @@ import {
   Filter
 } from 'lucide-react';
 import { PlantIcon } from './PlantIcon';
+import { WeeklyTrendBarChart } from './WeeklyTrendBarChart';
 
 interface Props {
   tasks: AppTask[];
@@ -61,11 +63,13 @@ export const ReportsScreen: React.FC<Props> = ({ tasks, habits, goals, categorie
     for (let i = 6; i >= 0; i--) {
       const d = addDaysJalali(today, -i);
       const dateStr = jalaliToFormattedString(d);
+      const gD = jalaliToGregorian(d.year, d.month, d.day);
+      const wDayIdx = (gD.getDay() + 1) % 7;
       const tasksDone = tasks.filter(t => t.isCompleted && (t.completedAt === dateStr || t.dueDate === dateStr)).length;
       const habitsDone = habits.filter(h => !!h.completionHistory[dateStr]).length;
 
       trendData.push({
-        label: WEEKDAYS_SHORT[d.day % 7],
+        label: WEEKDAYS_SHORT[wDayIdx],
         subLabel: toPersianDigits(d.day),
         tasksDone,
         habitsDone,
@@ -318,7 +322,7 @@ export const ReportsScreen: React.FC<Props> = ({ tasks, habits, goals, categorie
   return (
     <div className="space-y-6 animate-fade-in pb-12">
       {/* Header & Timeframe Switcher */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+      <div className="sticky -top-5 z-20 pt-5 pb-2.5 bg-[#F8F9F5]/95 backdrop-blur-md flex flex-col sm:flex-row sm:items-center justify-between gap-3 -mx-4 px-4 sm:mx-0 sm:px-0">
         <div>
           <h2 className="text-base sm:text-lg font-bold text-gray-900 flex items-center gap-2">
             <BarChart3 className="w-5 h-5 text-emerald-600" />
@@ -434,72 +438,76 @@ export const ReportsScreen: React.FC<Props> = ({ tasks, habits, goals, categorie
       </div>
 
       {/* Dynamic Timeframe Trend Bar Chart */}
-      <div className="bg-white rounded-2xl p-5 border border-emerald-100 shadow-xs">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2">
-              <TrendingUp className="w-4 h-4 text-emerald-600" />
-              <span>
-                روند فعالیت‌ها ({timeframe === 'WEEK' ? 'هفته جاری' : timeframe === 'MONTH' ? 'ماه جاری' : timeframe === 'SEASON' ? 'فصل جاری' : 'سال جاری'})
-              </span>
-            </h3>
-            <p className="text-[11px] text-gray-400 mt-0.5">
-              مجموع تسک‌ها و عادت‌های انجام شده در هر بازه
-            </p>
-          </div>
-          <div className="flex items-center gap-3 text-[11px]">
-            <span className="flex items-center gap-1 text-emerald-700 font-medium">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
-              <span>تسک</span>
-            </span>
-            <span className="flex items-center gap-1 text-amber-600 font-medium">
-              <span className="w-2.5 h-2.5 rounded-full bg-amber-400" />
-              <span>عادت</span>
-            </span>
-          </div>
-        </div>
-
-        {/* Chart columns */}
-        <div className="h-44 flex items-end justify-between gap-2 pt-4 px-2 overflow-x-auto no-scrollbar">
-          {trendData.map((d, idx) => {
-            const heightPercent = Math.max(8, Math.round((d.total / maxTrendTotal) * 100));
-            return (
-              <div key={idx} className="flex-1 min-w-[32px] flex flex-col items-center gap-2 h-full justify-end">
-                <span className="text-[10px] text-emerald-800 font-bold">
-                  {toPersianDigits(d.total)}
+      {timeframe === 'WEEK' ? (
+        <WeeklyTrendBarChart tasks={tasks} habits={habits} />
+      ) : (
+        <div className="bg-white rounded-2xl p-5 border border-emerald-100 shadow-xs">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2">
+                <TrendingUp className="w-4 h-4 text-emerald-600" />
+                <span>
+                  روند فعالیت‌ها ({timeframe === 'MONTH' ? 'ماه جاری' : timeframe === 'SEASON' ? 'فصل جاری' : 'سال جاری'})
                 </span>
-                <div
-                  className={`w-full max-w-[36px] rounded-t-xl transition-all duration-500 flex flex-col justify-end overflow-hidden ${
-                    d.isCurrent ? 'ring-2 ring-emerald-400 ring-offset-1' : ''
-                  }`}
-                  style={{ height: `${heightPercent}%` }}
-                >
-                  {/* Habit slice */}
-                  <div
-                    className="bg-amber-400 transition-all"
-                    style={{ height: `${d.total > 0 ? (d.habitsDone / d.total) * 100 : 0}%` }}
-                  />
-                  {/* Task slice */}
-                  <div
-                    className="bg-emerald-600 transition-all"
-                    style={{ height: `${d.total > 0 ? (d.tasksDone / d.total) * 100 : 100}%` }}
-                  />
-                </div>
-                <div className="text-center">
-                  <span className={`block text-[11px] font-medium truncate ${d.isCurrent ? 'text-emerald-700 font-bold' : 'text-gray-500'}`}>
-                    {d.label}
+              </h3>
+              <p className="text-[11px] text-gray-400 mt-0.5">
+                مجموع تسک‌ها و عادت‌های انجام شده در هر بازه
+              </p>
+            </div>
+            <div className="flex items-center gap-3 text-[11px]">
+              <span className="flex items-center gap-1 text-emerald-700 font-medium">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
+                <span>تسک</span>
+              </span>
+              <span className="flex items-center gap-1 text-amber-600 font-medium">
+                <span className="w-2.5 h-2.5 rounded-full bg-amber-400" />
+                <span>عادت</span>
+              </span>
+            </div>
+          </div>
+
+          {/* Chart columns */}
+          <div className="h-44 flex items-end justify-between gap-2 pt-4 px-2 overflow-x-auto no-scrollbar">
+            {trendData.map((d, idx) => {
+              const heightPercent = Math.max(8, Math.round((d.total / maxTrendTotal) * 100));
+              return (
+                <div key={idx} className="flex-1 min-w-[32px] flex flex-col items-center gap-2 h-full justify-end">
+                  <span className="text-[10px] text-emerald-800 font-bold">
+                    {toPersianDigits(d.total)}
                   </span>
-                  {d.subLabel && (
-                    <span className="block text-[9px] text-gray-400 truncate">
-                      {d.subLabel}
+                  <div
+                    className={`w-full max-w-[36px] rounded-t-xl transition-all duration-500 flex flex-col justify-end overflow-hidden ${
+                      d.isCurrent ? 'ring-2 ring-emerald-400 ring-offset-1' : ''
+                    }`}
+                    style={{ height: `${heightPercent}%` }}
+                  >
+                    {/* Habit slice */}
+                    <div
+                      className="bg-amber-400 transition-all"
+                      style={{ height: `${d.total > 0 ? (d.habitsDone / d.total) * 100 : 0}%` }}
+                    />
+                    {/* Task slice */}
+                    <div
+                      className="bg-emerald-600 transition-all"
+                      style={{ height: `${d.total > 0 ? (d.tasksDone / d.total) * 100 : 100}%` }}
+                    />
+                  </div>
+                  <div className="text-center">
+                    <span className={`block text-[11px] font-medium truncate ${d.isCurrent ? 'text-emerald-700 font-bold' : 'text-gray-500'}`}>
+                      {d.label}
                     </span>
-                  )}
+                    {d.subLabel && (
+                      <span className="block text-[9px] text-gray-400 truncate">
+                        {d.subLabel}
+                      </span>
+                    )}
+                  </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Goal Achievement & Progress Report (درصد رسیده به اهداف) */}
       <div className="bg-white rounded-2xl p-5 border border-emerald-100 shadow-xs space-y-4">

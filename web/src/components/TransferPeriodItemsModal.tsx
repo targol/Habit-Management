@@ -10,7 +10,9 @@ import {
   Layers, 
   Target,
   Sparkles,
-  AlertCircle
+  AlertCircle,
+  Archive,
+  Calendar
 } from 'lucide-react';
 import { EntityIcon, EntityBadge } from './EntityIcon';
 
@@ -38,9 +40,11 @@ interface Props {
     targetMonthIndex?: number,
     targetYear?: number
   ) => void;
+  onClosePendingItems?: (fromGoalId: string) => void;
 }
 
 const SEASONS = ['بهار', 'تابستان', 'پاییز', 'زمستان'];
+const SEASON_ICONS = ['🌸', '☀️', '🍂', '❄️'];
 
 export const TransferPeriodItemsModal: React.FC<Props> = ({
   isOpen,
@@ -52,7 +56,9 @@ export const TransferPeriodItemsModal: React.FC<Props> = ({
   onClose,
   onConfirmTransfer,
   onCreateTargetAndTransfer,
+  onClosePendingItems,
 }) => {
+  const [targetTab, setTargetTab] = useState<'SEASONAL' | 'ANNUAL' | 'CLOSE'>('SEASONAL');
   const [selectedTargetGoalId, setSelectedTargetGoalId] = useState<string>('');
   const [transferTasks, setTransferTasks] = useState(true);
   const [transferHabits, setTransferHabits] = useState(true);
@@ -103,47 +109,53 @@ export const TransferPeriodItemsModal: React.FC<Props> = ({
     };
   }, [fromGoal]);
 
-  // Find candidate target goals matching category or parent
-  const candidateGoals = useMemo(() => {
+  // Find candidate seasonal goals
+  const seasonalCandidateGoals = useMemo(() => {
     if (!fromGoal) return [];
-
     return goals.filter(g => {
       if (g.id === fromGoal.id) return false;
+      if (g.period !== 'SEASONAL') return false;
 
-      // Same category preferred
       const sameCategory = g.categoryId === fromGoal.categoryId;
       const sameParent = g.parentId === fromGoal.parentId;
+      const matchesNextSeason = g.seasonIndex === sourcePeriodInfo.nextSeasonIdx;
 
-      // Seasonal candidates
-      if (fromGoal.period === 'SEASONAL') {
-        const matchesNextSeason = g.period === 'SEASONAL' && g.seasonIndex === sourcePeriodInfo.nextSeasonIdx;
-        if (matchesNextSeason && (sameCategory || sameParent)) return true;
-      }
-
-      // Monthly candidates
-      if (fromGoal.period === 'MONTHLY') {
-        const matchesNextMonth = g.period === 'MONTHLY' && g.monthIndex === sourcePeriodInfo.nextMonthIdx;
-        if (matchesNextMonth && (sameCategory || sameParent)) return true;
-        // Or seasonal goal of the next season
-        if (g.period === 'SEASONAL' && g.seasonIndex === sourcePeriodInfo.nextSeasonIdx && sameCategory) return true;
-      }
-
-      // Annual candidates
-      if (fromGoal.period === 'ANNUAL') {
-        if (g.period === 'ANNUAL' && g.year === sourcePeriodInfo.nextYear && sameCategory) return true;
-      }
-
-      // Other active goals in the same category
+      if (matchesNextSeason && (sameCategory || sameParent)) return true;
       if (sameCategory && g.status === 'IN_PROGRESS') return true;
-
       return false;
     });
   }, [fromGoal, goals, sourcePeriodInfo]);
 
-  // User requirement:
-  // "مگر این که فقط یک هدف تو اوون دسته و جایی که بهش منتقل بشه باش"
-  // If there's exactly one candidate goal, auto-select it!
+  // Find candidate annual goals
+  const annualCandidateGoals = useMemo(() => {
+    if (!fromGoal) return [];
+    return goals.filter(g => {
+      if (g.id === fromGoal.id) return false;
+      if (g.period !== 'ANNUAL') return false;
+
+      // Parent annual goal always included
+      if (fromGoal.parentId && g.id === fromGoal.parentId) return true;
+      // Or annual goals in same category
+      if (g.categoryId === fromGoal.categoryId) return true;
+      return false;
+    });
+  }, [fromGoal, goals]);
+
+  // Candidate goals based on active tab
+  const candidateGoals = useMemo(() => {
+    if (targetTab === 'SEASONAL') return seasonalCandidateGoals;
+    if (targetTab === 'ANNUAL') return annualCandidateGoals;
+    return [];
+  }, [targetTab, seasonalCandidateGoals, annualCandidateGoals]);
+
+  // Auto-select first goal or trigger new goal creation
   useEffect(() => {
+    if (targetTab === 'CLOSE') {
+      setSelectedTargetGoalId('');
+      setIsCreatingNew(false);
+      return;
+    }
+
     if (candidateGoals.length === 1) {
       setSelectedTargetGoalId(candidateGoals[0].id);
       setIsCreatingNew(false);
@@ -154,10 +166,14 @@ export const TransferPeriodItemsModal: React.FC<Props> = ({
       setIsCreatingNew(false);
     } else {
       setSelectedTargetGoalId('');
-      setIsCreatingNew(true);
-      setCustomNewGoalTitle(`ادامه ${fromGoal?.title || 'برنامه'} در ${sourcePeriodInfo.nextName}`);
+      if (targetTab === 'SEASONAL') {
+        setIsCreatingNew(true);
+        setCustomNewGoalTitle(`ادامه ${fromGoal?.title || 'برنامه'} در ${sourcePeriodInfo.nextName}`);
+      } else {
+        setIsCreatingNew(false);
+      }
     }
-  }, [candidateGoals, fromGoal, sourcePeriodInfo]);
+  }, [candidateGoals, targetTab, fromGoal, sourcePeriodInfo]);
 
   if (!isOpen || !fromGoal) return null;
 
@@ -166,6 +182,12 @@ export const TransferPeriodItemsModal: React.FC<Props> = ({
   const category = categories.find(c => c.id === fromGoal.categoryId);
 
   const handleConfirm = () => {
+    if (targetTab === 'CLOSE') {
+      onClosePendingItems?.(fromGoal.id);
+      onClose();
+      return;
+    }
+
     if (isCreatingNew) {
       onCreateTargetAndTransfer(
         fromGoal,
@@ -248,118 +270,188 @@ export const TransferPeriodItemsModal: React.FC<Props> = ({
             </div>
           </div>
 
-          {/* Destination Goal Selection */}
-          <div className="bg-gray-50/90 rounded-xl p-3.5 border border-gray-200 space-y-2.5">
-            <div className="flex items-center justify-between">
-              <label className="font-bold text-gray-900 text-xs flex items-center gap-1.5">
-                <Target className="w-3.5 h-3.5 text-emerald-600" />
-                <span>تعیین هدف مقصد برای انتقال:</span>
-              </label>
+          {/* Mode Tabs: Seasonal vs Annual vs Close */}
+          <div className="flex items-center gap-1.5 p-1 bg-gray-100/80 rounded-xl border border-gray-200/80">
+            <button
+              type="button"
+              onClick={() => setTargetTab('SEASONAL')}
+              className={`flex-1 py-1.5 px-2 rounded-lg font-bold text-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                targetTab === 'SEASONAL'
+                  ? 'bg-white text-emerald-800 shadow-xs border border-emerald-200'
+                  : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              <span>🌸</span>
+              <span>انتقال به هدف فصلی</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setTargetTab('ANNUAL')}
+              className={`flex-1 py-1.5 px-2 rounded-lg font-bold text-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                targetTab === 'ANNUAL'
+                  ? 'bg-white text-emerald-800 shadow-xs border border-emerald-200'
+                  : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              <Target className="w-3.5 h-3.5 text-emerald-600" />
+              <span>انتقال به هدف سالانه</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setTargetTab('CLOSE')}
+              className={`flex-1 py-1.5 px-2 rounded-lg font-bold text-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                targetTab === 'CLOSE'
+                  ? 'bg-amber-100/90 text-amber-900 shadow-xs border border-amber-300'
+                  : 'text-gray-600 hover:text-amber-800'
+              }`}
+            >
+              <Archive className="w-3.5 h-3.5 text-amber-700" />
+              <span>بستن و خاتمه</span>
+            </button>
+          </div>
 
-              {candidateGoals.length === 1 && (
-                <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-md">
-                  انتخاب خودکار (تنها یک هدف متناظر)
-                </span>
-              )}
-            </div>
-
-            {candidateGoals.length > 0 && !isCreatingNew ? (
-              <div className="space-y-2">
-                <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
-                  {candidateGoals.map((cg) => {
-                    const isSelected = selectedTargetGoalId === cg.id;
-                    const cgCat = categories.find(c => c.id === cg.categoryId);
-                    return (
-                      <div
-                        key={cg.id}
-                        onClick={() => setSelectedTargetGoalId(cg.id)}
-                        className={`p-2.5 rounded-xl border transition-all cursor-pointer flex items-center justify-between ${
-                          isSelected
-                            ? 'bg-emerald-50 border-emerald-400 ring-1 ring-emerald-300'
-                            : 'bg-white border-gray-200 hover:border-gray-300'
-                        }`}
-                      >
-                        <div className="min-w-0 flex items-center gap-2">
-                          <EntityIcon 
-                            type={cg.period === 'ANNUAL' ? 'ANNUAL_GOAL' : 'INTERMEDIATE_GOAL'} 
-                            size="xs" 
-                          />
-                          <div className="min-w-0">
-                            <span className="font-bold text-gray-900 text-xs truncate block">
-                              {cg.title}
-                            </span>
-                            <div className="flex items-center gap-1.5 text-[10px] text-gray-500 mt-0.5">
-                              {cg.period === 'SEASONAL' && cg.seasonIndex !== undefined && (
-                                <span>فصل {SEASONS[cg.seasonIndex]}</span>
-                              )}
-                              {cg.period === 'MONTHLY' && cg.monthIndex && (
-                                <span>ماه {PERSIAN_MONTHS[(Number(cg.monthIndex) - 1 + 12) % 12]}</span>
-                              )}
-                              {cgCat && (
-                                <span className="text-gray-400">• {cgCat.title}</span>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-
-                        <input
-                          type="radio"
-                          name="targetGoal"
-                          checked={isSelected}
-                          onChange={() => setSelectedTargetGoalId(cg.id)}
-                          className="w-4 h-4 text-emerald-600 cursor-pointer"
-                        />
-                      </div>
-                    );
-                  })}
-                </div>
-
-                <div className="pt-1 flex items-center justify-between text-[11px]">
-                  <span className="text-gray-500">یا مایلید هدف جدید بسازید؟</span>
-                  <button
-                    type="button"
-                    onClick={() => setIsCreatingNew(true)}
-                    className="text-emerald-700 font-bold hover:underline cursor-pointer flex items-center gap-1"
-                  >
-                    <Plus className="w-3 h-3" />
-                    <span>ایجاد هدف جدید برای دوره بعد</span>
-                  </button>
-                </div>
+          {/* Destination Goal Selection or Close Panel */}
+          {targetTab === 'CLOSE' ? (
+            <div className="p-4 bg-amber-50/70 border border-amber-200 rounded-xl space-y-2.5">
+              <div className="flex items-center gap-2 text-amber-900 font-bold text-xs">
+                <Archive className="w-4 h-4 text-amber-700" />
+                <span>بستن تسک‌های دوره و پایان فصل</span>
               </div>
-            ) : (
-              <div className="space-y-2">
-                <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-lg text-amber-900 flex items-start gap-2">
-                  <AlertCircle className="w-4 h-4 shrink-0 text-amber-700 mt-0.5" />
-                  <p className="text-[11px] leading-relaxed">
-                    هدفی برای این دسته در {sourcePeriodInfo.nextName} یافت نشد. می‌توانید با عنوان زیر هدف جدید ایجاد کنید تا تسک‌ها و عادات به آن منتقل شوند:
-                  </p>
-                </div>
+              <p className="text-[11px] text-amber-800 leading-relaxed">
+                تسک‌های تکمیل‌نشده این فصل بسته می‌شوند و سوابق آن‌ها در تاریخچه همین هدف محفوظ می‌ماند. این تسک‌ها به فصل بعدی منتقل نخواهند شد.
+              </p>
+              <div className="text-[11px] font-semibold text-gray-700 bg-white/80 p-2.5 rounded-lg border border-amber-200">
+                تعداد تسک‌های آماده بستن: <span className="font-bold text-amber-900">{toPersianDigits(pendingTasks.length)} تسک</span>
+              </div>
+            </div>
+          ) : (
+            <div className="bg-gray-50/90 rounded-xl p-3.5 border border-gray-200 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <label className="font-bold text-gray-900 text-xs flex items-center gap-1.5">
+                  <Target className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>
+                    {targetTab === 'SEASONAL' ? 'انتخاب هدف فصلی مقصد:' : 'انتخاب هدف سالانه مقصد:'}
+                  </span>
+                </label>
 
-                <div>
-                  <label className="block text-[11px] font-semibold text-gray-700 mb-1">
-                    عنوان هدف جدید در {sourcePeriodInfo.nextName}:
-                  </label>
-                  <input
-                    type="text"
-                    value={customNewGoalTitle}
-                    onChange={(e) => setCustomNewGoalTitle(e.target.value)}
-                    placeholder={`مثلاً: ادامه ${fromGoal.title} در فصل بعدی`}
-                    className="w-full px-3 py-2 rounded-xl border border-gray-300 bg-white text-xs font-semibold focus:border-emerald-500 focus:ring-1 focus:ring-emerald-200 outline-hidden"
-                  />
-                </div>
-
-                {candidateGoals.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => setIsCreatingNew(false)}
-                    className="text-[11px] text-gray-600 hover:text-gray-900 hover:underline cursor-pointer"
-                  >
-                    بازگشت به انتخاب از اهداف موجود
-                  </button>
+                {candidateGoals.length === 1 && (
+                  <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-md">
+                    انتخاب خودکار (تنها یک هدف متناظر)
+                  </span>
                 )}
               </div>
-            )}
-          </div>
+
+              {candidateGoals.length > 0 && !isCreatingNew ? (
+                <div className="space-y-2">
+                  <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
+                    {candidateGoals.map((cg) => {
+                      const isSelected = selectedTargetGoalId === cg.id;
+                      const cgCat = categories.find(c => c.id === cg.categoryId);
+                      const isParent = fromGoal.parentId === cg.id;
+                      const seasonIdx = cg.seasonIndex ?? 0;
+
+                      return (
+                        <div
+                          key={cg.id}
+                          onClick={() => setSelectedTargetGoalId(cg.id)}
+                          className={`p-2.5 rounded-xl border transition-all cursor-pointer flex items-center justify-between ${
+                            isSelected
+                              ? 'bg-emerald-50 border-emerald-400 ring-1 ring-emerald-300'
+                              : 'bg-white border-gray-200 hover:border-gray-300'
+                          }`}
+                        >
+                          <div className="min-w-0 flex items-center gap-2">
+                            {cg.period === 'SEASONAL' ? (
+                              <span className="text-base shrink-0">{SEASON_ICONS[seasonIdx] || '🌱'}</span>
+                            ) : (
+                              <EntityIcon type="ANNUAL_GOAL" size="xs" />
+                            )}
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-bold text-gray-900 text-xs truncate">
+                                  {cg.title}
+                                </span>
+                                {isParent && (
+                                  <span className="text-[9px] font-bold text-emerald-800 bg-emerald-100 px-1.5 py-0.2 rounded">
+                                    هدف سالانه مادر
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-1.5 text-[10px] text-gray-500 mt-0.5">
+                                {cg.period === 'SEASONAL' && cg.seasonIndex !== undefined && (
+                                  <span>فصل {SEASONS[cg.seasonIndex]} ({toPersianDigits(cg.year)})</span>
+                                )}
+                                {cg.period === 'ANNUAL' && (
+                                  <span>سال {toPersianDigits(cg.year)}</span>
+                                )}
+                                {cgCat && (
+                                  <span className="text-gray-400">• {cgCat.title}</span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          <input
+                            type="radio"
+                            name="targetGoal"
+                            checked={isSelected}
+                            onChange={() => setSelectedTargetGoalId(cg.id)}
+                            className="w-4 h-4 text-emerald-600 cursor-pointer"
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {targetTab === 'SEASONAL' && (
+                    <div className="pt-1 flex items-center justify-between text-[11px]">
+                      <span className="text-gray-500">یا مایلید برای فصل بعد هدف بسازید؟</span>
+                      <button
+                        type="button"
+                        onClick={() => setIsCreatingNew(true)}
+                        className="text-emerald-700 font-bold hover:underline cursor-pointer flex items-center gap-1"
+                      >
+                        <Plus className="w-3 h-3" />
+                        <span>ایجاد هدف جدید برای فصل بعد</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-lg text-amber-900 flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 shrink-0 text-amber-700 mt-0.5" />
+                    <p className="text-[11px] leading-relaxed">
+                      هدفی برای این دسته در {targetTab === 'SEASONAL' ? sourcePeriodInfo.nextName : 'اهداف سالانه'} یافت نشد. می‌توانید با عنوان زیر هدف جدید ایجاد کنید تا تسک‌ها و عادات به آن منتقل شوند:
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-gray-700 mb-1">
+                      عنوان هدف جدید:
+                    </label>
+                    <input
+                      type="text"
+                      value={customNewGoalTitle}
+                      onChange={(e) => setCustomNewGoalTitle(e.target.value)}
+                      placeholder={`مثلاً: ادامه ${fromGoal.title} در فصل بعدی`}
+                      className="w-full px-3 py-2 rounded-xl border border-gray-300 bg-white text-xs font-semibold focus:border-emerald-500 focus:ring-1 focus:ring-emerald-200 outline-hidden"
+                    />
+                  </div>
+
+                  {candidateGoals.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setIsCreatingNew(false)}
+                      className="text-[11px] text-gray-600 hover:text-gray-900 hover:underline cursor-pointer"
+                    >
+                      بازگشت به انتخاب از اهداف موجود
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Pending Tasks & Habits Preview */}
           <div className="space-y-2">
@@ -438,16 +530,29 @@ export const TransferPeriodItemsModal: React.FC<Props> = ({
           </button>
           <button
             type="button"
-            disabled={!isCreatingNew && !selectedTargetGoalId}
+            disabled={targetTab !== 'CLOSE' && !isCreatingNew && !selectedTargetGoalId}
             onClick={handleConfirm}
-            className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold text-xs transition-all shadow-xs cursor-pointer flex items-center gap-1.5"
+            className={`px-4 py-2 rounded-xl text-white font-bold text-xs transition-all shadow-xs cursor-pointer flex items-center gap-1.5 disabled:opacity-50 ${
+              targetTab === 'CLOSE'
+                ? 'bg-amber-600 hover:bg-amber-700'
+                : 'bg-emerald-600 hover:bg-emerald-700'
+            }`}
           >
-            <CheckCircle2 className="w-4 h-4" />
-            <span>
-              {isCreatingNew 
-                ? `ایجاد هدف و انتقال به ${sourcePeriodInfo.nextName}` 
-                : `تایید و انتقال به «${selectedTargetGoal?.title || 'هدف انتخابی'}»`}
-            </span>
+            {targetTab === 'CLOSE' ? (
+              <>
+                <Archive className="w-4 h-4" />
+                <span>بستن و خاتمه تسک‌های این دوره ({toPersianDigits(pendingTasks.length)})</span>
+              </>
+            ) : (
+              <>
+                <CheckCircle2 className="w-4 h-4" />
+                <span>
+                  {isCreatingNew 
+                    ? `ایجاد هدف و انتقال به ${sourcePeriodInfo.nextName}` 
+                    : `تایید و انتقال به «${selectedTargetGoal?.title || 'هدف انتخابی'}»`}
+                </span>
+              </>
+            )}
           </button>
         </div>
       </div>

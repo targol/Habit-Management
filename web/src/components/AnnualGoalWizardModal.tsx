@@ -128,8 +128,6 @@ export const AnnualGoalWizardModal: React.FC<Props> = ({
     return categories.find(c => c.id === annualCategoryId) || categories[0];
   }, [categories, annualCategoryId]);
 
-  if (!isOpen) return null;
-
   // Toggle seasonal draft
   const toggleSeason = (sIdx: number) => {
     setSeasonalDrafts(prev => ({
@@ -368,6 +366,8 @@ export const AnnualGoalWizardModal: React.FC<Props> = ({
     onSaveComplete(annualGoal, intermediateGoals, microTask, microHabit);
     onClose();
   };
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-3 sm:p-4 overflow-y-auto" dir="rtl">

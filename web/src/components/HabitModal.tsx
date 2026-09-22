@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Habit, Category, Goal } from '../types';
-import { getTodayJalali, jalaliToFormattedString, WEEKDAYS_SHORT } from '../calendar/jalali';
-import { X, Folder, Target, Clock, ShieldCheck, Sprout, Edit3, Plus } from 'lucide-react';
+import { getTodayJalali, jalaliToFormattedString, WEEKDAYS_SHORT, toPersianDigits, PERSIAN_MONTHS } from '../calendar/jalali';
+import { X, Folder, Target, Clock, ShieldCheck, Sprout, Edit3, Plus, Archive, Sparkles, Copy } from 'lucide-react';
 import { PlantIcon, ALL_PLANT_TYPES } from './PlantIcon';
 
 interface Props {
@@ -9,6 +9,7 @@ interface Props {
   habit?: Habit | null;
   categories: Category[];
   goals: Goal[];
+  isDuplicate?: boolean;
   onClose: () => void;
   onSave: (habit: Habit) => void;
 }
@@ -18,6 +19,7 @@ export const HabitModal: React.FC<Props> = ({
   habit,
   categories,
   goals,
+  isDuplicate = false,
   onClose,
   onSave,
 }) => {
@@ -34,13 +36,25 @@ export const HabitModal: React.FC<Props> = ({
   const [exemptWeekends, setExemptWeekends] = useState(false);
   const [plantType, setPlantType] = useState(ALL_PLANT_TYPES[0].id);
   const [isInheritedFromGoal, setIsInheritedFromGoal] = useState(false);
+  const [isClosed, setIsClosed] = useState(false);
+  const [isDuplicateMode, setIsDuplicateMode] = useState(false);
 
   // Synchronize state when modal opens or habit prop changes
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) {
+      setIsDuplicateMode(false);
+      return;
+    }
+
+    const dupl = Boolean(isDuplicate);
+    setIsDuplicateMode(dupl);
 
     if (habit) {
-      setTitle(habit.title || '');
+      let initTitle = habit.title || '';
+      if (dupl && !initTitle.includes('(کپی)')) {
+        initTitle = `${initTitle} (کپی)`;
+      }
+      setTitle(initTitle);
       setNotes(habit.notes || '');
       const linkedGoal = goals.find(g => g.id === habit.goalId);
       setCategoryId(habit.categoryId || linkedGoal?.categoryId || categories[0]?.id || 'cat-health');
@@ -55,6 +69,7 @@ export const HabitModal: React.FC<Props> = ({
       setExemptWeekends(Boolean(habit.exemptWeekends));
       setPlantType(habit.plantType || linkedGoal?.plantType || categories[0]?.plantType || ALL_PLANT_TYPES[0].id);
       setIsInheritedFromGoal(Boolean(habit.goalId));
+      setIsClosed(Boolean(habit.isClosed));
     } else {
       setTitle('');
       setNotes('');
@@ -68,10 +83,18 @@ export const HabitModal: React.FC<Props> = ({
       const catObj = categories.find(c => c.id === defaultCat);
       setPlantType(catObj?.plantType || ALL_PLANT_TYPES[0].id);
       setIsInheritedFromGoal(false);
+      setIsClosed(false);
     }
-  }, [isOpen, habit, categories, goals]);
+  }, [isOpen, habit, categories, goals, isDuplicate]);
 
   if (!isOpen) return null;
+
+  const handleDuplicateCurrentHabit = () => {
+    setIsDuplicateMode(true);
+    if (!title.includes('(کپی)')) {
+      setTitle(prev => `${prev} (کپی)`);
+    }
+  };
 
   const handleGoalChange = (newGoalId: string | null) => {
     setGoalId(newGoalId);
@@ -104,12 +127,23 @@ export const HabitModal: React.FC<Props> = ({
     }
   };
 
+  const isActuallyDuplicate = isDuplicateMode || isDuplicate;
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim()) return;
 
+    let habitId: string;
+    if (isActuallyDuplicate) {
+      habitId = `habit-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+    } else if (habit) {
+      habitId = habit.id;
+    } else {
+      habitId = `habit-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+    }
+
     const newHabit: Habit = {
-      id: habit ? habit.id : `habit-${Date.now()}`,
+      id: habitId,
       title: title.trim(),
       notes: notes.trim(),
       categoryId: categoryId || categories[0]?.id || 'cat-health',
@@ -121,8 +155,10 @@ export const HabitModal: React.FC<Props> = ({
       exemptHolidays,
       exemptWeekends,
       plantType,
-      completionHistory: habit?.completionHistory || {},
-      createdAt: habit ? habit.createdAt : jalaliToFormattedString(today),
+      completionHistory: isActuallyDuplicate ? {} : (habit?.completionHistory || {}),
+      createdAt: isActuallyDuplicate ? jalaliToFormattedString(today) : (habit ? habit.createdAt : jalaliToFormattedString(today)),
+      isClosed: isActuallyDuplicate ? false : isClosed,
+      closedAt: isActuallyDuplicate ? null : (isClosed ? (habit?.closedAt || jalaliToFormattedString(today)) : null),
     };
 
     onSave(newHabit);
@@ -135,27 +171,42 @@ export const HabitModal: React.FC<Props> = ({
         {/* Sticky Header */}
         <div className="px-5 py-3.5 border-b border-gray-100 bg-white flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2.5">
-            <div className={`p-2 rounded-xl ${isEdit ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}`}>
-              {isEdit ? <Edit3 className="w-5 h-5" /> : <Plus className="w-5 h-5" />}
+            <div className={`p-2 rounded-xl ${isActuallyDuplicate ? 'bg-emerald-100 text-emerald-800' : isEdit ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}`}>
+              {isActuallyDuplicate ? <Copy className="w-5 h-5" /> : isEdit ? <Edit3 className="w-5 h-5" /> : <Plus className="w-5 h-5" />}
             </div>
             <div>
               <h3 className="text-sm sm:text-base font-bold text-gray-900">
-                {isEdit ? 'ویرایش اطلاعات عادت' : 'تعریف عادت جدید'}
+                {isActuallyDuplicate ? 'ایجاد کپی جدید از عادت' : isEdit ? 'ویرایش اطلاعات عادت' : 'تعریف عادت جدید'}
               </h3>
               <p className="text-[11px] text-gray-500">
-                {isEdit 
+                {isActuallyDuplicate
+                  ? 'یک عادت جدید مستقل با مشخصات همین عادت ایجاد می‌شود'
+                  : isEdit 
                   ? `ویرایش تناوب، هدف متصل و زمانبندی «${title || habit?.title || ''}»`
                   : 'تعیین عنوان، تناوب تکرار و زمان تمرکز'}
               </p>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="p-1.5 text-gray-400 hover:text-gray-600 rounded-full hover:bg-gray-100 transition-colors cursor-pointer"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-2">
+            {isEdit && !isActuallyDuplicate && (
+              <button
+                type="button"
+                onClick={handleDuplicateCurrentHabit}
+                className="flex items-center gap-1 text-xs text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-2.5 py-1.5 rounded-xl transition-colors cursor-pointer"
+                title="ایجاد کپی جدید از این عادت"
+              >
+                <Copy className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">کپی از عادت</span>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onClose}
+              className="p-1.5 text-gray-400 hover:text-gray-600 rounded-full hover:bg-gray-100 transition-colors cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* Scrollable Form Body */}
@@ -224,15 +275,120 @@ export const HabitModal: React.FC<Props> = ({
                 className="w-full px-3 py-2 rounded-xl border border-gray-200 text-xs bg-white focus:border-emerald-500 outline-hidden font-medium"
               >
                 <option value="">بدون هدف (مستقل)</option>
-                {goals.map((g) => (
-                  <option key={g.id} value={g.id}>
-                    {g.period === 'ANNUAL' ? '🎯 ' : g.period === 'SEASONAL' ? '🍂 ' : '📅 '}
-                    {g.title}
-                  </option>
-                ))}
+                
+                {/* 🎯 اهداف سالانه */}
+                {goals.filter(g => g.period === 'ANNUAL').length > 0 && (
+                  <optgroup label="🎯 اهداف سالانه (جاری در تمام فصول سال)">
+                    {goals
+                      .filter(g => g.period === 'ANNUAL')
+                      .map((g) => (
+                        <option key={g.id} value={g.id}>
+                          🎯 سال {toPersianDigits(g.year)}: {g.title}
+                        </option>
+                      ))}
+                  </optgroup>
+                )}
+
+                {/* 🌱 اهداف فصلی با آیکون و نام فصل */}
+                {goals.filter(g => g.period === 'SEASONAL').length > 0 && (
+                  <optgroup label="🌱 اهداف فصلی (۴ فصل سال)">
+                    {goals
+                      .filter(g => g.period === 'SEASONAL')
+                      .map((g) => {
+                        const sIdx = g.seasonIndex ?? 0;
+                        const sIcons = ['🌸', '☀️', '🍂', '❄️'];
+                        const sNames = ['بهار', 'تابستان', 'پاییز', 'زمستان'];
+                        const icon = sIcons[sIdx] || '🌱';
+                        const name = sNames[sIdx] || 'فصل';
+                        const parent = g.parentId ? goals.find(p => p.id === g.parentId) : undefined;
+                        const parentText = parent ? ` [ذیل ${parent.title}]` : '';
+                        return (
+                          <option key={g.id} value={g.id}>
+                            {icon} فصل {name} {toPersianDigits(g.year)}: {g.title}{parentText}
+                          </option>
+                        );
+                      })}
+                  </optgroup>
+                )}
+
+                {/* 📅 اهداف ماهانه */}
+                {goals.filter(g => g.period === 'MONTHLY').length > 0 && (
+                  <optgroup label="📅 اهداف ماهانه">
+                    {goals
+                      .filter(g => g.period === 'MONTHLY')
+                      .map((g) => {
+                        const mIdx = g.monthIndex ? g.monthIndex - 1 : 0;
+                        const mName = PERSIAN_MONTHS[mIdx] || 'ماه';
+                        return (
+                          <option key={g.id} value={g.id}>
+                            📅 ماه {mName} {toPersianDigits(g.year)}: {g.title}
+                          </option>
+                        );
+                      })}
+                  </optgroup>
+                )}
               </select>
+
+              {/* Goal connection note */}
+              {goalId && (() => {
+                const sel = goals.find(g => g.id === goalId);
+                if (!sel) return null;
+                if (sel.period === 'ANNUAL') {
+                  return (
+                    <div className="mt-2 p-2.5 bg-emerald-50 rounded-xl border border-emerald-200 text-xs text-emerald-950 flex items-start gap-2">
+                      <Sparkles className="w-4 h-4 text-emerald-700 shrink-0 mt-0.5" />
+                      <div className="space-y-0.5">
+                        <p className="font-bold text-[11px]">اتصال به هدف سالانه: جریان در تمام فصول سال</p>
+                        <p className="text-[10px] text-emerald-800 leading-relaxed">
+                          این عادت به صورت خودکار به تمام اهداف فصلی این هدف سالانه متصل می‌شود، مگر اینکه بعداً عادت را ببندید.
+                        </p>
+                      </div>
+                    </div>
+                  );
+                }
+                if (sel.period === 'SEASONAL') {
+                  const sIdx = sel.seasonIndex ?? 0;
+                  const sIcons = ['🌸', '☀️', '🍂', '❄️'];
+                  const sNames = ['بهار', 'تابستان', 'پاییز', 'زمستان'];
+                  return (
+                    <div className="mt-1.5 p-2 bg-amber-50 rounded-xl border border-amber-200 text-[11px] text-amber-950 flex items-center gap-1.5">
+                      <span className="text-sm">{sIcons[sIdx]}</span>
+                      <span className="font-bold">
+                        متصل به هدف فصل {sNames[sIdx]} {toPersianDigits(sel.year)}
+                      </span>
+                    </div>
+                  );
+                }
+                return null;
+              })()}
             </div>
           </div>
+
+          {/* Close habit toggle if editing */}
+          {isEdit && (
+            <div className="p-3 bg-gray-50 rounded-xl border border-gray-200 flex items-center justify-between">
+              <div>
+                <h4 className="text-xs font-bold text-gray-900 flex items-center gap-1.5">
+                  <Archive className="w-3.5 h-3.5 text-gray-600" />
+                  <span>بستن و خاتمه این عادت</span>
+                </h4>
+                <p className="text-[11px] text-gray-500 mt-0.5">
+                  عادت از لیست فعال بسته می‌شود ولی تاریخچه و سوابق آن حفظ می‌ماند.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsClosed(!isClosed)}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-colors cursor-pointer border ${
+                  isClosed
+                    ? 'bg-amber-100 text-amber-900 border-amber-300'
+                    : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-100'
+                }`}
+              >
+                {isClosed ? 'عادت بسته‌شده است (خاتمه یافته)' : 'عادت فعال است'}
+              </button>
+            </div>
+          )}
 
           {/* Frequency & Days of week */}
           <div className="bg-gray-50/80 p-3.5 rounded-xl border border-gray-200 space-y-2.5">
@@ -338,34 +494,6 @@ export const HabitModal: React.FC<Props> = ({
               className="w-full px-3 py-2 rounded-xl border border-gray-200 text-xs bg-white font-medium"
               placeholder="مثلاً ۱۵ یا ۲۵ دقیقه"
             />
-          </div>
-
-          {/* Exemption rules */}
-          <div className="bg-emerald-50/40 p-3 rounded-xl border border-emerald-100 space-y-2">
-            <span className="text-xs font-bold text-emerald-950 flex items-center gap-1.5">
-              <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-              <span>معافیت‌های هوشمند</span>
-            </span>
-
-            <label className="flex items-center gap-2 cursor-pointer text-xs text-gray-700">
-              <input
-                type="checkbox"
-                checked={exemptHolidays}
-                onChange={(e) => setExemptHolidays(e.target.checked)}
-                className="rounded text-emerald-600 focus:ring-emerald-500"
-              />
-              <span>معافیت در تعطیلات رسمی تقویم شمسی</span>
-            </label>
-
-            <label className="flex items-center gap-2 cursor-pointer text-xs text-gray-700">
-              <input
-                type="checkbox"
-                checked={exemptWeekends}
-                onChange={(e) => setExemptWeekends(e.target.checked)}
-                className="rounded text-emerald-600 focus:ring-emerald-500"
-              />
-              <span>معافیت در آخر هفته (پنج‌شنبه و جمعه)</span>
-            </label>
           </div>
         </form>
 

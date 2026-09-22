@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { AppTask, Habit, Category, PlantState, Goal } from '../types';
+import { AppTask, Habit, Category, PlantState, Goal, UserProfile } from '../types';
 import { GardenVisual } from './GardenVisual';
 import { 
   getTodayJalali, 
@@ -23,7 +23,11 @@ import {
   AlertCircle,
   CheckCheck,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Star,
+  Bell,
+  Copy,
+  Edit3
 } from 'lucide-react';
 import { PlantIcon } from './PlantIcon';
 import { EntityBadge, EntityIcon } from './EntityIcon';
@@ -34,11 +38,14 @@ interface Props {
   goals: Goal[];
   categories: Category[];
   plantState: PlantState;
+  userProfile?: UserProfile;
   onToggleTask: (taskId: string) => void;
   onToggleHabitToday: (habitId: string) => void;
   onOpenTimer: (title: string, minutes: number, onDone: () => void) => void;
   onOpenNewTask: () => void;
   onOpenNewHabit: () => void;
+  onDuplicateTask?: (task: AppTask) => void;
+  onEditTask?: (task: AppTask) => void;
 }
 
 export const TodayScreen: React.FC<Props> = ({
@@ -47,11 +54,14 @@ export const TodayScreen: React.FC<Props> = ({
   goals,
   categories,
   plantState,
+  userProfile,
   onToggleTask,
   onToggleHabitToday,
   onOpenTimer,
   onOpenNewTask,
   onOpenNewHabit,
+  onDuplicateTask,
+  onEditTask,
 }) => {
   const today = getTodayJalali();
   const todayStr = jalaliToFormattedString(today);
@@ -82,21 +92,13 @@ export const TodayScreen: React.FC<Props> = ({
   const activeTasks = todayTasks.filter(t => !t.isCompleted);
   const completedTasks = todayTasks.filter(t => t.isCompleted);
 
-  // Filter Habits: ONLY habits scheduled for today's day of week (or daily without restriction)
+  // Filter Habits: habits scheduled for today or already completed today, excluding closed habits
   const todayHabits = habits.filter(h => {
-    // Weekend exemption: Friday (6)
-    if (h.exemptWeekends && currentDayOfWeek === 6) {
-      return false;
-    }
-    // Official holiday exemption
-    if (h.exemptHolidays && holidayInfo.isHoliday) {
-      return false;
-    }
-    // Weekly or specific target days: must include today
+    if (h.isClosed) return false;
+    if (h.completionHistory[todayStr]) return true;
     if (Array.isArray(h.targetDaysOfWeek) && h.targetDaysOfWeek.length > 0) {
       return h.targetDaysOfWeek.includes(currentDayOfWeek);
     }
-    // Default: daily habit
     return true;
   });
 
@@ -104,49 +106,71 @@ export const TodayScreen: React.FC<Props> = ({
 
   return (
     <div className="space-y-5 animate-fade-in pb-12">
-      {/* Date Header Card */}
-      <div className="bg-white rounded-2xl p-4 border border-emerald-100/90 shadow-xs flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <div className="w-12 h-12 rounded-xl bg-emerald-600 text-white flex flex-col items-center justify-center font-bold shadow-xs">
-            <span className="text-xs leading-none opacity-90">{weekdayName}</span>
-            <span className="text-lg leading-tight mt-0.5">{toPersianDigits(today.day)}</span>
-          </div>
-          <div>
-            <h2 className="text-base font-bold text-gray-900 flex items-center gap-2">
-              <span>{toPersianDigits(today.day)} {PERSIAN_MONTHS[today.month - 1]} {toPersianDigits(today.year)}</span>
-            </h2>
-            <div className="flex items-center gap-2 mt-0.5">
-              {holidayInfo.isHoliday ? (
-                <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-md">
-                  <AlertCircle className="w-3 h-3" />
-                  <span>تعطیل رسمی: {holidayInfo.title}</span>
-                </span>
-              ) : (
-                <span className="text-xs text-gray-500 flex items-center gap-1">
-                  <Calendar className="w-3.5 h-3.5 text-emerald-600" />
-                  <span>{weekdayName} پرانرژی و پربار</span>
-                </span>
-              )}
+      {/* Sticky Date Header Card */}
+      <div className="sticky -top-5 z-20 pt-5 pb-2.5 bg-[#F8F9F5]/95 backdrop-blur-md -mx-4 px-4 sm:mx-0 sm:px-0">
+        <div className="bg-white rounded-2xl p-4 border border-emerald-100/90 shadow-2xs flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-xl bg-emerald-600 text-white flex flex-col items-center justify-center font-bold shadow-xs">
+              <span className="text-xs leading-none opacity-90">{weekdayName}</span>
+              <span className="text-lg leading-tight mt-0.5">{toPersianDigits(today.day)}</span>
+            </div>
+            <div>
+              <h2 className="text-base font-bold text-gray-900 flex items-center gap-2">
+                <span>{toPersianDigits(today.day)} {PERSIAN_MONTHS[today.month - 1]} {toPersianDigits(today.year)}</span>
+              </h2>
+              <div className="flex items-center gap-2 mt-0.5">
+                {holidayInfo.isHoliday ? (
+                  <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-md">
+                    <AlertCircle className="w-3 h-3" />
+                    <span>تعطیل رسمی: {holidayInfo.title}</span>
+                  </span>
+                ) : (
+                  <span className="text-xs text-gray-500 flex items-center gap-1">
+                    <Calendar className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>{weekdayName} پرانرژی و پربار</span>
+                  </span>
+                )}
+              </div>
             </div>
           </div>
-        </div>
 
-        {/* Quick Pomodoro Launcher */}
-        <button
-          type="button"
-          onClick={() => onOpenTimer('جلسه تمرکز آزاد', 25, () => {})}
-          className="px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-bold rounded-xl border border-emerald-200/80 flex items-center gap-1.5 transition-colors cursor-pointer"
-        >
-          <Play className="w-3.5 h-3.5 fill-emerald-700" />
-          <span>تایمر تمرکز (۲۵ دقیقه)</span>
-        </button>
+          <div className="flex items-center gap-2">
+            {/* User Profile Greeting Badge */}
+            {userProfile?.name && (
+              <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-emerald-50/70 rounded-xl border border-emerald-200/60">
+                <div className="w-7 h-7 rounded-full bg-white border border-emerald-300 flex items-center justify-center overflow-hidden shrink-0 shadow-2xs">
+                  {userProfile.avatarUrl && (userProfile.avatarUrl.startsWith('data:image') || userProfile.avatarUrl.startsWith('http')) ? (
+                    <img src={userProfile.avatarUrl} alt={userProfile.name} className="w-full h-full object-cover" />
+                  ) : (
+                    <span className="text-sm select-none">{userProfile.avatarUrl || '🌱'}</span>
+                  )}
+                </div>
+                <div className="text-right">
+                  <span className="text-[10px] text-gray-500 block leading-tight">سلام،</span>
+                  <span className="text-xs font-bold text-emerald-950 block leading-tight truncate max-w-[110px]">{userProfile.name}</span>
+                </div>
+              </div>
+            )}
+
+            {/* Quick Pomodoro Launcher */}
+            <button
+              type="button"
+              onClick={() => onOpenTimer('جلسه تمرکز آزاد', 25, () => {})}
+              className="px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-bold rounded-xl border border-emerald-200/80 flex items-center gap-1.5 transition-colors cursor-pointer"
+            >
+              <Play className="w-3.5 h-3.5 fill-emerald-700" />
+              <span>تایمر تمرکز (۲۵ دقیقه)</span>
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* Modern Uncluttered Garden Visual */}
       <GardenVisual
         plantState={plantState}
-        habits={todayHabits}
+        habits={habits}
         goals={goals}
+        tasks={tasks}
         onWaterHabit={onToggleHabitToday}
       />
 
@@ -201,11 +225,27 @@ export const TodayScreen: React.FC<Props> = ({
                       <Circle className="w-5 h-5 hover:text-emerald-500" />
                     </button>
                     <div className="min-w-0">
-                      <p className="text-xs font-bold text-gray-900 truncate">
-                        {t.title}
+                      <p className="text-xs font-bold text-gray-900 truncate flex items-center gap-1.5">
+                        {t.isImportant && (
+                          <span className="shrink-0 p-0.5 rounded-xs bg-amber-100 text-amber-600" title="تسک مهم">
+                            <Star className="w-3 h-3 fill-amber-500" />
+                          </span>
+                        )}
+                        <span>{t.title}</span>
                       </p>
                       <div className="flex flex-wrap items-center gap-2 mt-1 text-[11px] text-gray-500">
                         <EntityBadge type="TASK" size="xs" />
+                        {t.isImportant && (
+                          <span className="px-1.5 py-0.2 rounded-md font-bold text-[10px] bg-amber-50 text-amber-800 border border-amber-200/80">
+                            مهم
+                          </span>
+                        )}
+                        {t.reminderEnabled && (
+                          <span className="px-1.5 py-0.2 rounded-md font-medium text-[10px] bg-emerald-50 text-emerald-800 border border-emerald-200/80 flex items-center gap-1">
+                            <Bell className="w-2.5 h-2.5 text-emerald-600" />
+                            <span>{toPersianDigits(t.reminderTime || t.time || '')}</span>
+                          </span>
+                        )}
                         {cat && (
                           <span
                             className="px-1.5 py-0.2 rounded-md font-medium text-[10px]"
@@ -215,9 +255,19 @@ export const TodayScreen: React.FC<Props> = ({
                           </span>
                         )}
                         {t.time && (
-                          <span className="flex items-center gap-1">
-                            <Clock className="w-3 h-3 text-gray-400" />
-                            <span>{toPersianDigits(t.time)}</span>
+                          <span className="flex items-center gap-1 text-[10px] text-emerald-800 bg-emerald-50 px-1.5 py-0.5 rounded-md border border-emerald-200/60" title="زمان انجام">
+                            <Clock className="w-2.5 h-2.5 text-emerald-600" />
+                            <span>انجام: {toPersianDigits(t.time)}</span>
+                          </span>
+                        )}
+                        {t.dueDate ? (
+                          <span className="flex items-center gap-1 text-[10px] text-gray-600 bg-gray-100 px-1.5 py-0.5 rounded-md" title="مهلت اتمام">
+                            <Calendar className="w-2.5 h-2.5 text-gray-500" />
+                            <span>مهلت: {toPersianDigits(t.dueDate)}{t.deadlineTime ? ` (${toPersianDigits(t.deadlineTime)})` : ''}</span>
+                          </span>
+                        ) : (
+                          <span className="flex items-center gap-1 text-[10px] text-gray-500 bg-gray-50 border border-dashed border-gray-200 px-1.5 py-0.5 rounded-md" title="بدون موعد مشخص - مهلت پیش‌فرض: پایان سال">
+                            <span>مهلت: پایان سال {toPersianDigits(today.year)}</span>
                           </span>
                         )}
                         {t.notes && (
@@ -227,14 +277,38 @@ export const TodayScreen: React.FC<Props> = ({
                     </div>
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={() => onOpenTimer(t.title, Math.floor(t.timerSecondsTarget / 60) || 25, () => onToggleTask(t.id))}
-                    title="شروع تمرکز روی این تسک"
-                    className="p-2 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-lg shrink-0 transition-colors cursor-pointer"
-                  >
-                    <Play className="w-3.5 h-3.5" />
-                  </button>
+                  <div className="flex items-center gap-1 shrink-0">
+                    {onDuplicateTask && (
+                      <button
+                        type="button"
+                        onClick={() => onDuplicateTask(t)}
+                        title="کپی گرفتن و ویرایش تسک (داپلیکیت)"
+                        className="p-1.5 text-gray-400 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition-colors cursor-pointer"
+                      >
+                        <Copy className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+
+                    {onEditTask && (
+                      <button
+                        type="button"
+                        onClick={() => onEditTask(t)}
+                        title="ویرایش تسک"
+                        className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors cursor-pointer"
+                      >
+                        <Edit3 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={() => onOpenTimer(t.title, Math.floor(t.timerSecondsTarget / 60) || 25, () => onToggleTask(t.id))}
+                      title="شروع تمرکز روی این تسک"
+                      className="p-2 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-lg shrink-0 transition-colors cursor-pointer"
+                    >
+                      <Play className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 </div>
               );
             })}
@@ -282,13 +356,25 @@ export const TodayScreen: React.FC<Props> = ({
                             </div>
                           </div>
 
-                          <button
-                            type="button"
-                            onClick={() => onToggleTask(t.id)}
-                            className="text-[10px] font-medium text-gray-400 hover:text-gray-600 px-2 py-1 rounded bg-white border border-gray-200 cursor-pointer"
-                          >
-                            لغو تیک
-                          </button>
+                          <div className="flex items-center gap-1 shrink-0">
+                            {onDuplicateTask && (
+                              <button
+                                type="button"
+                                onClick={() => onDuplicateTask(t)}
+                                title="کپی گرفتن و ویرایش تسک (داپلیکیت)"
+                                className="p-1.5 text-gray-400 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition-colors cursor-pointer"
+                              >
+                                <Copy className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => onToggleTask(t.id)}
+                              className="text-[10px] font-medium text-gray-400 hover:text-gray-600 px-2 py-1 rounded bg-white border border-gray-200 cursor-pointer"
+                            >
+                              لغو تیک
+                            </button>
+                          </div>
                         </div>
                       );
                     })}
