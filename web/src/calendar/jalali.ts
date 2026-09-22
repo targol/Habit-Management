@@ -134,8 +134,60 @@ export function addDaysJalali(j: JalaliDate, days: number): JalaliDate {
   return gregorianToJalali(g.getFullYear(), g.getMonth() + 1, g.getDate());
 }
 
+// Converts Persian/Arabic digits to Latin digits
+export function toLatinDigits(str: string | number | undefined | null): string {
+  if (str === undefined || str === null) return '';
+  const persianDigits = ['۰', '۱', '۲', '۳', '۴', '۵', '۶', '۷', '۸', '۹'];
+  const arabicDigits = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
+  let res = str.toString();
+  for (let i = 0; i < 10; i++) {
+    res = res.replaceAll(persianDigits[i], i.toString()).replaceAll(arabicDigits[i], i.toString());
+  }
+  return res;
+}
+
+// Safely normalize any Jalali date string to standard YYYY/MM/DD
+export function normalizeJalaliDateStr(str?: string | null): string {
+  if (!str) return '';
+  const latin = toLatinDigits(str).trim();
+  const parts = latin.split(/[\/\-]/).map(p => parseInt(p.trim(), 10));
+  if (parts.length === 3 && !isNaN(parts[0]) && !isNaN(parts[1]) && !isNaN(parts[2])) {
+    const y = parts[0];
+    const m = parts[1].toString().padStart(2, '0');
+    const d = parts[2].toString().padStart(2, '0');
+    return `${y}/${m}/${d}`;
+  }
+  return latin;
+}
+
+// Safely compare two Jalali date strings (returns < 0 if d1 < d2, 0 if equal, > 0 if d1 > d2)
+export function compareJalaliDateStrings(d1?: string | null, d2?: string | null): number {
+  const norm1 = normalizeJalaliDateStr(d1);
+  const norm2 = normalizeJalaliDateStr(d2);
+  if (!norm1 && !norm2) return 0;
+  if (!norm1) return -1;
+  if (!norm2) return 1;
+  return norm1.localeCompare(norm2);
+}
+
+export function isUpcomingJalaliDate(dueDate?: string | null, todayStr?: string): boolean {
+  if (!dueDate || !todayStr) return false;
+  return compareJalaliDateStrings(dueDate, todayStr) > 0;
+}
+
+export function isOverdueJalaliDate(dueDate?: string | null, todayStr?: string): boolean {
+  if (!dueDate || !todayStr) return false;
+  return compareJalaliDateStrings(dueDate, todayStr) < 0;
+}
+
+export function isTodayJalaliDate(dueDate?: string | null, todayStr?: string): boolean {
+  if (!dueDate || !todayStr) return false;
+  return compareJalaliDateStrings(dueDate, todayStr) === 0;
+}
+
 export function parseJalaliString(str: string): JalaliDate | null {
-  const parts = str.split('/').map(p => parseInt(p, 10));
+  const latin = toLatinDigits(str).trim();
+  const parts = latin.split(/[\/\-]/).map(p => parseInt(p.trim(), 10));
   if (parts.length === 3 && !isNaN(parts[0]) && !isNaN(parts[1]) && !isNaN(parts[2])) {
     return { year: parts[0], month: parts[1], day: parts[2] };
   }
@@ -186,6 +238,36 @@ export function getSeasonByMonth(month: number): number {
   if (month >= 4 && month <= 6) return 1;
   if (month >= 7 && month <= 9) return 2;
   return 3;
+}
+
+export interface WeekDayInfo {
+  dayOfWeek: number; // 0=Saturday (شنبه) .. 6=Friday (جمعه)
+  weekdayName: string;
+  shortName: string;
+  date: JalaliDate;
+  dateStr: string;
+  isToday: boolean;
+}
+
+export function getCurrentWeekJalaliDays(baseDate?: JalaliDate): WeekDayInfo[] {
+  const today = baseDate || getTodayJalali();
+  const currentDOW = getDayOfWeek(today); // 0..6
+  const days: WeekDayInfo[] = [];
+
+  for (let i = 0; i < 7; i++) {
+    const offset = i - currentDOW;
+    const date = addDaysJalali(today, offset);
+    const dateStr = jalaliToFormattedString(date);
+    days.push({
+      dayOfWeek: i,
+      weekdayName: WEEKDAYS[i],
+      shortName: WEEKDAYS_SHORT[i],
+      date,
+      dateStr,
+      isToday: offset === 0,
+    });
+  }
+  return days;
 }
 
 

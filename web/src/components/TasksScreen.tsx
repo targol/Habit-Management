@@ -2,13 +2,18 @@ import React, { useState } from 'react';
 import { AppTask, Category, Goal } from '../types';
 import { 
   getTodayJalali, 
-  getDayOfWeek,
+  getDayOfWeek, 
   toPersianDigits, 
   jalaliToFormattedString, 
   parseJalaliString,
-  WEEKDAYS,
-  WEEKS_OF_MONTH,
-  addDaysJalali
+  WEEKDAYS, 
+  WEEKS_OF_MONTH, 
+  addDaysJalali,
+  compareJalaliDateStrings,
+  isUpcomingJalaliDate,
+  isOverdueJalaliDate,
+  isTodayJalaliDate,
+  normalizeJalaliDateStr
 } from '../calendar/jalali';
 import { 
   CheckCircle2, 
@@ -25,7 +30,8 @@ import {
   AlertCircle,
   Archive,
   RotateCcw,
-  Copy
+  Copy,
+  Calendar
 } from 'lucide-react';
 import { EntityBadge, EntityIcon } from './EntityIcon';
 import { SeasonBadge } from './SeasonBadge';
@@ -45,7 +51,7 @@ interface Props {
     taskId: string, 
     seasonIdx: number, 
     year: number, 
-    title: string,
+    title: string, 
     parentAnnualId?: string | null, 
     categoryId?: string
   ) => void;
@@ -93,7 +99,7 @@ export const TasksScreen: React.FC<Props> = ({
     if (t.isArchived === false) return false;
     if (t.isCompleted) {
       const doneDate = t.completedAt || t.dueDate;
-      if (doneDate && doneDate < oneMonthAgoStr) {
+      if (doneDate && compareJalaliDateStrings(doneDate, oneMonthAgoStr) < 0) {
         return true;
       }
     }
@@ -107,63 +113,100 @@ export const TasksScreen: React.FC<Props> = ({
   // Counts for each tab
   const todayCount = activeTasks.filter(t => {
     if (t.isCompleted) return false;
-    if (t.dueDate === todayStr) return true;
+    if (isTodayJalaliDate(t.dueDate, todayStr)) return true;
     if (t.repeatType === 'DAILY') return true;
     if (t.repeatType === 'WEEKLY' && Array.isArray(t.repeatDaysOfWeek) && t.repeatDaysOfWeek.includes(currentDayOfWeek)) return true;
     if (!t.dueDate) return true; // Undated pending tasks also need attention
-    if (t.dueDate < todayStr) return true; // Overdue tasks should show in today's radar
+    if (isOverdueJalaliDate(t.dueDate, todayStr)) return true; // Overdue tasks should show in today's radar
     return false;
   }).length;
 
-  const overdueCount = activeTasks.filter(t => !t.isCompleted && Boolean(t.dueDate && t.dueDate < todayStr)).length;
-  const upcomingCount = activeTasks.filter(t => !t.isCompleted && Boolean(t.dueDate && t.dueDate > todayStr)).length;
+  const overdueCount = activeTasks.filter(t => !t.isCompleted && isOverdueJalaliDate(t.dueDate, todayStr)).length;
+  const upcomingCount = activeTasks.filter(t => !t.isCompleted && isUpcomingJalaliDate(t.dueDate, todayStr)).length;
   const recurringCount = activeTasks.filter(t => t.repeatType && t.repeatType !== 'NONE').length;
   const completedCount = activeTasks.filter(t => t.isCompleted).length;
-  const allCount = activeTasks.length;
+  // All count should literally represent ALL tasks in the system
+  const allCount = tasks.length;
   const archivedCount = archivedTasks.length;
 
-  // Active pool depends on selected tab
-  const sourcePool = activeTab === 'ARCHIVE' ? archivedTasks : activeTasks;
+  // Active pool depends on selected tab:
+  // - 'ALL': literally ALL tasks in the system (active + archived)
+  // - 'ARCHIVE': archived tasks
+  // - Other tabs: active pool
+  const sourcePool = activeTab === 'ARCHIVE'
+    ? archivedTasks
+    : activeTab === 'ALL'
+    ? tasks
+    : activeTasks;
 
   // Filter tasks based on tab, category, and search
-  const filteredTasks = sourcePool.filter(t => {
-    // Search
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      if (!t.title.toLowerCase().includes(q) && !(t.notes || '').toLowerCase().includes(q)) {
+  const filteredTasks = sourcePool
+    .filter(t => {
+      // Search
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase();
+        if (!t.title.toLowerCase().includes(q) && !(t.notes || '').toLowerCase().includes(q)) {
+          return false;
+        }
+      }
+
+      // Category
+      if (selectedCatId && t.categoryId !== selectedCatId) {
         return false;
       }
-    }
 
-    // Category
-    if (selectedCatId && t.categoryId !== selectedCatId) {
-      return false;
-    }
+      const isOverdue = Boolean(t.dueDate && isOverdueJalaliDate(t.dueDate, todayStr) && !t.isCompleted);
+      const isUpcoming = Boolean(t.dueDate && isUpcomingJalaliDate(t.dueDate, todayStr) && !t.isCompleted);
+      const isTodayScheduled = isTodayJalaliDate(t.dueDate, todayStr) || 
+        t.repeatType === 'DAILY' || 
+        (t.repeatType === 'WEEKLY' && Array.isArray(t.repeatDaysOfWeek) && t.repeatDaysOfWeek.includes(currentDayOfWeek)) ||
+        (!t.dueDate && !t.isCompleted);
 
-    const isOverdue = Boolean(t.dueDate && t.dueDate < todayStr && !t.isCompleted);
-    const isTodayScheduled = t.dueDate === todayStr || 
-      t.repeatType === 'DAILY' || 
-      (t.repeatType === 'WEEKLY' && Array.isArray(t.repeatDaysOfWeek) && t.repeatDaysOfWeek.includes(currentDayOfWeek)) ||
-      (!t.dueDate && !t.isCompleted);
+      // Tab
+      switch (activeTab) {
+        case 'TODAY':
+          return isTodayScheduled || isOverdue;
+        case 'OVERDUE':
+          return isOverdue;
+        case 'UPCOMING':
+          return isUpcoming;
+        case 'RECURRING':
+          return t.repeatType && t.repeatType !== 'NONE';
+        case 'COMPLETED':
+          return t.isCompleted;
+        case 'ARCHIVE':
+          return isTaskArchived(t);
+        case 'ALL':
+        default:
+          return true;
+      }
+    })
+    .sort((a, b) => {
+      // Completed and archived go to the bottom
+      const aDone = a.isCompleted || isTaskArchived(a) ? 1 : 0;
+      const bDone = b.isCompleted || isTaskArchived(b) ? 1 : 0;
+      if (aDone !== bDone) return aDone - bDone;
 
-    // Tab
-    switch (activeTab) {
-      case 'TODAY':
-        return isTodayScheduled || isOverdue;
-      case 'OVERDUE':
-        return isOverdue;
-      case 'UPCOMING':
-        return Boolean(t.dueDate && t.dueDate > todayStr && !t.isCompleted);
-      case 'RECURRING':
-        return t.repeatType !== 'NONE';
-      case 'COMPLETED':
-        return t.isCompleted;
-      case 'ARCHIVE':
-      case 'ALL':
-      default:
-        return true;
-    }
-  });
+      // For uncompleted tasks: Overdue first, then today, then upcoming sorted by date, then undated
+      const aOverdue = isOverdueJalaliDate(a.dueDate, todayStr);
+      const bOverdue = isOverdueJalaliDate(b.dueDate, todayStr);
+      if (aOverdue && !bOverdue) return -1;
+      if (!aOverdue && bOverdue) return 1;
+
+      const aToday = isTodayJalaliDate(a.dueDate, todayStr);
+      const bToday = isTodayJalaliDate(b.dueDate, todayStr);
+      if (aToday && !bToday) return -1;
+      if (!aToday && bToday) return 1;
+
+      // Both upcoming: sort by nearest date
+      if (a.dueDate && b.dueDate) {
+        return compareJalaliDateStrings(a.dueDate, b.dueDate);
+      }
+      if (a.dueDate && !b.dueDate) return -1;
+      if (!a.dueDate && b.dueDate) return 1;
+
+      return 0;
+    });
 
   return (
     <div className="space-y-4 animate-fade-in pb-12">
@@ -357,6 +400,73 @@ export const TasksScreen: React.FC<Props> = ({
         </div>
       </div>
 
+      {/* Overview Banner on ALL tab */}
+      {activeTab === 'ALL' && (
+        <div className="bg-white border border-gray-200/80 rounded-2xl p-3 sm:p-3.5 shadow-2xs space-y-2">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+            <span className="text-xs font-bold text-gray-800 flex items-center gap-1.5">
+              <span>نمای کلی تمام تسک‌ها</span>
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-900 font-extrabold">
+                مجموع: {toPersianDigits(tasks.length)} تسک
+              </span>
+            </span>
+            <span className="text-[11px] text-gray-500">
+              نمایش همه تسک‌های سیستم (شامل جاری، آتی، معوقه، تکرارشونده و بایگانی)
+            </span>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-6 gap-2 pt-1 text-[11px]">
+            <button
+              type="button"
+              onClick={() => setActiveTab('TODAY')}
+              className="p-2 rounded-xl bg-emerald-50 border border-emerald-100 text-emerald-900 text-center hover:bg-emerald-100/70 transition-colors cursor-pointer"
+            >
+              <div className="text-[10px] text-emerald-700">امروز / آماده</div>
+              <div className="text-sm font-black">{toPersianDigits(todayCount)}</div>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('UPCOMING')}
+              className="p-2 rounded-xl bg-blue-50 border border-blue-100 text-blue-900 text-center hover:bg-blue-100/70 transition-colors cursor-pointer"
+            >
+              <div className="text-[10px] text-blue-700">تسک‌های آتی</div>
+              <div className="text-sm font-black">{toPersianDigits(upcomingCount)}</div>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('OVERDUE')}
+              className="p-2 rounded-xl bg-rose-50 border border-rose-100 text-rose-900 text-center hover:bg-rose-100/70 transition-colors cursor-pointer"
+            >
+              <div className="text-[10px] text-rose-700">معوقه</div>
+              <div className="text-sm font-black">{toPersianDigits(overdueCount)}</div>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('RECURRING')}
+              className="p-2 rounded-xl bg-teal-50 border border-teal-100 text-teal-900 text-center hover:bg-teal-100/70 transition-colors cursor-pointer"
+            >
+              <div className="text-[10px] text-teal-700">تکرارشونده</div>
+              <div className="text-sm font-black">{toPersianDigits(recurringCount)}</div>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('COMPLETED')}
+              className="p-2 rounded-xl bg-gray-50 border border-gray-200 text-gray-800 text-center hover:bg-gray-100 transition-colors cursor-pointer"
+            >
+              <div className="text-[10px] text-gray-600">تکمیل‌شده</div>
+              <div className="text-sm font-black">{toPersianDigits(completedCount)}</div>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('ARCHIVE')}
+              className="p-2 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-center hover:bg-amber-100/70 transition-colors cursor-pointer"
+            >
+              <div className="text-[10px] text-amber-700">بایگانی (۳۰ روز+)</div>
+              <div className="text-sm font-black">{toPersianDigits(archivedCount)}</div>
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Info Banner on COMPLETED tab if there are archived tasks */}
       {activeTab === 'COMPLETED' && archivedCount > 0 && (
         <div className="bg-gradient-to-r from-amber-50 to-orange-50/40 border border-amber-200/80 rounded-2xl p-3 sm:p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs shadow-2xs">
@@ -449,13 +559,33 @@ export const TasksScreen: React.FC<Props> = ({
               </p>
             </div>
           </div>
+        ) : activeTab === 'UPCOMING' ? (
+          <div className="bg-white rounded-2xl border border-dashed border-blue-200 p-10 text-center text-xs space-y-3">
+            <div className="w-12 h-12 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center mx-auto">
+              <Calendar className="w-6 h-6" />
+            </div>
+            <div className="space-y-1">
+              <h4 className="font-bold text-gray-800 text-sm">هیچ تسک آتی برنامه‌ریزی نشده است</h4>
+              <p className="text-gray-500 max-w-sm mx-auto text-[11px] leading-relaxed">
+                تسک‌هایی که تاریخ موعد آن‌ها برای فردا یا روزهای آینده تنظیم شود در این بخش قرار می‌گیرند.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={onNewTask}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-xs transition-colors shadow-2xs inline-flex items-center gap-1.5 cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              <span>ایجاد تسک با موعد آتی</span>
+            </button>
+          </div>
         ) : (
           <div className="bg-white rounded-2xl border border-dashed border-gray-200 p-10 text-center text-xs text-gray-400 space-y-2">
             <p>هیچ تسکی با فیلترهای انتخابی یافت نشد.</p>
             <button
               type="button"
               onClick={onNewTask}
-              className="text-emerald-700 font-bold hover:underline"
+              className="text-emerald-700 font-bold hover:underline cursor-pointer"
             >
               ایجاد تسک جدید
             </button>
@@ -523,23 +653,32 @@ export const TasksScreen: React.FC<Props> = ({
                           </span>
                         )}
 
+                        {!t.isCompleted && !isArchived && isUpcomingJalaliDate(t.dueDate, todayStr) && (
+                          <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200/90 flex items-center gap-1 shadow-2xs">
+                            <Calendar className="w-3 h-3 text-blue-600" />
+                            <span>تسک آتی</span>
+                          </span>
+                        )}
+
                         {t.dueDate ? (
                           <span className={`px-2 py-0.5 rounded-md text-[10px] font-medium flex items-center gap-1 ${
-                            !t.isCompleted && t.dueDate < todayStr
-                              ? 'bg-rose-100 text-rose-800 border border-rose-200'
-                              : t.dueDate === todayStr
+                            !t.isCompleted && isOverdueJalaliDate(t.dueDate, todayStr)
+                              ? 'bg-rose-100 text-rose-800 border border-rose-200 font-bold'
+                              : isTodayJalaliDate(t.dueDate, todayStr)
                               ? 'bg-emerald-100 text-emerald-800 border border-emerald-200 font-bold'
+                              : isUpcomingJalaliDate(t.dueDate, todayStr)
+                              ? 'bg-blue-50/80 text-blue-800 border border-blue-200/70 font-medium'
                               : 'text-gray-600 bg-gray-100'
                           }`}>
-                            {!t.isCompleted && t.dueDate < todayStr && <AlertCircle className="w-2.5 h-2.5 text-rose-600" />}
+                            {!t.isCompleted && isOverdueJalaliDate(t.dueDate, todayStr) && <AlertCircle className="w-2.5 h-2.5 text-rose-600" />}
                             <span>
-                              {!t.isCompleted && t.dueDate < todayStr ? 'معوقه: ' : 'موعد: '}
+                              {!t.isCompleted && isOverdueJalaliDate(t.dueDate, todayStr) ? 'معوقه: ' : 'موعد: '}
                               {toPersianDigits(t.dueDate)}
                               {t.deadlineTime ? ` (${toPersianDigits(t.deadlineTime)})` : ''}
                             </span>
                           </span>
                         ) : (
-                          <span className="text-gray-500 bg-gray-50 border border-dashed border-gray-200 px-2 py-0.5 rounded-md text-[10px]" title="بدون تاریخ موعد معین - مهلت پیش‌فرض: پایان سال">
+                          <span className="text-gray-600 bg-gray-50 border border-dashed border-gray-300 px-2 py-0.5 rounded-md text-[10px]" title="بدون تاریخ موعد معین - مهلت پیش‌فرض: پایان سال">
                             مهلت: پایان سال {toPersianDigits(today.year)}
                           </span>
                         )}

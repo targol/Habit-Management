@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { AppTask, Category, Goal, ReminderSettings, AlarmSoundItem } from '../types';
-import { getTodayJalali, jalaliToFormattedString, toPersianDigits, PERSIAN_MONTHS, addDaysJalali } from '../calendar/jalali';
+import { getTodayJalali, jalaliToFormattedString, toPersianDigits, toLatinDigits, PERSIAN_MONTHS, addDaysJalali } from '../calendar/jalali';
 import { X, Calendar, Clock, Bell, Repeat, Folder, Target, Star, Volume2, Play, Square, ShieldCheck, Check, Copy } from 'lucide-react';
 import { PRESET_ALARM_SOUNDS, previewSound, stopAllAlarmSounds } from '../services/soundService';
 import { getNotificationPermission, requestNotificationPermission, isNotificationSupported } from '../services/reminderService';
@@ -95,7 +95,8 @@ export const TaskModal: React.FC<Props> = ({
       
       const hasValidDate = Boolean(task.dueDate && task.dueDate.trim() !== '');
       setHasDueDate(hasValidDate);
-      const p = (task.dueDate || jalaliToFormattedString(today)).split('/').map(v => parseInt(v, 10));
+      const rawDate = toLatinDigits(task.dueDate || jalaliToFormattedString(today));
+      const p = rawDate.split(/[\/\-]/).map(v => parseInt(v.trim(), 10));
       setDateParts({ year: p[0] || today.year, month: p[1] || today.month, day: p[2] || today.day });
       setTime(task.time || '10:00');
       setHasTime(Boolean(task.time));
@@ -209,7 +210,7 @@ export const TaskModal: React.FC<Props> = ({
       goalId: goalId || null,
       dueDate: dueDateStr,
       time: hasTime ? time : null,
-      deadlineTime: hasDueDate && hasDeadlineTime ? deadlineTime : null,
+      deadlineTime: hasDeadlineTime ? deadlineTime : null,
       reminderMinutesBefore: reminderMinutes,
       isImportant,
       reminderEnabled,

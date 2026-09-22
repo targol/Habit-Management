@@ -77,6 +77,35 @@ function persistentStoragePlugin(): Plugin {
         next();
       });
 
+      server.middlewares.use('/api/apk-info', (req, res) => {
+        const candidateApkPaths = [
+          path.resolve(__dirname, 'public/javaneh.apk'),
+          path.resolve(__dirname, '../dist/javaneh.apk'),
+          path.resolve(__dirname, '../.build-outputs/app-debug.apk'),
+        ];
+        const apkFile = candidateApkPaths.find(p => fs.existsSync(p));
+        res.setHeader('Content-Type', 'application/json; charset=utf-8');
+        if (apkFile) {
+          try {
+            const stat = fs.statSync(apkFile);
+            res.statusCode = 200;
+            res.end(JSON.stringify({
+              available: true,
+              filename: 'javaneh.apk',
+              size: stat.size,
+              formattedSize: (stat.size / (1024 * 1024)).toFixed(2) + ' MB',
+              sha256: '4aec4194adeeaa023f0f7453371a9ccc21d3d92d0b4afc8d9bbfb4cf824be280',
+              acceptRanges: true,
+            }));
+            return;
+          } catch (e) {
+            console.error('[ApkInfo] Error reading apk:', e);
+          }
+        }
+        res.statusCode = 404;
+        res.end(JSON.stringify({ available: false, error: 'APK not found' }));
+      });
+
       server.middlewares.use('/api/data', (req, res, next) => {
         const DB_DIR = path.resolve(__dirname, '../data');
         const DB_FILE = path.join(DB_DIR, 'javaneh_db.json');

@@ -8,7 +8,9 @@ import {
   PERSIAN_MONTHS, 
   WEEKDAYS, 
   isDateHoliday, 
-  jalaliToFormattedString 
+  jalaliToFormattedString,
+  getCurrentWeekJalaliDays,
+  WEEKDAYS_SHORT
 } from '../calendar/jalali';
 import { 
   CheckCircle2, 
@@ -27,7 +29,10 @@ import {
   Star,
   Bell,
   Copy,
-  Edit3
+  Edit3,
+  Sun,
+  Droplets,
+  Check
 } from 'lucide-react';
 import { PlantIcon } from './PlantIcon';
 import { EntityBadge, EntityIcon } from './EntityIcon';
@@ -41,6 +46,7 @@ interface Props {
   userProfile?: UserProfile;
   onToggleTask: (taskId: string) => void;
   onToggleHabitToday: (habitId: string) => void;
+  onToggleHabitDate?: (habitId: string, dateStr: string) => void;
   onOpenTimer: (title: string, minutes: number, onDone: () => void) => void;
   onOpenNewTask: () => void;
   onOpenNewHabit: () => void;
@@ -57,6 +63,7 @@ export const TodayScreen: React.FC<Props> = ({
   userProfile,
   onToggleTask,
   onToggleHabitToday,
+  onToggleHabitDate,
   onOpenTimer,
   onOpenNewTask,
   onOpenNewHabit,
@@ -69,9 +76,14 @@ export const TodayScreen: React.FC<Props> = ({
   const weekdayName = WEEKDAYS[currentDayOfWeek];
   const holidayInfo = isDateHoliday(today);
 
+  const [activeViewMode, setActiveViewMode] = useState<'DAY' | 'WEEK'>('DAY');
   const [showCompletedTasks, setShowCompletedTasks] = useState(true);
 
-  // Filter Tasks: ONLY items for today or items without a specific date
+  // 7 days of the current week (from شنبه to جمعه)
+  const currentWeekDays = React.useMemo(() => getCurrentWeekJalaliDays(today), [today]);
+  const currentWeekDateStrings = React.useMemo(() => currentWeekDays.map(d => d.dateStr), [currentWeekDays]);
+
+  // Filter Tasks: ONLY items for today or items without a specific date (never future tasks)
   const todayTasks = tasks.filter(t => {
     // 1. If it has a specific due date, it MUST match today
     if (t.dueDate) {
@@ -85,16 +97,27 @@ export const TodayScreen: React.FC<Props> = ({
     if (t.repeatType === 'WEEKLY') {
       return Array.isArray(t.repeatDaysOfWeek) && t.repeatDaysOfWeek.includes(currentDayOfWeek);
     }
-    // 4. Tasks without any specific due date or schedule: show in pending pool
-    return true;
+    // 4. Tasks without any specific due date or schedule: show in pending pool if not completed
+    return !t.isCompleted;
   });
 
-  const activeTasks = todayTasks.filter(t => !t.isCompleted);
-  const completedTasks = todayTasks.filter(t => t.isCompleted);
+  const activeTodayTasks = todayTasks.filter(t => !t.isCompleted);
+  const completedTodayTasks = todayTasks.filter(t => t.isCompleted);
 
-  // Filter Habits: habits scheduled for today or already completed today, excluding closed habits
+  // Filter Tasks for THIS WEEK: tasks falling in this current week
+  const weekTasks = tasks.filter(t => {
+    if (t.dueDate && currentWeekDateStrings.includes(t.dueDate)) return true;
+    if (t.repeatType === 'DAILY' || t.repeatType === 'WEEKLY') return true;
+    return false;
+  });
+
+  // Filter Habits:
+  // 1. DAILY habits for TODAY: strictly DAILY frequency only, never weekly habits!
   const todayHabits = habits.filter(h => {
     if (h.isClosed) return false;
+    // Exclude weekly habits so they appear only in the week view
+    if (h.frequency === 'WEEKLY') return false;
+    // Must be scheduled for today or completed today
     if (h.completionHistory[todayStr]) return true;
     if (Array.isArray(h.targetDaysOfWeek) && h.targetDaysOfWeek.length > 0) {
       return h.targetDaysOfWeek.includes(currentDayOfWeek);
@@ -102,7 +125,21 @@ export const TodayScreen: React.FC<Props> = ({
     return true;
   });
 
+  // 2. WEEKLY habits (frequency === 'WEEKLY')
+  const weeklyHabits = habits.filter(h => {
+    if (h.isClosed) return false;
+    return h.frequency === 'WEEKLY';
+  });
+
   const getCategory = (catId: string) => categories.find(c => c.id === catId);
+
+  const handleDayToggle = (habitId: string, dateStr: string) => {
+    if (onToggleHabitDate) {
+      onToggleHabitDate(habitId, dateStr);
+    } else if (dateStr === todayStr) {
+      onToggleHabitToday(habitId);
+    }
+  };
 
   return (
     <div className="space-y-5 animate-fade-in pb-12">
@@ -171,6 +208,7 @@ export const TodayScreen: React.FC<Props> = ({
         habits={habits}
         goals={goals}
         tasks={tasks}
+        categories={categories}
         onWaterHabit={onToggleHabitToday}
       />
 
@@ -184,297 +222,538 @@ export const TodayScreen: React.FC<Props> = ({
         </div>
       </div>
 
-      {/* Today's Tasks Section */}
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2">
-            <CalendarDays className="w-4 h-4 text-emerald-600" />
-            <span>تسک‌های امروز ({toPersianDigits(completedTasks.length)} از {toPersianDigits(todayTasks.length)})</span>
-          </h3>
-          <button
-            type="button"
-            onClick={onOpenNewTask}
-            className="text-xs font-semibold text-emerald-700 hover:text-emerald-800 flex items-center gap-1 bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1 rounded-lg transition-colors cursor-pointer"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>افزودن تسک</span>
-          </button>
-        </div>
+      {/* View Switcher: روز (امروز) vs هفته (برنامه و عادات هفتگی) */}
+      <div className="flex bg-white p-1 rounded-2xl border border-emerald-100/90 shadow-2xs text-xs font-bold gap-1">
+        <button
+          type="button"
+          onClick={() => setActiveViewMode('DAY')}
+          className={`flex-1 py-2.5 px-3 rounded-xl transition-all cursor-pointer flex items-center justify-center gap-2 ${
+            activeViewMode === 'DAY'
+              ? 'bg-emerald-600 text-white shadow-xs'
+              : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+          }`}
+        >
+          <Sun className="w-4 h-4" />
+          <span>کارهای امروز (روز)</span>
+          <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
+            activeViewMode === 'DAY' ? 'bg-white/20 text-white' : 'bg-emerald-50 text-emerald-800'
+          }`}>
+            {toPersianDigits(todayTasks.length + todayHabits.length)}
+          </span>
+        </button>
 
-        {todayTasks.length === 0 ? (
-          <div className="bg-white rounded-xl border border-dashed border-gray-200 p-6 text-center text-xs text-gray-500">
-            برای امروز هیچ تسکی برنامه‌ریزی نشده است. می‌توانید یک تسک جدید اضافه کنید.
-          </div>
-        ) : (
-          <div className="space-y-2">
-            {/* Active Pending Tasks */}
-            {activeTasks.map((t) => {
-              const cat = getCategory(t.categoryId);
-              return (
-                <div
-                  key={t.id}
-                  className="bg-white rounded-xl border border-emerald-100/90 shadow-2xs hover:border-emerald-300 p-3.5 flex items-center justify-between gap-3 transition-all"
-                >
-                  <div className="flex items-center gap-3 min-w-0">
-                    <button
-                      type="button"
-                      onClick={() => onToggleTask(t.id)}
-                      title="ثبت انجام تسک"
-                      className="cursor-pointer text-gray-300 hover:text-emerald-600 transition-colors shrink-0"
+        <button
+          type="button"
+          onClick={() => setActiveViewMode('WEEK')}
+          className={`flex-1 py-2.5 px-3 rounded-xl transition-all cursor-pointer flex items-center justify-center gap-2 ${
+            activeViewMode === 'WEEK'
+              ? 'bg-emerald-600 text-white shadow-xs'
+              : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+          }`}
+        >
+          <CalendarDays className="w-4 h-4" />
+          <span>برنامه و عادات این هفته (هفته)</span>
+          <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
+            activeViewMode === 'WEEK' ? 'bg-white/20 text-white' : 'bg-emerald-50 text-emerald-800'
+          }`}>
+            {toPersianDigits(weeklyHabits.length + weekTasks.length)}
+          </span>
+        </button>
+      </div>
+
+      {activeViewMode === 'DAY' ? (
+        <>
+          {/* Today's Tasks Section */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2">
+                <CalendarDays className="w-4 h-4 text-emerald-600" />
+                <span>تسک‌های امروز ({toPersianDigits(completedTodayTasks.length)} از {toPersianDigits(todayTasks.length)})</span>
+              </h3>
+              <button
+                type="button"
+                onClick={onOpenNewTask}
+                className="text-xs font-semibold text-emerald-700 hover:text-emerald-800 flex items-center gap-1 bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1 rounded-lg transition-colors cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>افزودن تسک</span>
+              </button>
+            </div>
+
+            {todayTasks.length === 0 ? (
+              <div className="bg-white rounded-xl border border-dashed border-gray-200 p-6 text-center text-xs text-gray-500">
+                برای امروز هیچ تسکی برنامه‌ریزی نشده است. می‌توانید یک تسک جدید اضافه کنید.
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {/* Active Pending Tasks */}
+                {activeTodayTasks.map((t) => {
+                  const cat = getCategory(t.categoryId);
+                  return (
+                    <div
+                      key={t.id}
+                      className="bg-white rounded-xl border border-emerald-100/90 shadow-2xs hover:border-emerald-300 p-3.5 flex items-center justify-between gap-3 transition-all"
                     >
-                      <Circle className="w-5 h-5 hover:text-emerald-500" />
-                    </button>
-                    <div className="min-w-0">
-                      <p className="text-xs font-bold text-gray-900 truncate flex items-center gap-1.5">
-                        {t.isImportant && (
-                          <span className="shrink-0 p-0.5 rounded-xs bg-amber-100 text-amber-600" title="تسک مهم">
-                            <Star className="w-3 h-3 fill-amber-500" />
-                          </span>
-                        )}
-                        <span>{t.title}</span>
-                      </p>
-                      <div className="flex flex-wrap items-center gap-2 mt-1 text-[11px] text-gray-500">
-                        <EntityBadge type="TASK" size="xs" />
-                        {t.isImportant && (
-                          <span className="px-1.5 py-0.2 rounded-md font-bold text-[10px] bg-amber-50 text-amber-800 border border-amber-200/80">
-                            مهم
-                          </span>
-                        )}
-                        {t.reminderEnabled && (
-                          <span className="px-1.5 py-0.2 rounded-md font-medium text-[10px] bg-emerald-50 text-emerald-800 border border-emerald-200/80 flex items-center gap-1">
-                            <Bell className="w-2.5 h-2.5 text-emerald-600" />
-                            <span>{toPersianDigits(t.reminderTime || t.time || '')}</span>
-                          </span>
-                        )}
-                        {cat && (
-                          <span
-                            className="px-1.5 py-0.2 rounded-md font-medium text-[10px]"
-                            style={{ backgroundColor: `${cat.colorHex}15`, color: cat.colorHex }}
-                          >
-                            {cat.title}
-                          </span>
-                        )}
-                        {t.time && (
-                          <span className="flex items-center gap-1 text-[10px] text-emerald-800 bg-emerald-50 px-1.5 py-0.5 rounded-md border border-emerald-200/60" title="زمان انجام">
-                            <Clock className="w-2.5 h-2.5 text-emerald-600" />
-                            <span>انجام: {toPersianDigits(t.time)}</span>
-                          </span>
-                        )}
-                        {t.dueDate ? (
-                          <span className="flex items-center gap-1 text-[10px] text-gray-600 bg-gray-100 px-1.5 py-0.5 rounded-md" title="مهلت اتمام">
-                            <Calendar className="w-2.5 h-2.5 text-gray-500" />
-                            <span>مهلت: {toPersianDigits(t.dueDate)}{t.deadlineTime ? ` (${toPersianDigits(t.deadlineTime)})` : ''}</span>
-                          </span>
-                        ) : (
-                          <span className="flex items-center gap-1 text-[10px] text-gray-500 bg-gray-50 border border-dashed border-gray-200 px-1.5 py-0.5 rounded-md" title="بدون موعد مشخص - مهلت پیش‌فرض: پایان سال">
-                            <span>مهلت: پایان سال {toPersianDigits(today.year)}</span>
-                          </span>
-                        )}
-                        {t.notes && (
-                          <span className="text-gray-400 truncate max-w-[150px]">{t.notes}</span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-1 shrink-0">
-                    {onDuplicateTask && (
-                      <button
-                        type="button"
-                        onClick={() => onDuplicateTask(t)}
-                        title="کپی گرفتن و ویرایش تسک (داپلیکیت)"
-                        className="p-1.5 text-gray-400 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition-colors cursor-pointer"
-                      >
-                        <Copy className="w-3.5 h-3.5" />
-                      </button>
-                    )}
-
-                    {onEditTask && (
-                      <button
-                        type="button"
-                        onClick={() => onEditTask(t)}
-                        title="ویرایش تسک"
-                        className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors cursor-pointer"
-                      >
-                        <Edit3 className="w-3.5 h-3.5" />
-                      </button>
-                    )}
-
-                    <button
-                      type="button"
-                      onClick={() => onOpenTimer(t.title, Math.floor(t.timerSecondsTarget / 60) || 25, () => onToggleTask(t.id))}
-                      title="شروع تمرکز روی این تسک"
-                      className="p-2 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-lg shrink-0 transition-colors cursor-pointer"
-                    >
-                      <Play className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-
-            {/* Completed Tasks Group */}
-            {completedTasks.length > 0 && (
-              <div className="pt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowCompletedTasks(!showCompletedTasks)}
-                  className="flex items-center gap-1.5 text-xs font-semibold text-gray-500 hover:text-gray-700 py-1 transition-colors cursor-pointer"
-                >
-                  <CheckCheck className="w-3.5 h-3.5 text-emerald-600" />
-                  <span>تسک‌های انجام‌شده ({toPersianDigits(completedTasks.length)})</span>
-                  {showCompletedTasks ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                </button>
-
-                {showCompletedTasks && (
-                  <div className="space-y-2 mt-1.5">
-                    {completedTasks.map((t) => {
-                      const cat = getCategory(t.categoryId);
-                      return (
-                        <div
-                          key={t.id}
-                          className="bg-gray-50/70 rounded-xl border border-gray-200/80 p-3 flex items-center justify-between gap-3 opacity-80 hover:opacity-100 transition-all"
+                      <div className="flex items-center gap-3 min-w-0">
+                        <button
+                          type="button"
+                          onClick={() => onToggleTask(t.id)}
+                          title="ثبت انجام تسک"
+                          className="cursor-pointer text-gray-300 hover:text-emerald-600 transition-colors shrink-0"
                         >
-                          <div className="flex items-center gap-3 min-w-0">
-                            <button
-                              type="button"
-                              onClick={() => onToggleTask(t.id)}
-                              title="بازگردانی تسک"
-                              className="cursor-pointer text-emerald-600 hover:text-emerald-700 shrink-0"
-                            >
-                              <CheckCircle2 className="w-5 h-5 fill-emerald-600 text-white" />
-                            </button>
-                            <div className="min-w-0">
-                              <p className="text-xs font-medium text-gray-500 line-through truncate">
-                                {t.title}
-                              </p>
-                              <div className="flex items-center gap-2 mt-0.5 text-[10px] text-gray-400">
-                                {cat && <span>{cat.title}</span>}
-                                <span>•</span>
-                                <span className="text-emerald-700 font-medium">تکمیل شده</span>
-                              </div>
-                            </div>
-                          </div>
-
-                          <div className="flex items-center gap-1 shrink-0">
-                            {onDuplicateTask && (
-                              <button
-                                type="button"
-                                onClick={() => onDuplicateTask(t)}
-                                title="کپی گرفتن و ویرایش تسک (داپلیکیت)"
-                                className="p-1.5 text-gray-400 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition-colors cursor-pointer"
-                              >
-                                <Copy className="w-3.5 h-3.5" />
-                              </button>
+                          <Circle className="w-5 h-5 hover:text-emerald-500" />
+                        </button>
+                        <div className="min-w-0">
+                          <p className="text-xs font-bold text-gray-900 truncate flex items-center gap-1.5">
+                            {t.isImportant && (
+                              <span className="shrink-0 p-0.5 rounded-xs bg-amber-100 text-amber-600" title="تسک مهم">
+                                <Star className="w-3 h-3 fill-amber-500" />
+                              </span>
                             )}
-                            <button
-                              type="button"
-                              onClick={() => onToggleTask(t.id)}
-                              className="text-[10px] font-medium text-gray-400 hover:text-gray-600 px-2 py-1 rounded bg-white border border-gray-200 cursor-pointer"
-                            >
-                              لغو تیک
-                            </button>
+                            <span>{t.title}</span>
+                          </p>
+                          <div className="flex flex-wrap items-center gap-2 mt-1 text-[11px] text-gray-500">
+                            <EntityBadge type="TASK" size="xs" />
+                            {t.isImportant && (
+                              <span className="px-1.5 py-0.2 rounded-md font-bold text-[10px] bg-amber-50 text-amber-800 border border-amber-200/80">
+                                مهم
+                              </span>
+                            )}
+                            {t.reminderEnabled && (
+                              <span className="px-1.5 py-0.2 rounded-md font-medium text-[10px] bg-emerald-50 text-emerald-800 border border-emerald-200/80 flex items-center gap-1">
+                                <Bell className="w-2.5 h-2.5 text-emerald-600" />
+                                <span>{toPersianDigits(t.reminderTime || t.time || '')}</span>
+                              </span>
+                            )}
+                            {cat && (
+                              <span
+                                className="px-1.5 py-0.2 rounded-md font-medium text-[10px]"
+                                style={{ backgroundColor: `${cat.colorHex}15`, color: cat.colorHex }}
+                              >
+                                {cat.title}
+                              </span>
+                            )}
+                            {t.time && (
+                              <span className="flex items-center gap-1 text-[10px] text-emerald-800 bg-emerald-50 px-1.5 py-0.5 rounded-md border border-emerald-200/60" title="زمان انجام">
+                                <Clock className="w-2.5 h-2.5 text-emerald-600" />
+                                <span>انجام: {toPersianDigits(t.time)}</span>
+                              </span>
+                            )}
+                            {t.dueDate ? (
+                              <span className="flex items-center gap-1 text-[10px] text-gray-600 bg-gray-100 px-1.5 py-0.5 rounded-md" title="مهلت اتمام">
+                                <Calendar className="w-2.5 h-2.5 text-gray-500" />
+                                <span>مهلت: {toPersianDigits(t.dueDate)}{t.deadlineTime ? ` (${toPersianDigits(t.deadlineTime)})` : ''}</span>
+                              </span>
+                            ) : (
+                              <span className="flex items-center gap-1 text-[10px] text-gray-500 bg-gray-50 border border-dashed border-gray-200 px-1.5 py-0.5 rounded-md" title="بدون موعد مشخص - مهلت پیش‌فرض: پایان سال">
+                                <span>مهلت: پایان سال {toPersianDigits(today.year)}</span>
+                              </span>
+                            )}
+                            {t.notes && (
+                              <span className="text-gray-400 truncate max-w-[150px]">{t.notes}</span>
+                            )}
                           </div>
                         </div>
-                      );
-                    })}
+                      </div>
+
+                      <div className="flex items-center gap-1 shrink-0">
+                        {onDuplicateTask && (
+                          <button
+                            type="button"
+                            onClick={() => onDuplicateTask(t)}
+                            title="کپی گرفتن و ویرایش تسک (داپلیکیت)"
+                            className="p-1.5 text-gray-400 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition-colors cursor-pointer"
+                          >
+                            <Copy className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+
+                        {onEditTask && (
+                          <button
+                            type="button"
+                            onClick={() => onEditTask(t)}
+                            title="ویرایش تسک"
+                            className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors cursor-pointer"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+
+                        <button
+                          type="button"
+                          onClick={() => onOpenTimer(t.title, Math.floor(t.timerSecondsTarget / 60) || 25, () => onToggleTask(t.id))}
+                          title="شروع تمرکز روی این تسک"
+                          className="p-2 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-lg shrink-0 transition-colors cursor-pointer"
+                        >
+                          <Play className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {/* Completed Tasks Group */}
+                {completedTodayTasks.length > 0 && (
+                  <div className="pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowCompletedTasks(!showCompletedTasks)}
+                      className="flex items-center gap-1.5 text-xs font-semibold text-gray-500 hover:text-gray-700 py-1 transition-colors cursor-pointer"
+                    >
+                      <CheckCheck className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>تسک‌های انجام‌شده ({toPersianDigits(completedTodayTasks.length)})</span>
+                      {showCompletedTasks ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                    </button>
+
+                    {showCompletedTasks && (
+                      <div className="space-y-2 mt-1.5">
+                        {completedTodayTasks.map((t) => {
+                          const cat = getCategory(t.categoryId);
+                          return (
+                            <div
+                              key={t.id}
+                              className="bg-gray-50/70 rounded-xl border border-gray-200/80 p-3 flex items-center justify-between gap-3 opacity-80 hover:opacity-100 transition-all"
+                            >
+                              <div className="flex items-center gap-3 min-w-0">
+                                <button
+                                  type="button"
+                                  onClick={() => onToggleTask(t.id)}
+                                  title="بازگردانی تسک"
+                                  className="cursor-pointer text-emerald-600 hover:text-emerald-700 shrink-0"
+                                >
+                                  <CheckCircle2 className="w-5 h-5 fill-emerald-600 text-white" />
+                                </button>
+                                <div className="min-w-0">
+                                  <p className="text-xs font-medium text-gray-500 line-through truncate">
+                                    {t.title}
+                                  </p>
+                                  <div className="flex items-center gap-2 mt-0.5 text-[10px] text-gray-400">
+                                    {cat && <span>{cat.title}</span>}
+                                    <span>•</span>
+                                    <span className="text-emerald-700 font-medium">تکمیل شده</span>
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-1 shrink-0">
+                                {onDuplicateTask && (
+                                  <button
+                                    type="button"
+                                    onClick={() => onDuplicateTask(t)}
+                                    title="کپی گرفتن و ویرایش تسک (داپلیکیت)"
+                                    className="p-1.5 text-gray-400 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition-colors cursor-pointer"
+                                  >
+                                    <Copy className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => onToggleTask(t.id)}
+                                  className="text-[10px] font-medium text-gray-400 hover:text-gray-600 px-2 py-1 rounded bg-white border border-gray-200 cursor-pointer"
+                                >
+                                  لغو تیک
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
             )}
           </div>
-        )}
-      </div>
 
-      {/* Today's Habits Section */}
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2">
-            <Flame className="w-4 h-4 text-amber-500" />
-            <span>عادت‌های روزانه ({toPersianDigits(todayHabits.filter(h => h.completionHistory[todayStr]).length)} از {toPersianDigits(todayHabits.length)})</span>
-          </h3>
-          <button
-            type="button"
-            onClick={onOpenNewHabit}
-            className="text-xs font-semibold text-emerald-700 hover:text-emerald-800 flex items-center gap-1 bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1 rounded-lg transition-colors cursor-pointer"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>عادت جدید</span>
-          </button>
-        </div>
+          {/* Today's Daily Habits Section (Strictly Daily habits) */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2">
+                <Flame className="w-4 h-4 text-amber-500" />
+                <span>عادت‌های روزانه امروز ({toPersianDigits(todayHabits.filter(h => h.completionHistory[todayStr]).length)} از {toPersianDigits(todayHabits.length)})</span>
+              </h3>
+              <button
+                type="button"
+                onClick={onOpenNewHabit}
+                className="text-xs font-semibold text-emerald-700 hover:text-emerald-800 flex items-center gap-1 bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1 rounded-lg transition-colors cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>عادت جدید</span>
+              </button>
+            </div>
 
-        {todayHabits.length === 0 ? (
-          <div className="bg-white rounded-xl border border-dashed border-gray-200 p-6 text-center text-xs text-gray-500">
-            برای {weekdayName} هیچ عادت اختصاصی تعریف نشده است.
+            {todayHabits.length === 0 ? (
+              <div className="bg-white rounded-xl border border-dashed border-gray-200 p-6 text-center text-xs text-gray-500">
+                برای {weekdayName} هیچ عادت اختصاصی روزانه‌ای تعریف نشده است.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {todayHabits.map((h) => {
+                  const isDoneToday = !!h.completionHistory[todayStr];
+                  return (
+                    <div
+                      key={h.id}
+                      className={`bg-white rounded-xl border p-3 flex items-center justify-between gap-3 transition-all ${
+                        isDoneToday
+                          ? 'border-emerald-300 bg-emerald-50/40 opacity-90'
+                          : 'border-gray-200 shadow-2xs hover:border-emerald-200'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <PlantIcon type={h.plantType} size="sm" />
+                        <div className="min-w-0">
+                          <p className={`text-xs font-bold truncate ${isDoneToday ? 'line-through text-gray-500' : 'text-gray-900'}`}>
+                            {h.title}
+                          </p>
+                          <div className="flex items-center gap-2 mt-0.5 text-[11px] text-gray-500">
+                            <EntityBadge type="HABIT" size="xs" />
+                            <span className="text-emerald-700 font-medium">{h.plantType}</span>
+                            {h.timerMinutes > 0 && (
+                              <span className="flex items-center gap-0.5 text-gray-400">
+                                <Clock className="w-3 h-3" />
+                                <span>{toPersianDigits(h.timerMinutes)} دقیقه</span>
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0">
+                        {h.timerMinutes > 0 && !isDoneToday && (
+                          <button
+                            type="button"
+                            onClick={() => onOpenTimer(h.title, h.timerMinutes, () => onToggleHabitToday(h.id))}
+                            title="شروع تمرکز روی عادت"
+                            className="p-1.5 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-lg transition-colors cursor-pointer"
+                          >
+                            <Play className="w-3 h-3" />
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => onToggleHabitToday(h.id)}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                            isDoneToday
+                              ? 'bg-emerald-600 text-white shadow-xs'
+                              : 'bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border border-emerald-200'
+                          }`}
+                        >
+                          {isDoneToday ? (
+                            <>
+                              <CheckCircle2 className="w-3.5 h-3.5" />
+                              <span>انجام شد</span>
+                            </>
+                          ) : (
+                            <span>ثبت انجام</span>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {todayHabits.map((h) => {
-              const isDoneToday = !!h.completionHistory[todayStr];
-              return (
-                <div
-                  key={h.id}
-                  className={`bg-white rounded-xl border p-3 flex items-center justify-between gap-3 transition-all ${
-                    isDoneToday
-                      ? 'border-emerald-300 bg-emerald-50/40 opacity-90'
-                      : 'border-gray-200 shadow-2xs hover:border-emerald-200'
-                  }`}
-                >
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <PlantIcon type={h.plantType} size="sm" />
-                    <div className="min-w-0">
-                      <p className={`text-xs font-bold truncate ${isDoneToday ? 'line-through text-gray-500' : 'text-gray-900'}`}>
-                        {h.title}
-                      </p>
-                      <div className="flex items-center gap-2 mt-0.5 text-[11px] text-gray-500">
-                        <EntityBadge type="HABIT" size="xs" />
-                        <span className="text-emerald-700 font-medium">{h.plantType}</span>
-                        {h.timerMinutes > 0 && (
-                          <span className="flex items-center gap-0.5 text-gray-400">
-                            <Clock className="w-3 h-3" />
-                            <span>{toPersianDigits(h.timerMinutes)} دقیقه</span>
+        </>
+      ) : (
+        /* Week View: Weekly Habits & Week's Tasks */
+        <div className="space-y-6">
+          {/* Weekly Habits Section */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2">
+                  <Flame className="w-4 h-4 text-emerald-600" />
+                  <span>عادت‌های هفتگی ({toPersianDigits(weeklyHabits.length)} عادت)</span>
+                </h3>
+                <p className="text-xs text-gray-500 mt-0.5">عادت‌هایی با هدف تعداد روز مشخص در طول هفته</p>
+              </div>
+              <button
+                type="button"
+                onClick={onOpenNewHabit}
+                className="text-xs font-semibold text-emerald-700 hover:text-emerald-800 flex items-center gap-1 bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1 rounded-lg transition-colors cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>عادت هفتگی جدید</span>
+              </button>
+            </div>
+
+            {weeklyHabits.length === 0 ? (
+              <div className="bg-white rounded-xl border border-dashed border-gray-200 p-6 text-center text-xs text-gray-500">
+                در حال حاضر هیچ عادت هفتگی ثبت نشده است. می‌توانید با کلیک روی «عادت هفتگی جدید»، عاداتی نظیر ورزش هفتگی یا شنا اضافه کنید.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {weeklyHabits.map((h) => {
+                  const targetDays = h.targetDaysPerWeek || 3;
+                  // Count completed days in the current week
+                  const doneDaysThisWeek = currentWeekDateStrings.filter(dStr => !!h.completionHistory[dStr]).length;
+                  const isGoalMet = doneDaysThisWeek >= targetDays;
+
+                  return (
+                    <div
+                      key={h.id}
+                      className={`bg-white rounded-2xl border p-4 shadow-2xs space-y-3 transition-all ${
+                        isGoalMet ? 'border-emerald-300 bg-emerald-50/20' : 'border-gray-200 hover:border-emerald-200'
+                      }`}
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex items-center gap-3">
+                          <PlantIcon type={h.plantType} size="md" />
+                          <div>
+                            <h4 className="text-xs font-bold text-gray-900">{h.title}</h4>
+                            <div className="flex items-center gap-2 mt-0.5 text-[11px] text-gray-500">
+                              <span className="px-2 py-0.5 rounded-md font-semibold text-[10px] bg-emerald-50 text-emerald-800 border border-emerald-200">
+                                هفتگی
+                              </span>
+                              <span>هدف: {toPersianDigits(targetDays)} روز در هفته</span>
+                              <span>•</span>
+                              <span className={`font-bold ${isGoalMet ? 'text-emerald-700' : 'text-gray-700'}`}>
+                                انجام شده: {toPersianDigits(doneDaysThisWeek)} از {toPersianDigits(targetDays)}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {isGoalMet && (
+                          <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-800 bg-emerald-100 border border-emerald-200 px-2.5 py-1 rounded-full">
+                            <Check className="w-3 h-3 text-emerald-700" />
+                            <span>هدف هفتگی محقق شد 🎉</span>
                           </span>
                         )}
                       </div>
-                    </div>
-                  </div>
 
-                  <div className="flex items-center gap-2 shrink-0">
-                    {h.timerMinutes > 0 && !isDoneToday && (
-                      <button
-                        type="button"
-                        onClick={() => onOpenTimer(h.title, h.timerMinutes, () => onToggleHabitToday(h.id))}
-                        title="شروع تمرکز روی عادت"
-                        className="p-1.5 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-lg transition-colors cursor-pointer"
-                      >
-                        <Play className="w-3 h-3" />
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => onToggleHabitToday(h.id)}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                        isDoneToday
-                          ? 'bg-emerald-600 text-white shadow-xs'
-                          : 'bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border border-emerald-200'
+                      {/* 7 Days of the Week Selector */}
+                      <div className="pt-1">
+                        <div className="grid grid-cols-7 gap-1.5 sm:gap-2">
+                          {currentWeekDays.map((day) => {
+                            const isDone = !!h.completionHistory[day.dateStr];
+                            return (
+                              <button
+                                key={day.dateStr}
+                                type="button"
+                                onClick={() => handleDayToggle(h.id, day.dateStr)}
+                                className={`py-2 px-1 rounded-xl text-center flex flex-col items-center justify-center gap-1 transition-all cursor-pointer border ${
+                                  isDone
+                                    ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs font-bold'
+                                    : day.isToday
+                                    ? 'bg-emerald-50/80 border-emerald-300 text-emerald-950 font-bold hover:bg-emerald-100'
+                                    : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100'
+                                }`}
+                              >
+                                <span className="text-[10px] opacity-80">{day.shortName}</span>
+                                <span className="text-xs">{toPersianDigits(day.date.day)}</span>
+                                {isDone ? (
+                                  <Check className="w-3.5 h-3.5" />
+                                ) : (
+                                  <Droplets className={`w-3 h-3 ${day.isToday ? 'text-sky-600' : 'text-gray-300'}`} />
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* This Week's Tasks Section */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2">
+                  <CalendarDays className="w-4 h-4 text-emerald-600" />
+                  <span>تسک‌های این هفته ({toPersianDigits(weekTasks.filter(t => t.isCompleted).length)} از {toPersianDigits(weekTasks.length)})</span>
+                </h3>
+                <p className="text-xs text-gray-500 mt-0.5">وظایفی که موعد انجام آن‌ها در روزهای شنبه تا جمعه این هفته است</p>
+              </div>
+              <button
+                type="button"
+                onClick={onOpenNewTask}
+                className="text-xs font-semibold text-emerald-700 hover:text-emerald-800 flex items-center gap-1 bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1 rounded-lg transition-colors cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>افزودن تسک</span>
+              </button>
+            </div>
+
+            {weekTasks.length === 0 ? (
+              <div className="bg-white rounded-xl border border-dashed border-gray-200 p-6 text-center text-xs text-gray-500">
+                در این هفته تسک موعدداری ثبت نشده است.
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {weekTasks.map((t) => {
+                  const cat = getCategory(t.categoryId);
+                  return (
+                    <div
+                      key={t.id}
+                      className={`bg-white rounded-xl border p-3 flex items-center justify-between gap-3 transition-all ${
+                        t.isCompleted
+                          ? 'border-gray-200 bg-gray-50/60 opacity-80'
+                          : 'border-emerald-100 shadow-2xs hover:border-emerald-300'
                       }`}
                     >
-                      {isDoneToday ? (
-                        <>
-                          <CheckCircle2 className="w-3.5 h-3.5" />
-                          <span>انجام شد</span>
-                        </>
-                      ) : (
-                        <span>ثبت انجام</span>
-                      )}
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
+                      <div className="flex items-center gap-3 min-w-0">
+                        <button
+                          type="button"
+                          onClick={() => onToggleTask(t.id)}
+                          className="cursor-pointer text-gray-300 hover:text-emerald-600 transition-colors shrink-0"
+                        >
+                          {t.isCompleted ? (
+                            <CheckCircle2 className="w-5 h-5 fill-emerald-600 text-white" />
+                          ) : (
+                            <Circle className="w-5 h-5 hover:text-emerald-500" />
+                          )}
+                        </button>
+                        <div className="min-w-0">
+                          <p className={`text-xs font-bold truncate ${t.isCompleted ? 'line-through text-gray-500' : 'text-gray-900'}`}>
+                            {t.title}
+                          </p>
+                          <div className="flex flex-wrap items-center gap-2 mt-1 text-[11px] text-gray-500">
+                            <EntityBadge type="TASK" size="xs" />
+                            {cat && (
+                              <span
+                                className="px-1.5 py-0.2 rounded-md font-medium text-[10px]"
+                                style={{ backgroundColor: `${cat.colorHex}15`, color: cat.colorHex }}
+                              >
+                                {cat.title}
+                              </span>
+                            )}
+                            {t.dueDate && (
+                              <span className="flex items-center gap-1 text-[10px] text-emerald-800 bg-emerald-50 px-1.5 py-0.5 rounded-md font-medium">
+                                <Calendar className="w-2.5 h-2.5 text-emerald-600" />
+                                <span>{toPersianDigits(t.dueDate)}</span>
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => onToggleTask(t.id)}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                            t.isCompleted
+                              ? 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                              : 'bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border border-emerald-200'
+                          }`}
+                        >
+                          {t.isCompleted ? 'لغو تیک' : 'ثبت انجام'}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 };

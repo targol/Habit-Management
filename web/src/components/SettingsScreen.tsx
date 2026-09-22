@@ -8,6 +8,7 @@ import { isNotificationSupported, getNotificationPermission, requestNotification
 import { DEFAULT_USER_PROFILE, DEFAULT_REMINDER_SETTINGS } from '../services/storageService';
 import { UserProfileSettings } from './UserProfileSettings';
 import { ReminderAlarmSettings } from './ReminderAlarmSettings';
+import { ApkIntegrityModal } from './ApkIntegrityModal';
 import { 
   Settings, 
   Plus, 
@@ -154,6 +155,7 @@ export const SettingsScreen: React.FC<Props> = ({
 
   // Troubleshooting guide toggle for Android APK
   const [showTroubleshooting, setShowTroubleshooting] = useState(true);
+  const [isApkModalOpen, setIsApkModalOpen] = useState(false);
 
   // In-app category deletion confirmation modal state
   const [categoryToDelete, setCategoryToDelete] = useState<{
@@ -634,15 +636,27 @@ export const SettingsScreen: React.FC<Props> = ({
             </div>
           </div>
 
-          <a
-            href="/javaneh.apk"
-            download="javaneh.apk"
-            className="px-4 py-2.5 bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-700 hover:to-green-700 text-white text-xs font-black rounded-xl shadow-sm hover:shadow-md flex items-center gap-2 transition-all cursor-pointer active:scale-95"
-            title="دانلود فایل نصبی اندروید (javaneh.apk)"
-          >
-            <Download className="w-4 h-4" />
-            <span>دانلود مستقیم فایل نصبی APK (حجم ۲۲ مگابایت)</span>
-          </a>
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              type="button"
+              onClick={() => setIsApkModalOpen(true)}
+              className="px-4 py-2.5 bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-700 hover:to-green-700 text-white text-xs font-black rounded-xl shadow-sm hover:shadow-md flex items-center gap-2 transition-all cursor-pointer active:scale-95"
+              title="بررسی هش، سلامت فایل و دانلود هوشمند با قابلیت Resume"
+            >
+              <ShieldCheck className="w-4 h-4" />
+              <span>بررسی هش و دانلود هوشمند (با قابلیت Resume)</span>
+            </button>
+
+            <a
+              href="/javaneh.apk"
+              download="javaneh.apk"
+              className="px-3.5 py-2.5 bg-white hover:bg-emerald-50 text-emerald-800 border border-emerald-300 text-xs font-bold rounded-xl shadow-2xs flex items-center gap-2 transition-all cursor-pointer"
+              title="دانلود مستقیم فایل نصبی اندروید (javaneh.apk)"
+            >
+              <Download className="w-4 h-4 text-emerald-600" />
+              <span>دانلود مستقیم فایل (۲۲.۵۸ مگابایت)</span>
+            </a>
+          </div>
         </div>
 
         {/* Installation guide 3 Steps */}
@@ -1398,6 +1412,12 @@ export const SettingsScreen: React.FC<Props> = ({
           </div>
         </div>
       )}
+
+      {/* APK Integrity & Resumable Download Modal */}
+      <ApkIntegrityModal
+        isOpen={isApkModalOpen}
+        onClose={() => setIsApkModalOpen(false)}
+      />
     </div>
   );
 };

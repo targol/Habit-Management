@@ -39,6 +39,38 @@ const server = http.createServer((req, res) => {
   let reqPath = req.url.split('?')[0];
 
   // Handle persistent storage API
+  if (reqPath === '/api/apk-info') {
+    const candidateApkPaths = [
+      path.join(DIST_DIR, 'javaneh.apk'),
+      path.join(__dirname, 'public', 'javaneh.apk'),
+      path.join(__dirname, '..', 'dist', 'javaneh.apk'),
+      path.join(__dirname, '..', '.build-outputs', 'app-debug.apk'),
+    ];
+    const apkFile = candidateApkPaths.find(p => fs.existsSync(p));
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    if (apkFile) {
+      try {
+        const stat = fs.statSync(apkFile);
+        res.writeHead(200);
+        res.end(JSON.stringify({
+          available: true,
+          filename: 'javaneh.apk',
+          size: stat.size,
+          formattedSize: (stat.size / (1024 * 1024)).toFixed(2) + ' MB',
+          sha256: '4aec4194adeeaa023f0f7453371a9ccc21d3d92d0b4afc8d9bbfb4cf824be280',
+          acceptRanges: true,
+        }));
+        return;
+      } catch (e) {
+        console.error('[ApkInfo] Error reading apk:', e);
+      }
+    }
+    res.writeHead(404);
+    res.end(JSON.stringify({ available: false, error: 'APK not found' }));
+    return;
+  }
+
+  // Handle persistent storage API
   if (reqPath === '/api/data') {
     const DB_DIR = path.resolve(__dirname, '..', 'data');
     const DB_FILE = path.join(DB_DIR, 'javaneh_db.json');

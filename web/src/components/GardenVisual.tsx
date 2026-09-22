@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { PlantState, Habit, Goal, AppTask } from '../types';
+import { PlantState, Habit, Goal, AppTask, Category } from '../types';
 import { PlantIcon } from './PlantIcon';
 import { 
   toPersianDigits, 
@@ -7,7 +7,8 @@ import {
   jalaliToFormattedString,
   parseJalaliString,
   PERSIAN_MONTHS,
-  getDayOfWeek
+  getDayOfWeek,
+  getCurrentWeekJalaliDays
 } from '../calendar/jalali';
 import { 
   Sparkles, 
@@ -23,7 +24,8 @@ import {
   ChevronLeft, 
   ChevronRight,
   Clock,
-  Compass
+  Compass,
+  Flower2
 } from 'lucide-react';
 import { 
   calculateSeasonGardenSummary, 
@@ -34,11 +36,23 @@ import {
   YearGardenSummary
 } from '../utils/gardenCalculations';
 
+export interface BloomedFlowerItem {
+  id: string;
+  title: string;
+  plantType: string;
+  kind: 'HABIT' | 'TASK';
+  categoryTitle?: string;
+  categoryColor?: string;
+  completedDate?: string;
+  time?: string | null;
+}
+
 interface Props {
   plantState?: PlantState;
   habits: Habit[];
   goals: Goal[];
   tasks?: AppTask[];
+  categories?: Category[];
   onWaterHabit: (habitId: string) => void;
   initialScope?: 'DAY' | 'WEEK' | 'MONTH' | 'SEASON' | 'YEAR';
   selectedYear?: number;
@@ -50,6 +64,7 @@ export const GardenVisual: React.FC<Props> = ({
   habits,
   goals,
   tasks = [],
+  categories = [],
   onWaterHabit,
   initialScope = 'DAY',
   selectedYear,
@@ -71,6 +86,136 @@ export const GardenVisual: React.FC<Props> = ({
     return Array.from(setYears).sort((a, b) => a - b);
   }, [goals, today.year]);
 
+  // Current week days
+  const currentWeekDays = React.useMemo(() => getCurrentWeekJalaliDays(today), [today]);
+  const currentWeekDateStrings = React.useMemo(() => currentWeekDays.map(d => d.dateStr), [currentWeekDays]);
+
+  // Botanical individual flowers for completed items in the selected scope
+  const bloomedFlowers = React.useMemo<BloomedFlowerItem[]>(() => {
+    const list: BloomedFlowerItem[] = [];
+    const getCat = (catId?: string) => categories.find(c => c.id === catId);
+
+    if (timeScope === 'DAY') {
+      // Completed habits today
+      habits.forEach(h => {
+        if (!h.isClosed && h.completionHistory && h.completionHistory[todayStr]) {
+          list.push({
+            id: `habit-${h.id}`,
+            title: h.title,
+            plantType: h.plantType || 'بونسای',
+            kind: 'HABIT',
+            categoryTitle: getCat(h.categoryId)?.title,
+            categoryColor: getCat(h.categoryId)?.colorHex,
+            completedDate: todayStr,
+            time: h.time,
+          });
+        }
+      });
+
+      // Completed tasks today
+      (tasks || []).forEach(t => {
+        if (t.isCompleted && (t.completedAt === todayStr || (!t.completedAt && t.dueDate === todayStr))) {
+          const cat = getCat(t.categoryId);
+          list.push({
+            id: `task-${t.id}`,
+            title: t.title,
+            plantType: cat?.plantType || 'برگ انجیری',
+            kind: 'TASK',
+            categoryTitle: cat?.title,
+            categoryColor: cat?.colorHex,
+            completedDate: t.completedAt || todayStr,
+            time: t.time,
+          });
+        }
+      });
+    } else if (timeScope === 'WEEK') {
+      // Completed habits this week
+      habits.forEach(h => {
+        if (!h.isClosed && h.completionHistory) {
+          const completedDay = currentWeekDateStrings.find(d => h.completionHistory[d]);
+          if (completedDay) {
+            list.push({
+              id: `habit-${h.id}`,
+              title: h.title,
+              plantType: h.plantType || 'بونسای',
+              kind: 'HABIT',
+              categoryTitle: getCat(h.categoryId)?.title,
+              categoryColor: getCat(h.categoryId)?.colorHex,
+              completedDate: completedDay,
+              time: h.time,
+            });
+          }
+        }
+      });
+
+      // Completed tasks this week
+      (tasks || []).forEach(t => {
+        if (t.isCompleted) {
+          const doneDate = t.completedAt || t.dueDate;
+          if (doneDate && currentWeekDateStrings.includes(doneDate)) {
+            const cat = getCat(t.categoryId);
+            list.push({
+              id: `task-${t.id}`,
+              title: t.title,
+              plantType: cat?.plantType || 'برگ انجیری',
+              kind: 'TASK',
+              categoryTitle: cat?.title,
+              categoryColor: cat?.colorHex,
+              completedDate: doneDate,
+              time: t.time,
+            });
+          }
+        }
+      });
+    } else if (timeScope === 'MONTH') {
+      // Completed habits this month
+      habits.forEach(h => {
+        if (!h.isClosed && h.completionHistory) {
+          const isDoneInMonth = Object.entries(h.completionHistory).some(([dStr, done]) => {
+            if (!done) return false;
+            const p = parseJalaliString(dStr);
+            return p && p.year === today.year && p.month === today.month;
+          });
+          if (isDoneInMonth) {
+            list.push({
+              id: `habit-${h.id}`,
+              title: h.title,
+              plantType: h.plantType || 'بونسای',
+              kind: 'HABIT',
+              categoryTitle: getCat(h.categoryId)?.title,
+              categoryColor: getCat(h.categoryId)?.colorHex,
+            });
+          }
+        }
+      });
+
+      // Completed tasks this month
+      (tasks || []).forEach(t => {
+        if (t.isCompleted) {
+          const doneDate = t.completedAt || t.dueDate;
+          if (doneDate) {
+            const p = parseJalaliString(doneDate);
+            if (p && p.year === today.year && p.month === today.month) {
+              const cat = getCat(t.categoryId);
+              list.push({
+                id: `task-${t.id}`,
+                title: t.title,
+                plantType: cat?.plantType || 'برگ انجیری',
+                kind: 'TASK',
+                categoryTitle: cat?.title,
+                categoryColor: cat?.colorHex,
+                completedDate: doneDate,
+                time: t.time,
+              });
+            }
+          }
+        }
+      });
+    }
+
+    return list;
+  }, [timeScope, habits, tasks, categories, todayStr, currentWeekDateStrings, today.year, today.month]);
+
   // Calculations for DAY / WEEK / MONTH
   let scopeCompleted = 0;
   let scopeTotal = 0;
@@ -78,8 +223,13 @@ export const GardenVisual: React.FC<Props> = ({
 
   if (timeScope === 'DAY') {
     scopeLabel = 'پیشرفت کارهای امروز';
-    scopeTotal = habits.length;
-    scopeCompleted = habits.filter(h => !!h.completionHistory[todayStr]).length;
+    // Only daily habits for today
+    const dailyHabitsToday = habits.filter(h => !h.isClosed && h.frequency === 'DAILY' && (!h.targetDaysOfWeek || h.targetDaysOfWeek.length === 0 || h.targetDaysOfWeek.includes(currentDayOfWeek)));
+    const todayTasks = (tasks || []).filter(t => t.dueDate === todayStr || t.repeatType === 'DAILY' || (!t.dueDate && !t.isCompleted));
+    const completedHabitsCount = dailyHabitsToday.filter(h => !!h.completionHistory[todayStr]).length;
+    const completedTasksCount = todayTasks.filter(t => t.isCompleted).length;
+    scopeCompleted = completedHabitsCount + completedTasksCount;
+    scopeTotal = Math.max(1, dailyHabitsToday.length + todayTasks.length);
   } else if (timeScope === 'WEEK') {
     scopeLabel = 'استمرار این هفته';
     const daysPassedInWeek = currentDayOfWeek + 1;
@@ -140,28 +290,28 @@ export const GardenVisual: React.FC<Props> = ({
     focalPlant = yearSummary.focalPlant;
     climateNote = yearSummary.weatherStatus;
   } else {
-    if (effectivePercent >= 90) {
-      stageTitle = 'درختچه بارور و شکوفا';
-      focalPlant = 'درختچه زیتون';
-      climateNote = 'هوای باغچه کاملاً آفتابی و پرطراوت';
-    } else if (effectivePercent >= 65) {
-      stageTitle = 'شکوفایی گل‌ها و شاخه‌ها';
-      focalPlant = 'بونسای';
-      climateNote = 'هوای باغچه آفتابی و معتدل';
-    } else if (effectivePercent >= 40) {
-      stageTitle = 'نهال استوار با غنچه‌های تازه';
-      focalPlant = 'بامبو شانس';
-      climateNote = 'هوای باغچه بهاری و ملایم';
-    } else if (effectivePercent >= 15) {
-      stageTitle = 'جوانه سبز و باطراوت';
-      focalPlant = 'برگ انجیری';
-      climateNote = 'نسیم ملایم و آماده رشد بیشتر';
-    } else {
-      stageTitle = 'بذر آماده رویش و آبیاری';
-      focalPlant = 'ریحان و نعنا';
-      climateNote = 'خاک تشنه و آماده دریافت اولین قطرات آب';
+    // Stage title for day / week / month
+    if (effectivePercent >= 100) stageTitle = 'شکوفایی کامل و عطر گل‌ها';
+    else if (effectivePercent >= 75) stageTitle = 'گل‌دهی و طراوت شاداب';
+    else if (effectivePercent >= 50) stageTitle = 'جوانه پربرگ و رشید';
+    else if (effectivePercent >= 25) stageTitle = 'ساقه سبز و نورس';
+    else stageTitle = 'بذر در خاک حاصلخیز';
+
+    // If there are bloomed flowers, take the plant of the most recent bloomed flower as focal
+    if (bloomedFlowers.length > 0) {
+      focalPlant = bloomedFlowers[0].plantType;
     }
   }
+
+  // Habits to display in quick water row
+  // In DAY scope, ONLY show daily habits (exclude weekly habits so they don't leak into day view)
+  const displayHabitsInRow = React.useMemo(() => {
+    if (timeScope === 'DAY') {
+      return habits.filter(h => !h.isClosed && h.frequency === 'DAILY' && (!h.targetDaysOfWeek || h.targetDaysOfWeek.length === 0 || h.targetDaysOfWeek.includes(currentDayOfWeek)));
+    }
+    // In WEEK or other scopes, show all active habits
+    return habits.filter(h => !h.isClosed);
+  }, [habits, timeScope, currentDayOfWeek]);
 
   return (
     <div className={`bg-gradient-to-b from-emerald-50/40 via-white to-emerald-50/30 rounded-2xl border border-emerald-100/90 p-4 sm:p-5 shadow-2xs space-y-4 ${className}`}>
@@ -493,11 +643,90 @@ export const GardenVisual: React.FC<Props> = ({
         </div>
       </div>
 
+      {/* Botanical Blooming Garden Bed: Shows an individual flower for each completed item */}
+      {(timeScope === 'DAY' || timeScope === 'WEEK' || timeScope === 'MONTH') && (
+        <div className="bg-emerald-900/5 rounded-xl border border-emerald-200/70 p-3 sm:p-4 space-y-2.5">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="w-6 h-6 rounded-lg bg-emerald-600/10 text-emerald-700 flex items-center justify-center">
+                <Flower2 className="w-3.5 h-3.5 text-emerald-600" />
+              </span>
+              <span className="text-xs font-bold text-gray-900">
+                {timeScope === 'DAY' ? 'گل‌های شکوفا شده امروز' :
+                 timeScope === 'WEEK' ? 'گل‌های شکوفا شده این هفته' :
+                 'گل‌های شکوفا شده این ماه'}
+              </span>
+              <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-900 font-extrabold border border-emerald-200">
+                {toPersianDigits(bloomedFlowers.length)} گل به بار نشسته
+              </span>
+            </div>
+            {bloomedFlowers.length > 0 && (
+              <span className="text-[11px] text-emerald-700 font-medium flex items-center gap-1">
+                <Sparkles className="w-3 h-3 text-amber-500" />
+                <span>باغچه شکوفا و زنده</span>
+              </span>
+            )}
+          </div>
+
+          {bloomedFlowers.length > 0 ? (
+            <div className="flex items-stretch gap-2.5 overflow-x-auto pb-1 pt-1 no-scrollbar">
+              {bloomedFlowers.map((flower) => (
+                <div
+                  key={flower.id}
+                  className="bg-white rounded-xl border border-emerald-200/90 shadow-2xs p-2.5 flex flex-col items-center text-center min-w-[125px] sm:min-w-[135px] max-w-[145px] shrink-0 hover:shadow-xs transition-all"
+                >
+                  <div className="relative w-12 h-12 flex items-center justify-center mb-1">
+                    <div className="absolute inset-0 rounded-full bg-emerald-100/60 blur-xs" />
+                    <PlantIcon type={flower.plantType} size="md" animated />
+                  </div>
+                  <span className="text-xs font-bold text-gray-900 truncate w-full" title={flower.title}>
+                    {flower.title}
+                  </span>
+                  <div className="flex items-center gap-1 mt-1.5 w-full justify-center">
+                    <span className={`text-[9px] px-1.5 py-0.5 rounded-md font-bold ${
+                      flower.kind === 'HABIT' 
+                        ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' 
+                        : 'bg-indigo-50 text-indigo-700 border border-indigo-200'
+                    }`}>
+                      {flower.kind === 'HABIT' ? 'عادت' : 'تسک'}
+                    </span>
+                    <span className="text-[9px] text-emerald-600 font-medium flex items-center gap-0.5">
+                      <Check className="w-2.5 h-2.5 text-emerald-600" />
+                      <span>شکوفا</span>
+                    </span>
+                  </div>
+                  <span className="text-[9px] text-gray-400 mt-1 truncate w-full">
+                    {flower.plantType}
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="bg-white/60 rounded-xl border border-dashed border-emerald-200/70 p-3.5 text-center">
+              <p className="text-xs font-semibold text-emerald-900">
+                {timeScope === 'DAY'
+                  ? 'هنوز گلی در باغچه امروز شکوفا نشده است 🌱'
+                  : 'هنوز گلی در این بازه ثبت نشده است 🌱'}
+              </p>
+              <p className="text-[11px] text-gray-500 mt-1 leading-relaxed">
+                با تیک زدن هر تسک یا ثبت هر عادت، گل اختصاصی آن جداگانه در این باغچه خواهد رویید!
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Sleek Minimalist Plant Quick-Row for daily habits */}
-      {habits.length > 0 && timeScope !== 'YEAR' && (
+      {displayHabitsInRow.length > 0 && timeScope !== 'YEAR' && timeScope !== 'SEASON' && (
         <div className="pt-1">
+          <div className="flex items-center justify-between text-[11px] text-gray-500 mb-1.5 px-0.5">
+            <span className="font-semibold text-gray-700">
+              {timeScope === 'DAY' ? 'عادت‌های روزانه امروز:' : 'عادت‌های فعال:'}
+            </span>
+            <span>برای آبیاری کلیک کنید</span>
+          </div>
           <div className="flex items-center gap-2 overflow-x-auto pb-1 text-xs no-scrollbar">
-            {habits.map((h) => {
+            {displayHabitsInRow.map((h) => {
               const isDoneToday = !!h.completionHistory[todayStr];
               return (
                 <button

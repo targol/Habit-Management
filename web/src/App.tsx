@@ -1403,6 +1403,7 @@ export const App: React.FC = () => {
             userProfile={userProfile}
             onToggleTask={handleToggleTask}
             onToggleHabitToday={(id) => handleToggleHabitDate(id, todayStr)}
+            onToggleHabitDate={handleToggleHabitDate}
             onOpenTimer={(title, mins, cb) => openTimer(title, mins, cb)}
             onOpenNewTask={() => { setEditingTask(null); setIsDuplicateTask(false); setIsTaskModalOpen(true); }}
             onOpenNewHabit={() => { setEditingHabit(null); setIsDuplicateHabit(false); setIsHabitModalOpen(true); }}
