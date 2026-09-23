@@ -19,6 +19,7 @@ import {
   Smartphone
 } from 'lucide-react';
 import { toPersianDigits } from '../calendar/jalali';
+import { APP_VERSION_INFO, RELEASE_HISTORY } from '../version';
 
 interface Props {
   isOpen: boolean;
@@ -307,16 +308,30 @@ export const ApkIntegrityModal: React.FC<Props> = ({ isOpen, onClose }) => {
             </span>
           </div>
 
-          <div className="grid grid-cols-2 gap-2 text-xs">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
             <div className="bg-white/80 p-2.5 rounded-xl border border-emerald-100/80">
-              <span className="text-gray-500 block text-[10px]">حجم رسمی و معتبر فایل:</span>
+              <span className="text-gray-500 block text-[10px]">نسخه بسته نصبی (APK):</span>
+              <strong className="text-emerald-950 text-xs font-bold font-mono">
+                v{APP_VERSION_INFO.currentVersion} (کد {APP_VERSION_INFO.currentVersionCode})
+              </strong>
+            </div>
+            <div className="bg-white/80 p-2.5 rounded-xl border border-emerald-100/80">
+              <span className="text-gray-500 block text-[10px]">تاریخ انتشار شمسی:</span>
+              <strong className="text-emerald-950 text-xs font-bold font-mono">
+                {toPersianDigits(APP_VERSION_INFO.releaseDate)}
+              </strong>
+            </div>
+            <div className="bg-white/80 p-2.5 rounded-xl border border-emerald-100/80">
+              <span className="text-gray-500 block text-[10px]">حجم رسمی فایل:</span>
               <strong className="text-emerald-950 text-xs font-bold font-mono">
                 ۲۲.۵۸ مگابایت ({toPersianDigits(EXPECTED_SIZE.toLocaleString())} بایت)
               </strong>
             </div>
             <div className="bg-white/80 p-2.5 rounded-xl border border-emerald-100/80">
-              <span className="text-gray-500 block text-[10px]">فرمت و نام بسته:</span>
-              <strong className="text-emerald-950 text-xs font-bold font-mono">javaneh.apk (ARM64 & v7a)</strong>
+              <span className="text-gray-500 block text-[10px]">پکیج گوگل‌پلی:</span>
+              <strong className="text-emerald-950 text-xs font-bold font-mono truncate block" title={APP_VERSION_INFO.apkPackageName}>
+                {APP_VERSION_INFO.apkPackageName}
+              </strong>
             </div>
           </div>
 

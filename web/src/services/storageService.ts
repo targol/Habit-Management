@@ -38,7 +38,26 @@ export const STORAGE_KEYS = {
   REMINDERS: 'javaneh_reminder_settings',
   INITIALIZED: 'javaneh_initialized',
   LAST_SYNC: 'javaneh_last_sync',
+  USER_ID: 'javaneh_user_uuid',
+  APP_VERSION: 'javaneh_installed_version',
+  PRE_UPDATE_BACKUP: 'javaneh_pre_update_backup',
 };
+
+// Generates or retrieves the unique isolated device user ID
+export function getOrCreateUserId(): string {
+  if (typeof window === 'undefined') return 'device-isolated-user';
+  try {
+    let id = localStorage.getItem(STORAGE_KEYS.USER_ID);
+    if (!id) {
+      id = 'user_' + Math.random().toString(36).substring(2, 10) + '_' + Date.now().toString(36);
+      localStorage.setItem(STORAGE_KEYS.USER_ID, id);
+    }
+    return id;
+  } catch {
+    return 'device-isolated-user';
+  }
+}
+
 
 const IDB_NAME = 'JavanehDB';
 const IDB_STORE = 'app_data';
@@ -250,8 +269,10 @@ export function triggerServerSync(data: AppDataPayload, delayMs: number = 600): 
 
   syncTimeout = setTimeout(async () => {
     try {
+      const userId = getOrCreateUserId();
       const payload = {
         ...data,
+        userId,
         initialized: true,
         lastUpdated: Date.now(),
       };
@@ -259,6 +280,7 @@ export function triggerServerSync(data: AppDataPayload, delayMs: number = 600): 
         method: 'POST',
         headers: {
           'Content-Type': 'application/json; charset=utf-8',
+          'X-User-Id': userId,
         },
         body: JSON.stringify(payload),
       });
@@ -272,7 +294,12 @@ export function triggerServerSync(data: AppDataPayload, delayMs: number = 600): 
 // Fetch from server API
 export async function fetchServerData(): Promise<AppDataPayload | null> {
   try {
-    const res = await fetch('/api/data');
+    const userId = getOrCreateUserId();
+    const res = await fetch(`/api/data?userId=${encodeURIComponent(userId)}`, {
+      headers: {
+        'X-User-Id': userId,
+      },
+    });
     if (res.ok) {
       const data = await res.json();
       if (data && typeof data === 'object') {
@@ -284,3 +311,39 @@ export async function fetchServerData(): Promise<AppDataPayload | null> {
   }
   return null;
 }
+
+// Safe Pre-Update Storage Check and Emergency Snapshot
+export interface PreUpdateBackupResult {
+  success: boolean;
+  timestamp: number;
+  data: AppDataPayload;
+  downloadedFile?: boolean;
+}
+
+export function savePreUpdateBackup(data: AppDataPayload): PreUpdateBackupResult {
+  const timestamp = Date.now();
+  saveLocalSnapshot(data);
+  try {
+    localStorage.setItem(STORAGE_KEYS.PRE_UPDATE_BACKUP, JSON.stringify({
+      timestamp,
+      data,
+    }));
+  } catch (e) {
+    console.warn('Could not save pre-update backup to localStorage:', e);
+  }
+  return {
+    success: true,
+    timestamp,
+    data,
+  };
+}
+
+export function getPreUpdateBackup(): { timestamp: number; data: AppDataPayload } | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = localStorage.getItem(STORAGE_KEYS.PRE_UPDATE_BACKUP);
+    if (raw) return JSON.parse(raw);
+  } catch {}
+  return null;
+}
+

@@ -5,10 +5,12 @@ import { PlantIcon, ALL_PLANT_TYPES } from './PlantIcon';
 import { toPersianDigits, getTodayJalali, getCurrentPersianDateTimeString } from '../calendar/jalali';
 import { PRESET_ALARM_SOUNDS, previewSound, stopAllAlarmSounds, playAlarmSound } from '../services/soundService';
 import { isNotificationSupported, getNotificationPermission, requestNotificationPermission, sendBrowserNotification } from '../services/reminderService';
-import { DEFAULT_USER_PROFILE, DEFAULT_REMINDER_SETTINGS } from '../services/storageService';
+import { DEFAULT_USER_PROFILE, DEFAULT_REMINDER_SETTINGS, getOrCreateUserId } from '../services/storageService';
 import { UserProfileSettings } from './UserProfileSettings';
 import { ReminderAlarmSettings } from './ReminderAlarmSettings';
 import { ApkIntegrityModal } from './ApkIntegrityModal';
+import { UpdateAndBackupModal } from './UpdateAndBackupModal';
+import { APP_VERSION_INFO } from '../version';
 import { 
   Settings, 
   Plus, 
@@ -80,6 +82,7 @@ interface Props {
   onSaveCategory: (category: Category) => void;
   onDeleteCategory: (categoryId: string) => void;
   onResetCategories: () => void;
+  onImportTasksOnly?: (tasks: AppTask[], mode: 'REPLACE' | 'MERGE') => void;
   onImportAllData?: (
     data: {
       categories: Category[];
@@ -139,6 +142,7 @@ export const SettingsScreen: React.FC<Props> = ({
   onSaveCategory,
   onDeleteCategory,
   onResetCategories,
+  onImportTasksOnly,
   onImportAllData,
 }) => {
   // Modal / Form state for Category add/edit
@@ -156,6 +160,7 @@ export const SettingsScreen: React.FC<Props> = ({
   // Troubleshooting guide toggle for Android APK
   const [showTroubleshooting, setShowTroubleshooting] = useState(true);
   const [isApkModalOpen, setIsApkModalOpen] = useState(false);
+  const [isUpdateAndBackupModalOpen, setIsUpdateAndBackupModalOpen] = useState(false);
 
   // In-app category deletion confirmation modal state
   const [categoryToDelete, setCategoryToDelete] = useState<{
@@ -639,12 +644,22 @@ export const SettingsScreen: React.FC<Props> = ({
           <div className="flex items-center gap-2 flex-wrap">
             <button
               type="button"
+              onClick={() => setIsUpdateAndBackupModalOpen(true)}
+              className="px-4 py-2.5 bg-emerald-800 hover:bg-emerald-900 text-white text-xs font-black rounded-xl shadow-sm hover:shadow-md flex items-center gap-2 transition-all cursor-pointer active:scale-95"
+              title="بررسی ایمنی به‌روزرسانی، تهیه خودکار نسخه پشتیبان و لاگ نسخه‌ها"
+            >
+              <ShieldCheck className="w-4 h-4 text-emerald-300" />
+              <span>به‌روزرسانی امن و لاگ نسخه‌ها (v{APP_VERSION_INFO.currentVersion})</span>
+            </button>
+
+            <button
+              type="button"
               onClick={() => setIsApkModalOpen(true)}
               className="px-4 py-2.5 bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-700 hover:to-green-700 text-white text-xs font-black rounded-xl shadow-sm hover:shadow-md flex items-center gap-2 transition-all cursor-pointer active:scale-95"
               title="بررسی هش، سلامت فایل و دانلود هوشمند با قابلیت Resume"
             >
-              <ShieldCheck className="w-4 h-4" />
-              <span>بررسی هش و دانلود هوشمند (با قابلیت Resume)</span>
+              <Smartphone className="w-4 h-4" />
+              <span>دانلود هوشمند APK (با قابلیت Resume)</span>
             </button>
 
             <a
@@ -877,6 +892,16 @@ export const SettingsScreen: React.FC<Props> = ({
                     <span>کپی کد JSON</span>
                   </>
                 )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsUpdateAndBackupModalOpen(true)}
+                className="px-3 py-2 bg-emerald-100 hover:bg-emerald-200 text-emerald-900 border border-emerald-300 text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs"
+                title="پشتیبان‌گیری و بارگذاری سریع فقط تسک‌ها و وضعیت انجام آن‌ها"
+              >
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700" />
+                <span>پشتیبان ویژه تسک‌ها</span>
               </button>
             </div>
           </div>
@@ -1417,6 +1442,20 @@ export const SettingsScreen: React.FC<Props> = ({
       <ApkIntegrityModal
         isOpen={isApkModalOpen}
         onClose={() => setIsApkModalOpen(false)}
+      />
+
+      {/* Safe Pre-Update Backup, Tasks Backup & Google Play Release Notes Modal */}
+      <UpdateAndBackupModal
+        isOpen={isUpdateAndBackupModalOpen}
+        onClose={() => setIsUpdateAndBackupModalOpen(false)}
+        tasks={tasks}
+        goals={goals}
+        habits={habits}
+        categories={categories}
+        userProfile={userProfile}
+        reminderSettings={reminderSettings}
+        onImportTasksOnly={onImportTasksOnly}
+        onOpenFullApkDownload={() => setIsApkModalOpen(true)}
       />
     </div>
   );

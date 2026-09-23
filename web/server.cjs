@@ -55,6 +55,10 @@ const server = http.createServer((req, res) => {
         res.end(JSON.stringify({
           available: true,
           filename: 'javaneh.apk',
+          version: '1.2.0',
+          versionCode: 10200,
+          releaseDate: '1403/07/02',
+          packageName: 'com.javaneh.app',
           size: stat.size,
           formattedSize: (stat.size / (1024 * 1024)).toFixed(2) + ' MB',
           sha256: '4aec4194adeeaa023f0f7453371a9ccc21d3d92d0b4afc8d9bbfb4cf824be280',
@@ -73,8 +77,6 @@ const server = http.createServer((req, res) => {
   // Handle persistent storage API
   if (reqPath === '/api/data') {
     const DB_DIR = path.resolve(__dirname, '..', 'data');
-    const DB_FILE = path.join(DB_DIR, 'javaneh_db.json');
-
     if (!fs.existsSync(DB_DIR)) {
       try {
         fs.mkdirSync(DB_DIR, { recursive: true });
@@ -83,16 +85,24 @@ const server = http.createServer((req, res) => {
       }
     }
 
+    // Extract user ID from header or query param for multi-user isolation
+    const urlObj = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+    const rawUserId = req.headers['x-user-id'] || urlObj.searchParams.get('userId') || 'default_user';
+    const safeUserId = String(rawUserId).replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 64);
+    const userDbFile = path.join(DB_DIR, `user_${safeUserId}.json`);
+    const fallbackDbFile = path.join(DB_DIR, 'javaneh_db.json');
+
     if (req.method === 'GET') {
       res.setHeader('Content-Type', 'application/json; charset=utf-8');
-      if (fs.existsSync(DB_FILE)) {
+      const targetFile = fs.existsSync(userDbFile) ? userDbFile : (fs.existsSync(fallbackDbFile) && safeUserId === 'default_user' ? fallbackDbFile : null);
+      if (targetFile) {
         try {
-          const content = fs.readFileSync(DB_FILE, 'utf-8');
+          const content = fs.readFileSync(targetFile, 'utf-8');
           res.writeHead(200);
           res.end(content);
           return;
         } catch (err) {
-          console.error('[Storage] Failed to read db.json:', err);
+          console.error('[Storage] Failed to read db file:', err);
         }
       }
       res.writeHead(200);
@@ -108,12 +118,13 @@ const server = http.createServer((req, res) => {
       req.on('end', () => {
         try {
           const parsed = JSON.parse(body);
-          fs.writeFileSync(DB_FILE, JSON.stringify(parsed, null, 2), 'utf-8');
+          const userTargetFile = path.join(DB_DIR, `user_${safeUserId}.json`);
+          fs.writeFileSync(userTargetFile, JSON.stringify(parsed, null, 2), 'utf-8');
           res.setHeader('Content-Type', 'application/json; charset=utf-8');
           res.writeHead(200);
-          res.end(JSON.stringify({ success: true, timestamp: Date.now() }));
+          res.end(JSON.stringify({ success: true, timestamp: Date.now(), userId: safeUserId }));
         } catch (err) {
-          console.error('[Storage] Failed to write db.json:', err);
+          console.error('[Storage] Failed to write user db:', err);
           res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
           res.end(JSON.stringify({ error: 'Invalid JSON payload' }));
         }

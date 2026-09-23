@@ -1277,6 +1277,40 @@ export const App: React.FC = () => {
     }, 100);
   };
 
+  // Dedicated Tasks-only import handler (Fast Task Restore)
+  const handleImportTasksOnly = (importedTasks: AppTask[], mode: 'REPLACE' | 'MERGE' = 'MERGE') => {
+    let nextTasks: AppTask[] = [];
+    if (mode === 'REPLACE') {
+      nextTasks = importedTasks.map(t => ({ ...t, repeatDaysOfWeek: t.repeatDaysOfWeek || [] }));
+    } else {
+      nextTasks = mergeEntitiesById(tasks, importedTasks).map(t => ({
+        ...t,
+        repeatDaysOfWeek: t.repeatDaysOfWeek || [],
+      }));
+    }
+
+    setTasks(nextTasks);
+    saveToLocalStorage('javaneh_tasks', nextTasks);
+    saveToIndexedDB('tasks', nextTasks);
+    saveLocalSnapshot({
+      categories,
+      goals,
+      tasks: nextTasks,
+      habits,
+      userProfile,
+      reminderSettings,
+    });
+
+    triggerServerSync({
+      categories,
+      goals,
+      tasks: nextTasks,
+      habits,
+      userProfile,
+      reminderSettings,
+    }, 100);
+  };
+
   // --- Timer Helper ---
   const openTimer = (title: string, minutes: number, onDone?: () => void) => {
     setTimerConfig({
@@ -1447,6 +1481,7 @@ export const App: React.FC = () => {
             onSaveCategory={handleSaveCategory}
             onDeleteCategory={handleDeleteCategory}
             onResetCategories={handleResetCategories}
+            onImportTasksOnly={handleImportTasksOnly}
             onImportAllData={handleImportAllData}
           />
         )}
