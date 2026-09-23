@@ -12,7 +12,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
 
-class AppRepository(context: Context) {
+class AppRepository(private val context: Context) {
 
     private val prefs: SharedPreferences =
         context.getSharedPreferences("javaneh_app_prefs", Context.MODE_PRIVATE)
@@ -211,6 +211,42 @@ class AppRepository(context: Context) {
         saveTasks()
     }
 
+    fun duplicateTask(taskId: String) {
+        val original = _tasks.value.find { it.id == taskId } ?: return
+        val clone = original.copy(
+            id = UUID.randomUUID().toString(),
+            title = "${original.title} (کپی)",
+            isCompleted = false,
+            completedAt = null,
+            timerSecondsElapsed = 0,
+            createdAt = System.currentTimeMillis()
+        )
+        val current = _tasks.value.toMutableList()
+        current.add(clone)
+        _tasks.value = current
+        saveTasks()
+    }
+
+    fun toggleArchiveTask(taskId: String) {
+        val current = _tasks.value.map {
+            if (it.id == taskId) {
+                it.copy(isArchived = !it.isArchived)
+            } else it
+        }
+        _tasks.value = current
+        saveTasks()
+    }
+
+    fun toggleImportantTask(taskId: String) {
+        val current = _tasks.value.map {
+            if (it.id == taskId) {
+                it.copy(isImportant = !it.isImportant)
+            } else it
+        }
+        _tasks.value = current
+        saveTasks()
+    }
+
     fun updateTaskTimer(taskId: String, elapsedSeconds: Int) {
         val current = _tasks.value.map {
             if (it.id == taskId) {
@@ -263,6 +299,106 @@ class AppRepository(context: Context) {
     fun deleteHabit(habitId: String) {
         _habits.value = _habits.value.filter { it.id != habitId }
         saveHabits()
+    }
+
+    fun duplicateHabit(habitId: String) {
+        val original = _habits.value.find { it.id == habitId } ?: return
+        val clone = original.copy(
+            id = UUID.randomUUID().toString(),
+            title = "${original.title} (کپی)",
+            history = emptyMap(),
+            createdAt = System.currentTimeMillis()
+        )
+        val current = _habits.value.toMutableList()
+        current.add(clone)
+        _habits.value = current
+        saveHabits()
+    }
+
+    fun toggleCloseHabit(habitId: String) {
+        val current = _habits.value.map {
+            if (it.id == habitId) {
+                it.copy(isClosed = !it.isClosed)
+            } else it
+        }
+        _habits.value = current
+        saveHabits()
+    }
+
+    // --- Profile & Preferences ---
+
+    fun getUserName(): String {
+        return prefs.getString("user_name", "دوست جوانه") ?: "دوست جوانه"
+    }
+
+    fun setUserName(name: String) {
+        prefs.edit().putString("user_name", name).apply()
+    }
+
+    fun getUserBio(): String {
+        return prefs.getString("user_bio", "در مسیر رشد و پایداری فردی 🌱") ?: "در مسیر رشد و پایداری فردی 🌱"
+    }
+
+    fun setUserBio(bio: String) {
+        prefs.edit().putString("user_bio", bio).apply()
+    }
+
+    fun addCategory(category: TaskCategory) {
+        val current = _categories.value.toMutableList()
+        current.add(category)
+        _categories.value = current
+        saveCategories()
+    }
+
+    fun deleteCategory(categoryId: String) {
+        _categories.value = _categories.value.filter { it.id != categoryId }
+        saveCategories()
+    }
+
+    fun resetToDefaultData() {
+        prefs.edit().clear().apply()
+        seedInitialData()
+    }
+
+    fun exportAllDataAsJson(): String {
+        val root = JSONObject()
+        root.put("version", "1.0.1")
+        root.put("exportedAt", System.currentTimeMillis())
+        root.put("userName", getUserName())
+        root.put("userBio", getUserBio())
+        
+        val tasksArr = JSONArray()
+        for (t in _tasks.value) {
+            val obj = JSONObject()
+            obj.put("id", t.id)
+            obj.put("title", t.title)
+            obj.put("notes", t.notes)
+            obj.put("categoryId", t.categoryId)
+            if (t.goalId != null) obj.put("goalId", t.goalId)
+            obj.put("dueDate", t.dueDate)
+            if (t.time != null) obj.put("time", t.time)
+            if (t.deadlineTime != null) obj.put("deadlineTime", t.deadlineTime)
+            obj.put("isImportant", t.isImportant)
+            obj.put("isArchived", t.isArchived)
+            obj.put("isCompleted", t.isCompleted)
+            tasksArr.put(obj)
+        }
+        root.put("tasks", tasksArr)
+
+        val habitsArr = JSONArray()
+        for (h in _habits.value) {
+            val obj = JSONObject()
+            obj.put("id", h.id)
+            obj.put("title", h.title)
+            obj.put("categoryId", h.categoryId)
+            obj.put("frequency", h.frequency.name)
+            obj.put("targetDaysPerWeek", h.targetDaysPerWeek)
+            obj.put("isClosed", h.isClosed)
+            habitsArr.put(obj)
+        }
+        root.put("habits", habitsArr)
+
+        return root.toString(2)
     }
 
     // --- Goal Operations ---
@@ -470,12 +606,15 @@ class AppRepository(context: Context) {
             if (t.goalId != null) obj.put("goalId", t.goalId)
             obj.put("dueDate", t.dueDate)
             if (t.time != null) obj.put("time", t.time)
+            if (t.deadlineTime != null) obj.put("deadlineTime", t.deadlineTime)
             if (t.reminderMinutesBefore != null) obj.put("reminderMinutesBefore", t.reminderMinutesBefore)
             obj.put("repeatType", t.repeatType.name)
             val repeatDaysArr = JSONArray()
             t.repeatDaysOfWeek.forEach { repeatDaysArr.put(it) }
             obj.put("repeatDaysOfWeek", repeatDaysArr)
             if (t.repeatDayOfMonth != null) obj.put("repeatDayOfMonth", t.repeatDayOfMonth)
+            obj.put("isImportant", t.isImportant)
+            obj.put("isArchived", t.isArchived)
             obj.put("isCompleted", t.isCompleted)
             if (t.completedAt != null) obj.put("completedAt", t.completedAt)
             obj.put("timerSecondsTarget", t.timerSecondsTarget)
@@ -484,6 +623,7 @@ class AppRepository(context: Context) {
             arr.put(obj)
         }
         prefs.edit().putString("tasks_json", arr.toString()).apply()
+        com.example.widget.JavanehProgressWidgetProvider.requestWidgetUpdate(context)
     }
 
     private fun loadTasks() {
@@ -507,12 +647,15 @@ class AppRepository(context: Context) {
                         notes = obj.optString("notes", ""),
                         categoryId = obj.optString("categoryId", "cat_personal"),
                         goalId = if (obj.has("goalId")) obj.getString("goalId") else null,
-                        dueDate = obj.getString("dueDate"),
+                        dueDate = obj.optString("dueDate", ""),
                         time = if (obj.has("time")) obj.getString("time") else null,
+                        deadlineTime = if (obj.has("deadlineTime")) obj.getString("deadlineTime") else null,
                         reminderMinutesBefore = if (obj.has("reminderMinutesBefore")) obj.getInt("reminderMinutesBefore") else null,
                         repeatType = TaskRepeatType.valueOf(obj.optString("repeatType", "NONE")),
                         repeatDaysOfWeek = repeatDays,
                         repeatDayOfMonth = if (obj.has("repeatDayOfMonth")) obj.getInt("repeatDayOfMonth") else null,
+                        isImportant = obj.optBoolean("isImportant", false),
+                        isArchived = obj.optBoolean("isArchived", false),
                         isCompleted = obj.optBoolean("isCompleted", false),
                         completedAt = if (obj.has("completedAt")) obj.getLong("completedAt") else null,
                         timerSecondsTarget = obj.optInt("timerSecondsTarget", 1500),
@@ -537,6 +680,8 @@ class AppRepository(context: Context) {
             obj.put("categoryId", h.categoryId)
             if (h.goalId != null) obj.put("goalId", h.goalId)
             obj.put("frequency", h.frequency.name)
+            obj.put("targetDaysPerWeek", h.targetDaysPerWeek)
+            obj.put("isClosed", h.isClosed)
             val targetDaysArr = JSONArray()
             h.targetDaysOfWeek.forEach { targetDaysArr.put(it) }
             obj.put("targetDaysOfWeek", targetDaysArr)
@@ -555,6 +700,7 @@ class AppRepository(context: Context) {
             arr.put(obj)
         }
         prefs.edit().putString("habits_json", arr.toString()).apply()
+        com.example.widget.JavanehProgressWidgetProvider.requestWidgetUpdate(context)
     }
 
     private fun loadHabits() {
@@ -589,6 +735,8 @@ class AppRepository(context: Context) {
                         goalId = if (obj.has("goalId")) obj.getString("goalId") else null,
                         frequency = HabitFrequency.valueOf(obj.optString("frequency", "DAILY")),
                         targetDaysOfWeek = if (targetDays.isEmpty()) listOf(0,1,2,3,4,5,6) else targetDays,
+                        targetDaysPerWeek = obj.optInt("targetDaysPerWeek", 3),
+                        isClosed = obj.optBoolean("isClosed", false),
                         time = if (obj.has("time")) obj.getString("time") else null,
                         timerMinutes = obj.optInt("timerMinutes", 15),
                         exemptHolidays = obj.optBoolean("exemptHolidays", true),

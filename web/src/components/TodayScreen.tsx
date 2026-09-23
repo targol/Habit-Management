@@ -143,65 +143,6 @@ export const TodayScreen: React.FC<Props> = ({
 
   return (
     <div className="space-y-5 animate-fade-in pb-12">
-      {/* Sticky Date Header Card */}
-      <div className="sticky -top-5 z-20 pt-5 pb-2.5 bg-[#F8F9F5]/95 backdrop-blur-md -mx-4 px-4 sm:mx-0 sm:px-0">
-        <div className="bg-white rounded-2xl p-4 border border-emerald-100/90 shadow-2xs flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-xl bg-emerald-600 text-white flex flex-col items-center justify-center font-bold shadow-xs">
-              <span className="text-xs leading-none opacity-90">{weekdayName}</span>
-              <span className="text-lg leading-tight mt-0.5">{toPersianDigits(today.day)}</span>
-            </div>
-            <div>
-              <h2 className="text-base font-bold text-gray-900 flex items-center gap-2">
-                <span>{toPersianDigits(today.day)} {PERSIAN_MONTHS[today.month - 1]} {toPersianDigits(today.year)}</span>
-              </h2>
-              <div className="flex items-center gap-2 mt-0.5">
-                {holidayInfo.isHoliday ? (
-                  <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-md">
-                    <AlertCircle className="w-3 h-3" />
-                    <span>تعطیل رسمی: {holidayInfo.title}</span>
-                  </span>
-                ) : (
-                  <span className="text-xs text-gray-500 flex items-center gap-1">
-                    <Calendar className="w-3.5 h-3.5 text-emerald-600" />
-                    <span>{weekdayName} پرانرژی و پربار</span>
-                  </span>
-                )}
-              </div>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            {/* User Profile Greeting Badge */}
-            {userProfile?.name && (
-              <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-emerald-50/70 rounded-xl border border-emerald-200/60">
-                <div className="w-7 h-7 rounded-full bg-white border border-emerald-300 flex items-center justify-center overflow-hidden shrink-0 shadow-2xs">
-                  {userProfile.avatarUrl && (userProfile.avatarUrl.startsWith('data:image') || userProfile.avatarUrl.startsWith('http')) ? (
-                    <img src={userProfile.avatarUrl} alt={userProfile.name} className="w-full h-full object-cover" />
-                  ) : (
-                    <span className="text-sm select-none">{userProfile.avatarUrl || '🌱'}</span>
-                  )}
-                </div>
-                <div className="text-right">
-                  <span className="text-[10px] text-gray-500 block leading-tight">سلام،</span>
-                  <span className="text-xs font-bold text-emerald-950 block leading-tight truncate max-w-[110px]">{userProfile.name}</span>
-                </div>
-              </div>
-            )}
-
-            {/* Quick Pomodoro Launcher */}
-            <button
-              type="button"
-              onClick={() => onOpenTimer('جلسه تمرکز آزاد', 25, () => {})}
-              className="px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-bold rounded-xl border border-emerald-200/80 flex items-center gap-1.5 transition-colors cursor-pointer"
-            >
-              <Play className="w-3.5 h-3.5 fill-emerald-700" />
-              <span>تایمر تمرکز (۲۵ دقیقه)</span>
-            </button>
-          </div>
-        </div>
-      </div>
-
       {/* Modern Uncluttered Garden Visual */}
       <GardenVisual
         plantState={plantState}

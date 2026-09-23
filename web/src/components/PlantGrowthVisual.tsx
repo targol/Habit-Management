@@ -118,8 +118,17 @@ export const PlantGrowthVisual: React.FC<Props> = ({ plantState }) => {
         <span>رشد امروز</span>
       </div>
 
-      <div className="py-2">
-        {renderIllustration()}
+      <div className="py-2 flex items-center justify-center">
+        <div
+          key={stage}
+          className={`transform-gpu transition-all duration-700 ease-out origin-bottom ${
+            stage === 'FULL_BLOOM' || stage === 'FLOWERING'
+              ? 'animate-plant-bloom'
+              : 'animate-plant-sway'
+          }`}
+        >
+          {renderIllustration()}
+        </div>
       </div>
 
       <div className="mt-1">

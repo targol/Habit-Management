@@ -34,7 +34,8 @@ enum class MainNavigationTab(
     TASKS("تسک‌ها", Icons.Filled.CheckCircle, Icons.Outlined.CheckCircle),
     HABITS("عادت‌ها", Icons.Filled.Loop, Icons.Outlined.Loop),
     GOALS("اهداف", Icons.Filled.TrackChanges, Icons.Outlined.TrackChanges),
-    REPORTS("گزارش‌ها", Icons.Filled.BarChart, Icons.Outlined.BarChart)
+    REPORTS("گزارش‌ها", Icons.Filled.BarChart, Icons.Outlined.BarChart),
+    SETTINGS("تنظیمات", Icons.Filled.Settings, Icons.Outlined.Settings)
 }
 
 class MainActivity : ComponentActivity() {
@@ -106,6 +107,10 @@ class MainActivity : ComponentActivity() {
                                 modifier = screenModifier
                             )
                             MainNavigationTab.REPORTS -> ReportsScreen(
+                                repository = repository,
+                                modifier = screenModifier
+                            )
+                            MainNavigationTab.SETTINGS -> SettingsScreen(
                                 repository = repository,
                                 modifier = screenModifier
                             )

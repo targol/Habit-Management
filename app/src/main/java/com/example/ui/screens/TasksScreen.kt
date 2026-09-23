@@ -32,9 +32,11 @@ import java.util.UUID
 enum class TaskFilterTab(val title: String) {
     TODAY("امروز"),
     UPCOMING("آتی"),
+    OVERDUE("معوقه"),
     RECURRING("تکرارشونده"),
     COMPLETED("تکمیل‌شده"),
-    ALL("همه")
+    ALL("همه"),
+    ARCHIVE("بایگانی")
 }
 
 @Composable
@@ -62,11 +64,16 @@ fun TasksScreen(
     val filteredTasks = tasks.filter { task ->
         val matchesCategory = selectedCategoryId == null || task.categoryId == selectedCategoryId
         val matchesTab = when (selectedTab) {
-            TaskFilterTab.ALL -> true
-            TaskFilterTab.TODAY -> (!task.isCompleted && (task.dueDate == todayStr || task.repeatDaysOfWeek.contains(todayDow))) || (task.isCompleted && task.dueDate == todayStr)
-            TaskFilterTab.UPCOMING -> !task.isCompleted && task.dueDate > todayStr && task.repeatType == TaskRepeatType.NONE
-            TaskFilterTab.RECURRING -> task.repeatType != TaskRepeatType.NONE
-            TaskFilterTab.COMPLETED -> task.isCompleted
+            TaskFilterTab.ALL -> !task.isArchived
+            TaskFilterTab.TODAY -> !task.isArchived && (
+                (!task.isCompleted && (task.dueDate.isBlank() || task.dueDate == todayStr || task.repeatDaysOfWeek.contains(todayDow))) ||
+                (task.isCompleted && (task.dueDate == todayStr || task.dueDate.isBlank()))
+            )
+            TaskFilterTab.UPCOMING -> !task.isArchived && !task.isCompleted && (task.dueDate > todayStr || task.dueDate.isBlank()) && task.repeatType == TaskRepeatType.NONE
+            TaskFilterTab.OVERDUE -> !task.isArchived && !task.isCompleted && task.dueDate.isNotBlank() && task.dueDate < todayStr && task.repeatType == TaskRepeatType.NONE
+            TaskFilterTab.RECURRING -> !task.isArchived && task.repeatType != TaskRepeatType.NONE
+            TaskFilterTab.COMPLETED -> !task.isArchived && task.isCompleted
+            TaskFilterTab.ARCHIVE -> task.isArchived
         }
         matchesCategory && matchesTab
     }
@@ -192,6 +199,9 @@ fun TasksScreen(
                             category = category,
                             linkedGoalTitle = linkedGoal?.title,
                             onToggle = { repository.toggleTaskCompletion(task.id) },
+                            onToggleImportant = { repository.toggleImportantTask(task.id) },
+                            onDuplicate = { repository.duplicateTask(task.id) },
+                            onToggleArchive = { repository.toggleArchiveTask(task.id) },
                             onStartTimer = { activeTimerTask = task },
                             onDelete = { repository.deleteTask(task.id) }
                         )
@@ -235,6 +245,9 @@ fun TaskListItem(
     category: TaskCategory,
     linkedGoalTitle: String?,
     onToggle: () -> Unit,
+    onToggleImportant: () -> Unit,
+    onDuplicate: () -> Unit,
+    onToggleArchive: () -> Unit,
     onStartTimer: () -> Unit,
     onDelete: () -> Unit
 ) {
@@ -275,13 +288,18 @@ fun TaskListItem(
             Spacer(modifier = Modifier.width(12.dp))
 
             Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = task.title,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = if (task.isCompleted) Color(0xFF9E9E9E) else Color(0xFF212121),
-                    textDecoration = if (task.isCompleted) TextDecoration.LineThrough else TextDecoration.None
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (task.isImportant) {
+                        Text(text = "⭐ ", fontSize = 14.sp)
+                    }
+                    Text(
+                        text = task.title,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (task.isCompleted) Color(0xFF9E9E9E) else Color(0xFF212121),
+                        textDecoration = if (task.isCompleted) TextDecoration.LineThrough else TextDecoration.None
+                    )
+                }
 
                 if (task.notes.isNotBlank()) {
                     Text(
@@ -315,17 +333,33 @@ fun TaskListItem(
                     }
 
                     // Due Date
+                    val dueDateLabel = if (task.dueDate.isNotBlank()) {
+                        "📅 ${PersianCalendarHelper.toPersianDigits(task.dueDate)}"
+                    } else {
+                        "📅 بدون موعد (پایان سال)"
+                    }
                     Text(
-                        text = "📅 ${PersianCalendarHelper.toPersianDigits(task.dueDate)}",
+                        text = dueDateLabel,
                         fontSize = 10.sp,
                         color = Color(0xFF616161)
                     )
 
-                    if (task.time != null) {
+                    // Start Time
+                    if (task.time != null && task.time.isNotBlank()) {
                         Text(
                             text = "⏰ ${PersianCalendarHelper.toPersianDigits(task.time)}",
                             fontSize = 10.sp,
                             color = Color(0xFF616161)
+                        )
+                    }
+
+                    // Deadline Time
+                    if (task.deadlineTime != null && task.deadlineTime.isNotBlank()) {
+                        Text(
+                            text = "⏳ مهلت: ${PersianCalendarHelper.toPersianDigits(task.deadlineTime)}",
+                            fontSize = 10.sp,
+                            color = Color(0xFFD32F2F),
+                            fontWeight = FontWeight.Medium
                         )
                     }
 
@@ -340,27 +374,68 @@ fun TaskListItem(
                 }
             }
 
+            // Important star toggle
+            IconButton(
+                onClick = onToggleImportant,
+                modifier = Modifier.size(28.dp)
+            ) {
+                Icon(
+                    imageVector = if (task.isImportant) Icons.Default.Star else Icons.Outlined.StarBorder,
+                    contentDescription = "ستاره",
+                    tint = if (task.isImportant) Color(0xFFFFA000) else Color(0xFFB0BEC5),
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+
+            // Duplicate Button
+            IconButton(
+                onClick = onDuplicate,
+                modifier = Modifier.size(28.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.ContentCopy,
+                    contentDescription = "کپی تسک",
+                    tint = Color(0xFF78909C),
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+
             // Timer Button
             IconButton(
                 onClick = onStartTimer,
-                modifier = Modifier.size(32.dp)
+                modifier = Modifier.size(28.dp)
             ) {
                 Icon(
                     imageVector = Icons.Default.PlayArrow,
                     contentDescription = "تایمر",
-                    tint = Color(0xFF2E7D32)
+                    tint = Color(0xFF2E7D32),
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+
+            // Archive Button
+            IconButton(
+                onClick = onToggleArchive,
+                modifier = Modifier.size(28.dp)
+            ) {
+                Icon(
+                    imageVector = if (task.isArchived) Icons.Default.Unarchive else Icons.Default.Archive,
+                    contentDescription = "بایگانی",
+                    tint = Color(0xFF78909C),
+                    modifier = Modifier.size(16.dp)
                 )
             }
 
             // Delete
             IconButton(
                 onClick = onDelete,
-                modifier = Modifier.size(32.dp)
+                modifier = Modifier.size(28.dp)
             ) {
                 Icon(
                     imageVector = Icons.Default.DeleteOutline,
                     contentDescription = "حذف",
-                    tint = Color(0xFFB0BEC5)
+                    tint = Color(0xFFB0BEC5),
+                    modifier = Modifier.size(16.dp)
                 )
             }
         }
@@ -379,11 +454,14 @@ fun AddTaskDialog(
     var selectedCategoryId by remember { mutableStateOf(categories.firstOrNull()?.id ?: "cat_personal") }
     var selectedGoalId by remember { mutableStateOf<String?>(null) }
 
+    var hasSpecificDueDate by remember { mutableStateOf(false) } // Default: no specific due date (end of year)
     var selectedDate by remember { mutableStateOf(PersianCalendarHelper.getToday()) }
     var showDatePicker by remember { mutableStateOf(false) }
 
-    var timeText by remember { mutableStateOf("12:00") }
-    var reminderMinutes by remember { mutableStateOf<Int?>(15) }
+    var timeText by remember { mutableStateOf("") } // زمان شروع / انجام
+    var deadlineTimeText by remember { mutableStateOf("") } // زمان نهایی که باید تموم بشه
+    var isImportant by remember { mutableStateOf(false) }
+    var reminderMinutes by remember { mutableStateOf<Int?>(null) }
     var repeatType by remember { mutableStateOf(TaskRepeatType.NONE) }
     var targetTimerMins by remember { mutableStateOf(25) }
 
@@ -430,49 +508,161 @@ fun AddTaskDialog(
                     )
                 }
 
-                // Date Picker button
+                // Important Star Switch
                 item {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(12.dp))
-                            .background(Color(0xFFF1F8E9))
-                            .clickable { showDatePicker = true }
-                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                            .background(if (isImportant) Color(0xFFFFF8E1) else Color(0xFFF5F5F5))
+                            .clickable { isImportant = !isImportant }
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = "تاریخ انجام: ${selectedDate.toPersianDisplayString()}",
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = Color(0xFF1B5E20)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = if (isImportant) Icons.Default.Star else Icons.Outlined.StarBorder,
+                                contentDescription = null,
+                                tint = if (isImportant) Color(0xFFFFA000) else Color(0xFF757575)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "تسک با اولویت و مهم (ستاره‌دار)",
+                                fontSize = 13.sp,
+                                fontWeight = if (isImportant) FontWeight.Bold else FontWeight.Normal,
+                                color = if (isImportant) Color(0xFFE65100) else Color(0xFF424242)
+                            )
+                        }
+                        Switch(
+                            checked = isImportant,
+                            onCheckedChange = { isImportant = it },
+                            colors = SwitchDefaults.colors(checkedThumbColor = Color(0xFFFFA000), checkedTrackColor = Color(0xFFFFE082))
                         )
-                        Icon(Icons.Default.CalendarToday, contentDescription = "تقویم", tint = Color(0xFF2E7D32))
                     }
                 }
 
-                // Time & Reminder
+                // Due Date Switch & Selector
                 item {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color(0xFFF1F8E9))
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        OutlinedTextField(
-                            value = timeText,
-                            onValueChange = { timeText = it },
-                            label = { Text("ساعت (مثلا 14:30)") },
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(12.dp)
-                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = if (hasSpecificDueDate) "دارای موعد تاریخ مشخص" else "بدون موعد (پیش‌فرض پایان سال)",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF1B5E20)
+                            )
+                            Switch(
+                                checked = hasSpecificDueDate,
+                                onCheckedChange = { hasSpecificDueDate = it },
+                                colors = SwitchDefaults.colors(checkedThumbColor = Color(0xFF2E7D32), checkedTrackColor = Color(0xFFC8E6C9))
+                            )
+                        }
 
-                        OutlinedTextField(
-                            value = targetTimerMins.toString(),
-                            onValueChange = { targetTimerMins = it.toIntOrNull() ?: 25 },
-                            label = { Text("تایمر (دقیقه)") },
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(12.dp)
+                        if (hasSpecificDueDate) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(Color.White)
+                                    .clickable { showDatePicker = true }
+                                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "تاریخ انتخابی: ${selectedDate.toPersianDisplayString()}",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = Color(0xFF2E7D32)
+                                )
+                                Icon(Icons.Default.CalendarToday, contentDescription = "تقویم", tint = Color(0xFF2E7D32), modifier = Modifier.size(16.dp))
+                            }
+                        } else {
+                            Text(
+                                text = "💡 در صورت عدم تعیین، تسک در تمام روزها تا پایان سال شمسی جاری در دسترس خواهد بود.",
+                                fontSize = 11.sp,
+                                color = Color(0xFF558B2F)
+                            )
+                        }
+                    }
+                }
+
+                // Start Time & Deadline Time (ساعت انجام و زمان نهایی پایان)
+                item {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            text = "زمان‌بندی روزانه (ساعت شروع و موعد نهایی):",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF1B5E20)
                         )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            OutlinedTextField(
+                                value = timeText,
+                                onValueChange = { timeText = it },
+                                label = { Text("زمان انجام (مثلاً 10:00)") },
+                                placeholder = { Text("10:00") },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(12.dp)
+                            )
+
+                            OutlinedTextField(
+                                value = deadlineTimeText,
+                                onValueChange = { deadlineTimeText = it },
+                                label = { Text("مهلت نهایی (مثلاً 18:30)") },
+                                placeholder = { Text("18:30") },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(12.dp)
+                            )
+                        }
+                    }
+                }
+
+                // Timer Pomodoro
+                item {
+                    OutlinedTextField(
+                        value = targetTimerMins.toString(),
+                        onValueChange = { targetTimerMins = it.toIntOrNull() ?: 25 },
+                        label = { Text("تایمر تمرکز پومودورو (دقیقه)") },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                }
+
+                // Category Selector
+                item {
+                    Column {
+                        Text(
+                            text = "دسته‌بندی تسک:",
+                            fontSize = 12.sp,
+                            color = Color(0xFF616161)
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            items(categories) { cat ->
+                                val isSelected = selectedCategoryId == cat.id
+                                FilterChip(
+                                    selected = isSelected,
+                                    onClick = { selectedCategoryId = cat.id },
+                                    label = { Text(cat.title) }
+                                )
+                            }
+                        }
                     }
                 }
 
@@ -558,14 +748,17 @@ fun AddTaskDialog(
                         Button(
                             onClick = {
                                 if (title.isNotBlank()) {
+                                    val finalDueDate = if (hasSpecificDueDate) selectedDate.toFormattedString() else ""
                                     val newTask = AppTask(
                                         id = UUID.randomUUID().toString(),
                                         title = title.trim(),
                                         notes = notes.trim(),
                                         categoryId = selectedCategoryId,
                                         goalId = selectedGoalId,
-                                        dueDate = selectedDate.toFormattedString(),
+                                        dueDate = finalDueDate,
                                         time = if (timeText.isNotBlank()) timeText.trim() else null,
+                                        deadlineTime = if (deadlineTimeText.isNotBlank()) deadlineTimeText.trim() else null,
+                                        isImportant = isImportant,
                                         reminderMinutesBefore = reminderMinutes,
                                         repeatType = repeatType,
                                         timerSecondsTarget = targetTimerMins * 60

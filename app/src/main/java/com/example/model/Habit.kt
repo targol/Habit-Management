@@ -6,6 +6,7 @@ import com.example.calendar.PersianCalendarHelper
 
 enum class HabitFrequency {
     DAILY,
+    WEEKLY,
     SPECIFIC_DAYS
 }
 
@@ -26,6 +27,8 @@ data class Habit(
     val goalId: String? = null,
     val frequency: HabitFrequency = HabitFrequency.DAILY,
     val targetDaysOfWeek: List<Int> = listOf(0, 1, 2, 3, 4, 5, 6), // 0=شنبه .. 6=جمعه
+    val targetDaysPerWeek: Int = 3, // For WEEKLY frequency: e.g. 3 days per week
+    val isClosed: Boolean = false, // Closed / Archived
     val time: String? = null,
     val timerMinutes: Int = 15,
     val exemptHolidays: Boolean = true, // تعطیلات رسمی معاف باشند
@@ -118,5 +121,15 @@ data class Habit(
 
         if (requiredDays == 0) return 100
         return ((completedDays.toDouble() / requiredDays) * 100).toInt().coerceIn(0, 100)
+    }
+
+    /**
+     * Counts how many days have been completed in the current Persian week (Saturday to today)
+     */
+    fun getCompletedDaysThisWeek(): Int {
+        val today = PersianCalendarHelper.getToday()
+        val dayOfWeek = PersianCalendarHelper.getDayOfWeek(today)
+        val weekDays = PersianCalendarHelper.getPastNDays(dayOfWeek + 1)
+        return weekDays.count { history[it.toFormattedString()] == true }
     }
 }

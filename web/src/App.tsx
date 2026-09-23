@@ -22,7 +22,17 @@ import {
   DEFAULT_REMINDER_SETTINGS,
   STORAGE_KEYS
 } from './services/storageService';
-import { getTodayJalali, jalaliToFormattedString, getCurrentPersianDateTimeString, toPersianDigits, getDayOfWeek, addDaysJalali } from './calendar/jalali';
+import { 
+  getTodayJalali, 
+  jalaliToFormattedString, 
+  getCurrentPersianDateTimeString, 
+  toPersianDigits, 
+  getDayOfWeek, 
+  addDaysJalali,
+  PERSIAN_MONTHS,
+  WEEKDAYS,
+  isDateHoliday
+} from './calendar/jalali';
 import { isTaskReminderDue, triggerReminderAlarm } from './services/reminderService';
 import { stopAllAlarmSounds, PRESET_ALARM_SOUNDS } from './services/soundService';
 import { TodayScreen } from './components/TodayScreen';
@@ -48,9 +58,8 @@ import {
   Clock, 
   Sparkles,
   Settings,
-  ShieldCheck,
-  Smartphone,
-  Download
+  Calendar,
+  AlertCircle
 } from 'lucide-react';
 
 type NavTab = 'TODAY' | 'TASKS' | 'HABITS' | 'GOALS' | 'REPORTS' | 'SETTINGS';
@@ -1283,26 +1292,30 @@ export const App: React.FC = () => {
       {/* Top Navbar */}
       <header className="shrink-0 z-40 bg-white/95 backdrop-blur-md border-b border-emerald-100 shadow-xs">
         <div className="max-w-4xl mx-auto px-4 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-emerald-600 to-green-500 text-white flex items-center justify-center shadow-xs">
               <Sprout className="w-5 h-5" />
             </div>
             <div>
-              <h1 className="text-base font-extrabold text-emerald-950 tracking-tight flex items-center gap-1.5">
-                <span>جوانه</span>
-                <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.2 rounded-md">
-                  PWA
-                </span>
-                <span className="hidden sm:inline-flex items-center gap-1 text-[9px] font-medium text-emerald-700 bg-emerald-50/90 border border-emerald-200/70 px-1.5 py-0.5 rounded-md" title="اطلاعات شما در سرور و مرورگر به صورت دائمی ذخیره می‌شود و با بروزرسانی پاک نخواهد شد">
-                  <ShieldCheck className="w-3 h-3 text-emerald-600" />
-                  <span>ذخیره پایدار</span>
-                </span>
+              <h1 className="text-base font-extrabold text-emerald-950 tracking-tight">
+                جوانه
               </h1>
               <p className="text-[10px] text-gray-400">تسک‌ها، عادات و اهداف سالانه</p>
+            </div>
+
+            {/* Main Header Persian Date (Visible across all tabs) */}
+            <div className="hidden sm:flex items-center gap-2 mr-3 px-2.5 py-1 bg-emerald-50/70 border border-emerald-200/70 rounded-xl text-xs text-emerald-950 font-bold">
+              <Calendar className="w-3.5 h-3.5 text-emerald-600" />
+              <span>{WEEKDAYS[getDayOfWeek(today)]}، {toPersianDigits(today.day)} {PERSIAN_MONTHS[today.month - 1]} {toPersianDigits(today.year)}</span>
             </div>
           </div>
 
           <div className="flex items-center gap-2">
+            {/* Small mobile date chip */}
+            <div className="sm:hidden flex items-center gap-1 px-2 py-1 bg-emerald-50/70 border border-emerald-200/60 rounded-lg text-[11px] text-emerald-900 font-bold">
+              <span>{toPersianDigits(today.day)} {PERSIAN_MONTHS[today.month - 1]}</span>
+            </div>
+
             <button
               type="button"
               onClick={() => setIsAnnualWizardOpen(true)}
@@ -1310,68 +1323,6 @@ export const App: React.FC = () => {
             >
               <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
               <span className="hidden sm:inline">طراحی هدف سالانه</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => openTimer('جلسه تمرکز آزاد', 25)}
-              className="px-2.5 py-1.5 bg-gray-50 hover:bg-gray-100 text-gray-700 text-xs font-semibold rounded-xl border border-gray-200 flex items-center gap-1.5 transition-colors cursor-pointer"
-            >
-              <Clock className="w-3.5 h-3.5 text-emerald-600" />
-              <span className="hidden md:inline">تایمر تمرکز</span>
-            </button>
-
-            {/* Direct APK Download Button */}
-            <a
-              href="/javaneh.apk"
-              download="javaneh.apk"
-              className="px-2.5 py-1.5 bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-700 hover:to-green-700 text-white text-xs font-bold rounded-xl shadow-xs flex items-center gap-1.5 transition-all cursor-pointer"
-              title="دانلود مستقیم فایل نصبی اندروید (javaneh.apk)"
-            >
-              <Smartphone className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">دانلود APK</span>
-            </a>
-
-            {/* User Profile Avatar & Nickname Header Pill */}
-            <button
-              type="button"
-              onClick={() => setCurrentTab('SETTINGS')}
-              title={`پروفایل ${userProfile.name || 'کاربر'} - کلیک برای مشاهده تنظیمات`}
-              className={`flex items-center gap-1.5 sm:gap-2 py-1 px-1.5 sm:px-2.5 rounded-xl border transition-all cursor-pointer ${
-                currentTab === 'SETTINGS'
-                  ? 'bg-emerald-100/90 text-emerald-900 border-emerald-300 ring-2 ring-emerald-200 shadow-xs'
-                  : 'bg-white hover:bg-emerald-50/70 text-gray-800 border-emerald-200/80 hover:border-emerald-400 shadow-2xs'
-              }`}
-            >
-              <div className="w-7 h-7 rounded-full bg-emerald-50 border border-emerald-300 overflow-hidden flex items-center justify-center shrink-0 shadow-2xs">
-                {userProfile.avatarUrl && (userProfile.avatarUrl.startsWith('data:image') || userProfile.avatarUrl.startsWith('http')) ? (
-                  <img
-                    src={userProfile.avatarUrl}
-                    alt={userProfile.name || 'پروفایل'}
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <span className="text-sm select-none" role="img" aria-label="آواتار">
-                    {userProfile.avatarUrl || '🌱'}
-                  </span>
-                )}
-              </div>
-              <span className="hidden sm:inline text-xs font-bold text-emerald-950 truncate max-w-[85px] md:max-w-[120px]">
-                {userProfile.name || 'دوست من'}
-              </span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setCurrentTab('SETTINGS')}
-              title="تنظیمات دسته‌ها و گیاهان"
-              className={`p-2 rounded-xl border transition-colors cursor-pointer ${
-                currentTab === 'SETTINGS'
-                  ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
-                  : 'bg-gray-50 hover:bg-gray-100 text-gray-700 border-gray-200'
-              }`}
-            >
-              <Settings className="w-4 h-4" />
             </button>
 
             <button

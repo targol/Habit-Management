@@ -21,3 +21,54 @@
     -webkit-tap-highlight-color: transparent;
   }
 }
+
+/* Botanical Growth & Bloom Animations */
+@keyframes plantBloomGrow {
+  0% {
+    transform: scale(0.88);
+    filter: brightness(0.95);
+  }
+  50% {
+    transform: scale(1.06);
+    filter: brightness(1.08) drop-shadow(0 0 12px rgba(52, 211, 153, 0.45));
+  }
+  100% {
+    transform: scale(1);
+    filter: brightness(1);
+  }
+}
+
+@keyframes plantGlowPulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.45;
+  }
+  50% {
+    transform: scale(1.15);
+    opacity: 0.8;
+  }
+}
+
+@keyframes flowerSwayBreathe {
+  0%, 100% {
+    transform: translateY(0) scale(1);
+  }
+  50% {
+    transform: translateY(-3px) scale(1.025);
+  }
+}
+
+.animate-plant-bloom {
+  animation: plantBloomGrow 0.85s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  transform-origin: bottom center;
+}
+
+.animate-plant-glow {
+  animation: plantGlowPulse 3s ease-in-out infinite;
+}
+
+.animate-plant-sway {
+  animation: flowerSwayBreathe 4s ease-in-out infinite;
+  transform-origin: bottom center;
+}
+

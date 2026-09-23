@@ -96,7 +96,7 @@ export const GardenVisual: React.FC<Props> = ({
     const getCat = (catId?: string) => categories.find(c => c.id === catId);
 
     if (timeScope === 'DAY') {
-      // Completed habits today
+      // Completed habits today (only if marked done today)
       habits.forEach(h => {
         if (!h.isClosed && h.completionHistory && h.completionHistory[todayStr]) {
           list.push({
@@ -112,27 +112,30 @@ export const GardenVisual: React.FC<Props> = ({
         }
       });
 
-      // Completed tasks today
+      // Fully completed tasks today (must be strictly isCompleted === true and completed today)
       (tasks || []).forEach(t => {
-        if (t.isCompleted && (t.completedAt === todayStr || (!t.completedAt && t.dueDate === todayStr))) {
-          const cat = getCat(t.categoryId);
-          list.push({
-            id: `task-${t.id}`,
-            title: t.title,
-            plantType: cat?.plantType || 'برگ انجیری',
-            kind: 'TASK',
-            categoryTitle: cat?.title,
-            categoryColor: cat?.colorHex,
-            completedDate: t.completedAt || todayStr,
-            time: t.time,
-          });
+        if (t.isCompleted) {
+          const isDoneToday = t.completedAt === todayStr || (!t.completedAt && t.dueDate === todayStr);
+          if (isDoneToday) {
+            const cat = getCat(t.categoryId);
+            list.push({
+              id: `task-${t.id}`,
+              title: t.title,
+              plantType: cat?.plantType || 'برگ انجیری',
+              kind: 'TASK',
+              categoryTitle: cat?.title,
+              categoryColor: cat?.colorHex,
+              completedDate: t.completedAt || todayStr,
+              time: t.time,
+            });
+          }
         }
       });
     } else if (timeScope === 'WEEK') {
       // Completed habits this week
       habits.forEach(h => {
         if (!h.isClosed && h.completionHistory) {
-          const completedDay = currentWeekDateStrings.find(d => h.completionHistory[d]);
+          const completedDay = currentWeekDateStrings.find(d => !!h.completionHistory[d]);
           if (completedDay) {
             list.push({
               id: `habit-${h.id}`,
@@ -278,30 +281,68 @@ export const GardenVisual: React.FC<Props> = ({
   let stageTitle = 'بذر در خاک حاصلخیز';
   let focalPlant = 'برگ انجیری';
   let climateNote = 'هوای باغچه معتدل و مساعد رشد';
+  let currentStage: PlantState['stage'] = plantState?.stage || 'SEED';
 
   if (timeScope === 'SEASON') {
     effectivePercent = seasonSummary.overallProgressPercent;
     stageTitle = seasonSummary.botanicalStageTitle;
     focalPlant = seasonSummary.focalPlant;
     climateNote = seasonSummary.weatherStatus;
+    if (effectivePercent >= 100) currentStage = 'FULL_BLOOM';
+    else if (effectivePercent >= 75) currentStage = 'FLOWERING';
+    else if (effectivePercent >= 50) currentStage = 'BUDDING';
+    else if (effectivePercent >= 25) currentStage = 'SAPLING';
+    else if (effectivePercent > 0) currentStage = 'SPROUT';
+    else currentStage = 'SEED';
   } else if (timeScope === 'YEAR') {
     effectivePercent = yearSummary.overallProgressPercent;
     stageTitle = yearSummary.botanicalStageTitle;
     focalPlant = yearSummary.focalPlant;
     climateNote = yearSummary.weatherStatus;
+    if (effectivePercent >= 100) currentStage = 'FULL_BLOOM';
+    else if (effectivePercent >= 75) currentStage = 'FLOWERING';
+    else if (effectivePercent >= 50) currentStage = 'BUDDING';
+    else if (effectivePercent >= 25) currentStage = 'SAPLING';
+    else if (effectivePercent > 0) currentStage = 'SPROUT';
+    else currentStage = 'SEED';
   } else {
     // Stage title for day / week / month
-    if (effectivePercent >= 100) stageTitle = 'شکوفایی کامل و عطر گل‌ها';
-    else if (effectivePercent >= 75) stageTitle = 'گل‌دهی و طراوت شاداب';
-    else if (effectivePercent >= 50) stageTitle = 'جوانه پربرگ و رشید';
-    else if (effectivePercent >= 25) stageTitle = 'ساقه سبز و نورس';
-    else stageTitle = 'بذر در خاک حاصلخیز';
+    if (effectivePercent >= 100) {
+      stageTitle = 'شکوفایی کامل و عطر گل‌ها';
+      currentStage = 'FULL_BLOOM';
+    } else if (effectivePercent >= 75) {
+      stageTitle = 'گل‌دهی و طراوت شاداب';
+      currentStage = 'FLOWERING';
+    } else if (effectivePercent >= 50) {
+      stageTitle = 'جوانه پربرگ و رشید';
+      currentStage = 'BUDDING';
+    } else if (effectivePercent >= 25) {
+      stageTitle = 'ساقه سبز و نورس';
+      currentStage = 'SAPLING';
+    } else if (effectivePercent > 0) {
+      stageTitle = 'جوانه سبز در خاک';
+      currentStage = 'SPROUT';
+    } else {
+      stageTitle = 'بذر در خاک حاصلخیز';
+      currentStage = 'SEED';
+    }
 
     // If there are bloomed flowers, take the plant of the most recent bloomed flower as focal
     if (bloomedFlowers.length > 0) {
       focalPlant = bloomedFlowers[0].plantType;
     }
   }
+
+  // Calculate dynamic scale & visual cues based on plant growth stage
+  const stageScaleMap: Record<PlantState['stage'], string> = {
+    SEED: 'scale-90 opacity-80',
+    SPROUT: 'scale-95 opacity-90',
+    SAPLING: 'scale-100 opacity-95',
+    BUDDING: 'scale-105 opacity-100',
+    FLOWERING: 'scale-110 opacity-100',
+    FULL_BLOOM: 'scale-115 opacity-100',
+  };
+
 
   // Habits to display in quick water row
   // In DAY scope, ONLY show daily habits (exclude weekly habits so they don't leak into day view)
@@ -482,14 +523,26 @@ export const GardenVisual: React.FC<Props> = ({
         {/* Centerpiece Focal Growing Plant */}
         <div className="flex flex-col items-center justify-center text-center shrink-0">
           <div className="relative w-28 h-28 flex items-center justify-center">
-            {/* Soft ambient botanical aura */}
-            <div className="absolute inset-0 rounded-full bg-emerald-100/40 blur-lg" />
-            <PlantIcon type={focalPlant} size="xl" animated={effectivePercent > 50} />
+            {/* Soft ambient botanical aura that pulses softly as plant blooms */}
+            <div 
+              className={`absolute inset-0 rounded-full bg-gradient-to-tr from-emerald-200/40 via-green-300/30 to-amber-200/30 blur-lg transition-all duration-700 ease-out ${
+                effectivePercent >= 75 ? 'animate-plant-glow' : ''
+              }`} 
+            />
+            {/* Focal Plant with smooth stage growth scale & bloom keyframe animation */}
+            <div
+              key={`${currentStage}-${focalPlant}`}
+              className={`relative z-10 transition-all duration-700 ease-out transform-gpu origin-bottom ${stageScaleMap[currentStage]} ${
+                effectivePercent >= 75 ? 'animate-plant-bloom' : 'animate-plant-sway'
+              }`}
+            >
+              <PlantIcon type={focalPlant} size="xl" animated={effectivePercent > 50} />
+            </div>
           </div>
 
           <div className="mt-2 space-y-1">
-            <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-900 bg-emerald-50 border border-emerald-200/80 px-2.5 py-0.5 rounded-full shadow-2xs">
-              <Sprout className="w-3 h-3 text-emerald-600" />
+            <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-emerald-900 bg-emerald-50 border border-emerald-200/80 px-2.5 py-0.5 rounded-full shadow-2xs transition-all duration-500">
+              <Sprout className="w-3 h-3 text-emerald-600 transition-transform duration-500 group-hover:scale-110" />
               <span>{stageTitle}</span>
             </span>
           </div>
@@ -669,33 +722,33 @@ export const GardenVisual: React.FC<Props> = ({
           </div>
 
           {bloomedFlowers.length > 0 ? (
-            <div className="flex items-stretch gap-2.5 overflow-x-auto pb-1 pt-1 no-scrollbar">
+            <div className="flex items-stretch gap-2 overflow-x-auto pb-1 pt-0.5 no-scrollbar">
               {bloomedFlowers.map((flower) => (
                 <div
                   key={flower.id}
-                  className="bg-white rounded-xl border border-emerald-200/90 shadow-2xs p-2.5 flex flex-col items-center text-center min-w-[125px] sm:min-w-[135px] max-w-[145px] shrink-0 hover:shadow-xs transition-all"
+                  className="bg-white rounded-xl border border-emerald-200/90 shadow-2xs p-2 flex flex-col items-center text-center min-w-[95px] max-w-[105px] shrink-0 hover:shadow-xs transition-all"
                 >
-                  <div className="relative w-12 h-12 flex items-center justify-center mb-1">
+                  <div className="relative w-9 h-9 flex items-center justify-center mb-1">
                     <div className="absolute inset-0 rounded-full bg-emerald-100/60 blur-xs" />
-                    <PlantIcon type={flower.plantType} size="md" animated />
+                    <PlantIcon type={flower.plantType} size="xs" animated />
                   </div>
-                  <span className="text-xs font-bold text-gray-900 truncate w-full" title={flower.title}>
+                  <span className="text-[11px] font-bold text-gray-900 truncate w-full" title={flower.title}>
                     {flower.title}
                   </span>
-                  <div className="flex items-center gap-1 mt-1.5 w-full justify-center">
-                    <span className={`text-[9px] px-1.5 py-0.5 rounded-md font-bold ${
+                  <div className="flex items-center gap-1 mt-1 w-full justify-center">
+                    <span className={`text-[8px] px-1 py-0.2 rounded font-bold ${
                       flower.kind === 'HABIT' 
                         ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' 
                         : 'bg-indigo-50 text-indigo-700 border border-indigo-200'
                     }`}>
                       {flower.kind === 'HABIT' ? 'عادت' : 'تسک'}
                     </span>
-                    <span className="text-[9px] text-emerald-600 font-medium flex items-center gap-0.5">
-                      <Check className="w-2.5 h-2.5 text-emerald-600" />
+                    <span className="text-[8px] text-emerald-600 font-medium flex items-center gap-0.5">
+                      <Check className="w-2 h-2 text-emerald-600" />
                       <span>شکوفا</span>
                     </span>
                   </div>
-                  <span className="text-[9px] text-gray-400 mt-1 truncate w-full">
+                  <span className="text-[8px] text-gray-400 mt-0.5 truncate w-full">
                     {flower.plantType}
                   </span>
                 </div>

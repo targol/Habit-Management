@@ -43,7 +43,8 @@ export const ReportsScreen: React.FC<Props> = ({ tasks, habits, goals, categorie
   const today = getTodayJalali();
   const todayStr = jalaliToFormattedString(today);
   const [timeframe, setTimeframe] = useState<Timeframe>('WEEK');
-  const [goalFilter, setGoalFilter] = useState<'ALL' | 'ANNUAL' | 'INTERMEDIATE'>('ALL');
+  const [goalFilter, setGoalFilter] = useState<'ALL' | 'ANNUAL' | 'INTERMEDIATE' | 'SEASONAL'>('ALL');
+  const [selectedSeasonFilter, setSelectedSeasonFilter] = useState<number | 'ALL'>('ALL');
 
   // --- Calculate Days in Timeframe ---
   const currentSeasonIndex = Math.floor((today.month - 1) / 3);
@@ -270,8 +271,41 @@ export const ReportsScreen: React.FC<Props> = ({ tasks, habits, goals, categorie
 
   // Filtered Goals
   const filteredGoals = goals.filter(g => {
-    if (goalFilter === 'ANNUAL') return g.period === 'ANNUAL';
-    if (goalFilter === 'INTERMEDIATE') return g.period === 'SEASONAL' || g.period === 'MONTHLY';
+    // 1. Period filter
+    if (goalFilter === 'ANNUAL' && g.period !== 'ANNUAL') return false;
+    if (goalFilter === 'INTERMEDIATE' && !(g.period === 'SEASONAL' || g.period === 'MONTHLY')) return false;
+    if (goalFilter === 'SEASONAL' && g.period !== 'SEASONAL') return false;
+
+    // 2. Specific season filter (بهار، تابستان، پاییز، زمستان)
+    if (selectedSeasonFilter !== 'ALL') {
+      if (g.period === 'SEASONAL') {
+        if (g.seasonIndex !== undefined && g.seasonIndex !== null) {
+          if (Number(g.seasonIndex) !== selectedSeasonFilter) return false;
+        } else if (g.startDate) {
+          const parsed = parseJalaliString(g.startDate);
+          if (parsed) {
+            const sIdx = Math.floor((parsed.month - 1) / 3);
+            if (sIdx !== selectedSeasonFilter) return false;
+          }
+        }
+      } else if (g.period === 'MONTHLY') {
+        if (g.monthIndex !== undefined && g.monthIndex !== null) {
+          const sIdx = Math.floor((g.monthIndex - 1) / 3);
+          if (sIdx !== selectedSeasonFilter) return false;
+        } else if (g.startDate) {
+          const parsed = parseJalaliString(g.startDate);
+          if (parsed) {
+            const sIdx = Math.floor((parsed.month - 1) / 3);
+            if (sIdx !== selectedSeasonFilter) return false;
+          }
+        }
+      } else if (g.period === 'ANNUAL') {
+        // If filtering strictly by a season, annual goals can be shown or excluded
+        // Exclude annual goals when a specific season (0..3) is chosen
+        return false;
+      }
+    }
+
     return true;
   });
 
@@ -523,13 +557,16 @@ export const ReportsScreen: React.FC<Props> = ({ tasks, habits, goals, categorie
           </div>
 
           {/* Goal Filter */}
-          <div className="flex items-center gap-1.5 text-xs">
+          <div className="flex flex-wrap items-center gap-1.5 text-xs">
             <button
               type="button"
-              onClick={() => setGoalFilter('ALL')}
+              onClick={() => {
+                setGoalFilter('ALL');
+                setSelectedSeasonFilter('ALL');
+              }}
               className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer ${
-                goalFilter === 'ALL'
-                  ? 'bg-emerald-600 text-white'
+                goalFilter === 'ALL' && selectedSeasonFilter === 'ALL'
+                  ? 'bg-emerald-600 text-white shadow-xs'
                   : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
               }`}
             >
@@ -537,10 +574,13 @@ export const ReportsScreen: React.FC<Props> = ({ tasks, habits, goals, categorie
             </button>
             <button
               type="button"
-              onClick={() => setGoalFilter('ANNUAL')}
+              onClick={() => {
+                setGoalFilter('ANNUAL');
+                setSelectedSeasonFilter('ALL');
+              }}
               className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer ${
                 goalFilter === 'ANNUAL'
-                  ? 'bg-emerald-600 text-white'
+                  ? 'bg-emerald-600 text-white shadow-xs'
                   : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
               }`}
             >
@@ -548,15 +588,58 @@ export const ReportsScreen: React.FC<Props> = ({ tasks, habits, goals, categorie
             </button>
             <button
               type="button"
-              onClick={() => setGoalFilter('INTERMEDIATE')}
+              onClick={() => {
+                setGoalFilter('INTERMEDIATE');
+              }}
               className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer ${
                 goalFilter === 'INTERMEDIATE'
-                  ? 'bg-emerald-600 text-white'
+                  ? 'bg-emerald-600 text-white shadow-xs'
                   : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
               }`}
             >
               اهداف میانی
             </button>
+
+            {/* Separator */}
+            <span className="h-4 w-px bg-gray-200 mx-0.5 hidden sm:inline-block" />
+
+            {/* Season Filter Dropdown / Quick Buttons */}
+            <div className="flex items-center bg-gray-50 border border-gray-200 rounded-lg p-0.5 gap-0.5">
+              <span className="text-[10px] text-gray-500 px-1 font-medium hidden md:inline">فصل:</span>
+              <button
+                type="button"
+                onClick={() => setSelectedSeasonFilter('ALL')}
+                className={`px-2 py-0.5 rounded text-[11px] font-bold transition-all cursor-pointer ${
+                  selectedSeasonFilter === 'ALL'
+                    ? 'bg-white text-emerald-800 shadow-2xs'
+                    : 'text-gray-500 hover:text-gray-800'
+                }`}
+              >
+                همه فصول
+              </button>
+              {SEASONS.map((sName, sIdx) => {
+                const seasonEmojis = ['🌸', '☀️', '🍂', '❄️'];
+                const isSelected = selectedSeasonFilter === sIdx;
+                return (
+                  <button
+                    key={sIdx}
+                    type="button"
+                    onClick={() => {
+                      setSelectedSeasonFilter(sIdx);
+                      if (goalFilter === 'ANNUAL') setGoalFilter('ALL');
+                    }}
+                    className={`px-2 py-0.5 rounded text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1 ${
+                      isSelected
+                        ? 'bg-emerald-600 text-white shadow-2xs'
+                        : 'text-gray-600 hover:text-emerald-900 hover:bg-gray-100'
+                    }`}
+                  >
+                    <span>{seasonEmojis[sIdx]}</span>
+                    <span>{sName}</span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </div>
 
