@@ -1,7 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import { AppTask, Category, Goal, ReminderSettings, AlarmSoundItem } from '../types';
-import { getTodayJalali, jalaliToFormattedString, toPersianDigits, toLatinDigits, PERSIAN_MONTHS, addDaysJalali } from '../calendar/jalali';
-import { X, Calendar, Clock, Bell, Repeat, Folder, Target, Star, Volume2, Play, Square, ShieldCheck, Check, Copy } from 'lucide-react';
+import { 
+  getTodayJalali, 
+  jalaliToFormattedString, 
+  toPersianDigits, 
+  toLatinDigits, 
+  PERSIAN_MONTHS, 
+  addDaysJalali, 
+  isSeasonPast, 
+  isMonthPast, 
+  isYearPast,
+  compareJalaliDateStrings,
+  isDateHoliday
+} from '../calendar/jalali';
+import { X, Calendar, Clock, Bell, Repeat, Folder, Target, Star, Volume2, Play, Square, ShieldCheck, Check, Copy, AlertTriangle, ArrowRight } from 'lucide-react';
 import { PRESET_ALARM_SOUNDS, previewSound, stopAllAlarmSounds } from '../services/soundService';
 import { getNotificationPermission, requestNotificationPermission, isNotificationSupported } from '../services/reminderService';
 
@@ -47,6 +59,15 @@ export const TaskModal: React.FC<Props> = ({
     return { year: p[0] || today.year, month: p[1] || today.month, day: p[2] || today.day };
   });
 
+  // Start date state (تاریخ شروع یا فعال شدن تسک)
+  const initialHasStartDate = Boolean(task && task.startDate && task.startDate.trim() !== '');
+  const [hasStartDate, setHasStartDate] = useState(initialHasStartDate);
+  const initialStartDateVal = (task && task.startDate) ? task.startDate : jalaliToFormattedString(today);
+  const [startDateParts, setStartDateParts] = useState(() => {
+    const p = initialStartDateVal.split(/[\/\-]/).map(v => parseInt(v.trim(), 10));
+    return { year: p[0] || today.year, month: p[1] || today.month, day: p[2] || today.day };
+  });
+
   // زمان انجام (ساعت شروع یا اجرا)
   const [time, setTime] = useState(task?.time || '10:00');
   const [hasTime, setHasTime] = useState(!!task?.time);
@@ -65,18 +86,24 @@ export const TaskModal: React.FC<Props> = ({
 
   const [repeatType, setRepeatType] = useState<AppTask['repeatType']>(task?.repeatType || 'NONE');
   const [timerMinutes, setTimerMinutes] = useState(task ? Math.floor(task.timerSecondsTarget / 60) : 25);
-  const [weekOfMonth, setWeekOfMonth] = useState<number | undefined>(task?.weekOfMonth ?? 1);
-  const [dayOfWeek, setDayOfWeek] = useState<number | undefined>(task?.dayOfWeek ?? (today.day % 7));
+  
+  // Micro-scheduling: monthOfYear, weekOfMonth, dayOfWeek (now optional/nullable)
+  const [monthOfYear, setMonthOfYear] = useState<number | null>(task?.monthOfYear ?? null);
+  const [weekOfMonth, setWeekOfMonth] = useState<number | null>(task?.weekOfMonth ?? null);
+  const [dayOfWeek, setDayOfWeek] = useState<number | null>(task?.dayOfWeek ?? null);
   const [isDuplicateMode, setIsDuplicateMode] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
 
   useEffect(() => {
     if (!isOpen) {
       stopAllAlarmSounds();
       setPlayingSoundId(null);
       setIsDuplicateMode(false);
+      setErrorMessage('');
       return;
     }
 
+    setErrorMessage('');
     const dupl = Boolean(isDuplicate);
     setIsDuplicateMode(dupl);
     setNotifPermission(getNotificationPermission());
@@ -98,6 +125,13 @@ export const TaskModal: React.FC<Props> = ({
       const rawDate = toLatinDigits(task.dueDate || jalaliToFormattedString(today));
       const p = rawDate.split(/[\/\-]/).map(v => parseInt(v.trim(), 10));
       setDateParts({ year: p[0] || today.year, month: p[1] || today.month, day: p[2] || today.day });
+
+      const hasStart = Boolean(task.startDate && task.startDate.trim() !== '');
+      setHasStartDate(hasStart);
+      const rawStartDate = toLatinDigits(task.startDate || jalaliToFormattedString(today));
+      const sp = rawStartDate.split(/[\/\-]/).map(v => parseInt(v.trim(), 10));
+      setStartDateParts({ year: sp[0] || today.year, month: sp[1] || today.month, day: sp[2] || today.day });
+
       setTime(task.time || '10:00');
       setHasTime(Boolean(task.time));
       setDeadlineTime(task.deadlineTime || '18:00');
@@ -109,8 +143,9 @@ export const TaskModal: React.FC<Props> = ({
       setCustomAlarmSound(task.customAlarmSound || reminderSettings?.selectedSoundId || 'serenity');
       setRepeatType(task.repeatType || 'NONE');
       setTimerMinutes(Math.floor((task.timerSecondsTarget || 1500) / 60));
-      setWeekOfMonth(task.weekOfMonth ?? 1);
-      setDayOfWeek(task.dayOfWeek ?? (today.day % 7));
+      setMonthOfYear(task.monthOfYear ?? null);
+      setWeekOfMonth(task.weekOfMonth ?? null);
+      setDayOfWeek(task.dayOfWeek ?? null);
     } else {
       setTitle('');
       setNotes('');
@@ -120,6 +155,8 @@ export const TaskModal: React.FC<Props> = ({
       // تسک جدید: به طور پیش‌فرض موعد خالی می‌ماند تا پایان سال در نظر گرفته شود و در همه روزها دیده شود
       setHasDueDate(false);
       setDateParts({ year: today.year, month: today.month, day: today.day });
+      setHasStartDate(false);
+      setStartDateParts({ year: today.year, month: today.month, day: today.day });
       setTime('10:00');
       setHasTime(false);
       setDeadlineTime('18:00');
@@ -131,8 +168,9 @@ export const TaskModal: React.FC<Props> = ({
       setCustomAlarmSound(reminderSettings?.selectedSoundId || 'serenity');
       setRepeatType('NONE');
       setTimerMinutes(25);
-      setWeekOfMonth(1);
-      setDayOfWeek(today.day % 7);
+      setMonthOfYear(null);
+      setWeekOfMonth(null);
+      setDayOfWeek(null);
     }
   }, [isOpen, task, categories, goals, reminderSettings, isDuplicate]);
 
@@ -186,11 +224,38 @@ export const TaskModal: React.FC<Props> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title.trim()) return;
+    if (!title.trim()) {
+      setErrorMessage('لطفاً عنوان تسک را وارد نمایید.');
+      return;
+    }
+
+    // Validation: prevent creating new tasks in past periods
+    const isNew = !task || isActuallyDuplicate;
+    if (isNew) {
+      if (hasDueDate && dateParts.year && dateParts.month && dateParts.day) {
+        const dueStr = `${dateParts.year}/${dateParts.month.toString().padStart(2, '0')}/${dateParts.day.toString().padStart(2, '0')}`;
+        const todayStr = jalaliToFormattedString(today);
+        if (compareJalaliDateStrings(dueStr, todayStr) < 0) {
+          setErrorMessage(`امکان تعریف تسک جدید برای تاریخ گذشته (${toPersianDigits(dueStr)}) وجود ندارد.`);
+          return;
+        }
+      }
+      if (monthOfYear !== null && isMonthPast(today.year, monthOfYear, today)) {
+        const mName = PERSIAN_MONTHS[monthOfYear - 1] || 'انتخاب‌شده';
+        setErrorMessage(`امکان تعریف تسک جدید برای ماه سپری‌شده (${mName}) وجود ندارد.`);
+        return;
+      }
+    }
+
+    setErrorMessage('');
 
     const dueDateStr = hasDueDate
       ? `${dateParts.year}/${dateParts.month.toString().padStart(2, '0')}/${dateParts.day.toString().padStart(2, '0')}`
       : '';
+
+    const startDateStr = hasStartDate
+      ? `${startDateParts.year}/${startDateParts.month.toString().padStart(2, '0')}/${startDateParts.day.toString().padStart(2, '0')}`
+      : null;
     
     // Always assign a fresh unique ID if creating or duplicating so original task is NEVER overwritten
     let taskId: string;
@@ -208,6 +273,7 @@ export const TaskModal: React.FC<Props> = ({
       notes: notes.trim(),
       categoryId,
       goalId: goalId || null,
+      startDate: startDateStr,
       dueDate: dueDateStr,
       time: hasTime ? time : null,
       deadlineTime: hasDeadlineTime ? deadlineTime : null,
@@ -215,13 +281,14 @@ export const TaskModal: React.FC<Props> = ({
       isImportant,
       reminderEnabled,
       reminderTime: reminderTime.trim() ? reminderTime.trim() : null,
-      reminderDate: dueDateStr || null,
+      reminderDate: dueDateStr || startDateStr || null,
       customAlarmSound,
       lastNotifiedAt: isActuallyDuplicate ? null : (task?.lastNotifiedAt || null),
       repeatType,
-      repeatDaysOfWeek: repeatType === 'DAILY' ? [0, 1, 2, 3, 4, 5, 6] : [dayOfWeek ?? (today.day % 7)],
-      weekOfMonth,
-      dayOfWeek,
+      repeatDaysOfWeek: repeatType === 'DAILY' ? [0, 1, 2, 3, 4, 5, 6] : (dayOfWeek !== null ? [dayOfWeek] : [today.day % 7]),
+      monthOfYear: monthOfYear ?? null,
+      weekOfMonth: weekOfMonth ?? null,
+      dayOfWeek: dayOfWeek ?? null,
       timerSecondsTarget: timerMinutes * 60,
       timerSecondsElapsed: isActuallyDuplicate ? 0 : (task?.timerSecondsElapsed || 0),
       isCompleted: isActuallyDuplicate ? false : (task?.isCompleted || false),
@@ -269,6 +336,13 @@ export const TaskModal: React.FC<Props> = ({
           <div className="bg-emerald-50 border border-emerald-300 text-emerald-950 text-xs px-3 py-2.5 rounded-xl flex items-center gap-2 mb-3 shadow-2xs">
             <Copy className="w-4 h-4 text-emerald-600 shrink-0" />
             <span className="font-semibold">در حال ایجاد نسخه کپی هستید؛ این تسک به عنوان یک تسک کاملاً جدید ذخیره می‌شود و تسک قبلی بدون تغییر خواهد ماند.</span>
+          </div>
+        )}
+
+        {errorMessage && (
+          <div className="bg-rose-50 border border-rose-300 text-rose-800 text-xs px-3.5 py-2.5 rounded-xl flex items-center gap-2 mb-3 shadow-2xs">
+            <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+            <span className="font-semibold">{errorMessage}</span>
           </div>
         )}
 
@@ -360,18 +434,21 @@ export const TaskModal: React.FC<Props> = ({
                 onChange={(e) => handleGoalChange(e.target.value ? e.target.value : null)}
                 className="w-full px-3 py-2 rounded-xl border border-gray-200 text-xs bg-white focus:border-emerald-500 outline-hidden font-medium"
               >
-                <option value="">بدون هدف (مستقل)</option>
+                <option value="">بدون هدف (مستقل / تسک سریع)</option>
                 
                 {/* 🎯 اهداف سالانه */}
                 {goals.filter(g => g.period === 'ANNUAL').length > 0 && (
                   <optgroup label="🎯 اهداف سالانه (مستقیم)">
                     {goals
                       .filter(g => g.period === 'ANNUAL')
-                      .map((g) => (
-                        <option key={g.id} value={g.id}>
-                          🎯 سال {toPersianDigits(g.year)}: {g.title}
-                        </option>
-                      ))}
+                      .map((g) => {
+                        const isPast = isYearPast(g.year || today.year, today);
+                        return (
+                          <option key={g.id} value={g.id} disabled={isPast}>
+                            {isPast ? '⛔ [پایان یافته] ' : ''}🎯 سال {toPersianDigits(g.year)}: {g.title}
+                          </option>
+                        );
+                      })}
                   </optgroup>
                 )}
 
@@ -382,6 +459,7 @@ export const TaskModal: React.FC<Props> = ({
                       .filter(g => g.period === 'SEASONAL')
                       .map((g) => {
                         const sIdx = g.seasonIndex ?? 0;
+                        const isPast = isSeasonPast(g.year || today.year, sIdx, today);
                         const sIcons = ['🌸', '☀️', '🍂', '❄️'];
                         const sNames = ['بهار', 'تابستان', 'پاییز', 'زمستان'];
                         const icon = sIcons[sIdx] || '🌱';
@@ -389,8 +467,8 @@ export const TaskModal: React.FC<Props> = ({
                         const parent = g.parentId ? goals.find(p => p.id === g.parentId) : undefined;
                         const parentText = parent ? ` [ذیل ${parent.title}]` : '';
                         return (
-                          <option key={g.id} value={g.id}>
-                            {icon} فصل {name} {toPersianDigits(g.year)}: {g.title}{parentText}
+                          <option key={g.id} value={g.id} disabled={isPast}>
+                            {isPast ? '⛔ [پایان یافته] ' : ''}{icon} فصل {name} {toPersianDigits(g.year)}: {g.title}{parentText}
                           </option>
                         );
                       })}
@@ -404,10 +482,11 @@ export const TaskModal: React.FC<Props> = ({
                       .filter(g => g.period === 'MONTHLY')
                       .map((g) => {
                         const mIdx = g.monthIndex ? g.monthIndex - 1 : 0;
+                        const isPast = isMonthPast(g.year || today.year, mIdx + 1, today);
                         const mName = PERSIAN_MONTHS[mIdx] || 'ماه';
                         return (
-                          <option key={g.id} value={g.id}>
-                            📅 ماه {mName} {toPersianDigits(g.year)}: {g.title}
+                          <option key={g.id} value={g.id} disabled={isPast}>
+                            {isPast ? '⛔ [پایان یافته] ' : ''}📅 ماه {mName} {toPersianDigits(g.year)}: {g.title}
                           </option>
                         );
                       })}
@@ -449,38 +528,64 @@ export const TaskModal: React.FC<Props> = ({
             </div>
           </div>
 
-          {/* Week and Day micro-scheduling */}
-          <div className="grid grid-cols-2 gap-3 p-3 bg-emerald-50/40 rounded-xl border border-emerald-100">
-            <div>
-              <label className="block text-xs font-semibold text-gray-700 mb-1">هفته ماه (برای تسک‌های خرد)</label>
-              <select
-                value={weekOfMonth ?? 1}
-                onChange={(e) => setWeekOfMonth(parseInt(e.target.value, 10))}
-                className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 text-xs bg-white"
-              >
-                <option value={1}>هفته اول</option>
-                <option value={2}>هفته دوم</option>
-                <option value={3}>هفته سوم</option>
-                <option value={4}>هفته چهارم</option>
-                <option value={5}>هفته پنجم</option>
-              </select>
+          {/* Month, Week and Day micro-scheduling (ماه، هفته و روز برای تسک‌های خرد - با امکان خالی بودن) */}
+          <div className="p-3 bg-emerald-50/40 rounded-xl border border-emerald-100 space-y-2">
+            <div className="flex items-center justify-between text-xs font-semibold text-gray-700">
+              <span className="flex items-center gap-1">
+                <Calendar className="w-3.5 h-3.5 text-emerald-600" />
+                <span>زمان‌بندی خرد (ماه / هفته / روز)</span>
+              </span>
+              <span className="text-[10px] text-gray-500 font-normal">اختیاری (می‌تواند خالی باشد)</span>
             </div>
 
-            <div>
-              <label className="block text-xs font-semibold text-gray-700 mb-1">روز مشخص هفته</label>
-              <select
-                value={dayOfWeek ?? 0}
-                onChange={(e) => setDayOfWeek(parseInt(e.target.value, 10))}
-                className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 text-xs bg-white"
-              >
-                <option value={0}>شنبه</option>
-                <option value={1}>یکشنبه</option>
-                <option value={2}>دوشنبه</option>
-                <option value={3}>سه‌شنبه</option>
-                <option value={4}>چهارشنبه</option>
-                <option value={5}>پنج‌شنبه</option>
-                <option value={6}>جمعه</option>
-              </select>
+            <div className="grid grid-cols-3 gap-2">
+              <div>
+                <label className="block text-[11px] font-medium text-gray-600 mb-1">ماه</label>
+                <select
+                  value={monthOfYear !== null ? monthOfYear : ''}
+                  onChange={(e) => setMonthOfYear(e.target.value === '' ? null : parseInt(e.target.value, 10))}
+                  className="w-full px-2 py-1.5 rounded-lg border border-gray-200 text-xs bg-white focus:border-emerald-500"
+                >
+                  <option value="">(همه / بدون ماه)</option>
+                  {PERSIAN_MONTHS.map((m, idx) => (
+                    <option key={idx + 1} value={idx + 1}>{m}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-medium text-gray-600 mb-1">هفته ماه</label>
+                <select
+                  value={weekOfMonth !== null ? weekOfMonth : ''}
+                  onChange={(e) => setWeekOfMonth(e.target.value === '' ? null : parseInt(e.target.value, 10))}
+                  className="w-full px-2 py-1.5 rounded-lg border border-gray-200 text-xs bg-white focus:border-emerald-500"
+                >
+                  <option value="">(بدون هفته مشخص)</option>
+                  <option value={1}>هفته اول</option>
+                  <option value={2}>هفته دوم</option>
+                  <option value={3}>هفته سوم</option>
+                  <option value={4}>هفته چهارم</option>
+                  <option value={5}>هفته پنجم</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-medium text-gray-600 mb-1">روز هفته</label>
+                <select
+                  value={dayOfWeek !== null ? dayOfWeek : ''}
+                  onChange={(e) => setDayOfWeek(e.target.value === '' ? null : parseInt(e.target.value, 10))}
+                  className="w-full px-2 py-1.5 rounded-lg border border-gray-200 text-xs bg-white focus:border-emerald-500"
+                >
+                  <option value="">(بدون روز مشخص)</option>
+                  <option value={0}>شنبه</option>
+                  <option value={1}>یکشنبه</option>
+                  <option value={2}>دوشنبه</option>
+                  <option value={3}>سه‌شنبه</option>
+                  <option value={4}>چهارشنبه</option>
+                  <option value={5}>پنج‌شنبه</option>
+                  <option value={6}>جمعه</option>
+                </select>
+              </div>
             </div>
           </div>
 
@@ -522,6 +627,97 @@ export const TaskModal: React.FC<Props> = ({
                 />
                 <p className="text-[10px] text-gray-500 mt-1">ساعت برنامه‌ریزی‌شده برای آغاز یا اجرای این تسک</p>
               </div>
+            )}
+          </div>
+
+          {/* تاریخ شروع تسک (اختیاری: فعال شدن از تاریخی به بعد) */}
+          <div className="bg-sky-50/60 p-3.5 rounded-xl border border-sky-100/80 space-y-2.5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                <Calendar className="w-3.5 h-3.5 text-sky-600" />
+                <span className="text-xs font-semibold text-sky-950">تاریخ شروع تسک (نمایش از این تاریخ به بعد)</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[11px] text-gray-500">{hasStartDate ? 'شروع معین' : 'بلافاصله (از امروز)'}</span>
+                <input
+                  type="checkbox"
+                  checked={hasStartDate}
+                  onChange={(e) => setHasStartDate(e.target.checked)}
+                  className="rounded text-sky-600 focus:ring-sky-500 cursor-pointer"
+                />
+              </div>
+            </div>
+
+            {hasStartDate ? (
+              <div className="space-y-2 pt-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] text-sky-800 font-medium">تسک از این تاریخ در کارتابل فعال و دیده می‌شود:</span>
+                  <div className="flex gap-1 text-[11px]">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setStartDateParts({ year: today.year, month: today.month, day: today.day });
+                      }}
+                      className="px-2 py-0.5 bg-white border border-sky-200 text-sky-800 rounded-md hover:bg-sky-100 cursor-pointer"
+                    >
+                      امروز
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const tomorrow = addDaysJalali(today, 1);
+                        setStartDateParts({ year: tomorrow.year, month: tomorrow.month, day: tomorrow.day });
+                      }}
+                      className="px-2 py-0.5 bg-white border border-sky-200 text-sky-800 rounded-md hover:bg-sky-100 cursor-pointer"
+                    >
+                      فردا
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setHasStartDate(false)}
+                      className="px-2 py-0.5 bg-rose-50 border border-rose-200 text-rose-700 rounded-md hover:bg-rose-100 cursor-pointer"
+                    >
+                      بدون شروع خاص
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2 text-xs">
+                  <select
+                    value={startDateParts.day}
+                    onChange={(e) => setStartDateParts({ ...startDateParts, day: parseInt(e.target.value, 10) })}
+                    className="px-2 py-1.5 rounded-lg border border-sky-200 bg-white"
+                  >
+                    {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => (
+                      <option key={d} value={d}>روز {toPersianDigits(d)}</option>
+                    ))}
+                  </select>
+
+                  <select
+                    value={startDateParts.month}
+                    onChange={(e) => setStartDateParts({ ...startDateParts, month: parseInt(e.target.value, 10) })}
+                    className="px-2 py-1.5 rounded-lg border border-sky-200 bg-white"
+                  >
+                    {PERSIAN_MONTHS.map((m, idx) => (
+                      <option key={idx + 1} value={idx + 1}>{m}</option>
+                    ))}
+                  </select>
+
+                  <select
+                    value={startDateParts.year}
+                    onChange={(e) => setStartDateParts({ ...startDateParts, year: parseInt(e.target.value, 10) })}
+                    className="px-2 py-1.5 rounded-lg border border-sky-200 bg-white"
+                  >
+                    {[today.year, today.year + 1].map((y) => (
+                      <option key={y} value={y}>{toPersianDigits(y)}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            ) : (
+              <p className="text-[11px] text-gray-500 leading-relaxed">
+                تسک نیاز به انتظار ندارد و از همین امروز در دسته‌بندی و کارتابل فعال است. اگر می‌خواهید این تسک تنها پس از یک تاریخ خاص شروع شود، تیک بالا را فعال کنید.
+              </p>
             )}
           </div>
 
@@ -631,6 +827,25 @@ export const TaskModal: React.FC<Props> = ({
                     ))}
                   </select>
                 </div>
+
+                {/* Iranian Holiday Warning if selected date is holiday */}
+                {(() => {
+                  const check = isDateHoliday({ year: dateParts.year, month: dateParts.month, day: dateParts.day });
+                  if (check.isHoliday) {
+                    return (
+                      <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-xl flex items-center gap-2 text-rose-900 text-xs">
+                        <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                        <div>
+                          <span className="font-bold">توجه: این تاریخ تعطیل رسمی است!</span>
+                          <span className="text-[11px] text-rose-700 block mt-0.5">
+                            مناسبت: {check.title}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
 
                 {/* ساعت پایان مهلت نهایی */}
                 <div className="pt-2 border-t border-emerald-200/50">

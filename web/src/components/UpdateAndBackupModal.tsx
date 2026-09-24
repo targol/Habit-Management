@@ -31,6 +31,7 @@ interface Props {
   categories: Category[];
   userProfile?: UserProfile;
   reminderSettings?: ReminderSettings;
+  initialTab?: 'UPDATE_SAFETY' | 'TASKS_BACKUP' | 'RELEASE_NOTES';
   onImportTasksOnly?: (tasks: AppTask[], mode: 'REPLACE' | 'MERGE') => void;
   onOpenFullApkDownload?: () => void;
 }
@@ -44,10 +45,18 @@ export const UpdateAndBackupModal: React.FC<Props> = ({
   categories,
   userProfile,
   reminderSettings,
+  initialTab = 'UPDATE_SAFETY',
   onImportTasksOnly,
   onOpenFullApkDownload,
 }) => {
-  const [activeTab, setActiveTab] = useState<'UPDATE_SAFETY' | 'TASKS_BACKUP' | 'RELEASE_NOTES'>('UPDATE_SAFETY');
+  const [activeTab, setActiveTab] = useState<'UPDATE_SAFETY' | 'TASKS_BACKUP' | 'RELEASE_NOTES'>(initialTab);
+
+  // Sync tab if initialTab changes when opening
+  React.useEffect(() => {
+    if (isOpen) {
+      setActiveTab(initialTab);
+    }
+  }, [isOpen, initialTab]);
   const [storagePermissionGranted, setStoragePermissionGranted] = useState<boolean | null>(null);
   const [showPermissionWarning, setShowPermissionWarning] = useState<boolean>(false);
   const [isBackingUp, setIsBackingUp] = useState<boolean>(false);

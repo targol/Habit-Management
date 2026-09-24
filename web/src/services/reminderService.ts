@@ -64,13 +64,20 @@ export function sendBrowserNotification(
 }
 
 /**
- * Computes exact reminder HH:mm for a task
+ * Computes exact reminder HH:mm for a task, prioritizing nextSnoozeAt if present
  */
 export function getTaskEffectiveReminderTime(task: AppTask): string | null {
+  // 1. If task has a scheduled smart snooze time, that is the primary target
+  if (task.nextSnoozeAt) {
+    return task.nextSnoozeAt;
+  }
+
+  // 2. Explicit reminder time
   if (task.reminderTime) {
     return task.reminderTime;
   }
 
+  // 3. Task execution time minus reminderMinutesBefore
   if (task.time) {
     if (task.reminderMinutesBefore && task.reminderMinutesBefore > 0) {
       const [hStr, mStr] = task.time.split(':');
@@ -91,6 +98,17 @@ export function getTaskEffectiveReminderTime(task: AppTask): string | null {
 }
 
 /**
+ * Calculates a new HH:mm time string given minutes from right now
+ */
+export function calculateSnoozeTime(minutesFromNow: number): string {
+  const now = new Date();
+  now.setMinutes(now.getMinutes() + minutesFromNow);
+  const hours = String(now.getHours()).padStart(2, '0');
+  const mins = String(now.getMinutes()).padStart(2, '0');
+  return `${hours}:${mins}`;
+}
+
+/**
  * Determines if a task reminder is due right now
  */
 export function isTaskReminderDue(
@@ -107,7 +125,16 @@ export function isTaskReminderDue(
   const targetTime = getTaskEffectiveReminderTime(task);
   if (!targetTime) return false;
 
-  // Check date matching
+  // If this is an active smart snooze due today, check the time directly
+  if (task.nextSnoozeAt) {
+    if (task.nextSnoozeAt === currentTimeHHMM) {
+      const slotKey = `${currentJalaliDate} ${currentTimeHHMM}`;
+      return task.lastNotifiedAt !== slotKey;
+    }
+    return false;
+  }
+
+  // Standard checks: date matching
   let dateMatches = false;
   if (task.reminderDate) {
     dateMatches = task.reminderDate === currentJalaliDate;
@@ -137,12 +164,72 @@ export function isTaskReminderDue(
 }
 
 /**
+ * Calculates time offset in minutes before a given HH:mm string.
+ * Example: subtractMinutesFromHHMM("10:30", 15) => "10:15"
+ */
+export function subtractMinutesFromHHMM(timeHHMM: string, minutes: number): string {
+  const parts = timeHHMM.split(':').map(p => parseInt(p, 10));
+  if (parts.length !== 2 || isNaN(parts[0]) || isNaN(parts[1])) return timeHHMM;
+  let totalMins = parts[0] * 60 + parts[1] - minutes;
+  if (totalMins < 0) totalMins += 24 * 60;
+  totalMins = totalMins % (24 * 60);
+  const h = String(Math.floor(totalMins / 60)).padStart(2, '0');
+  const m = String(totalMins % 60).padStart(2, '0');
+  return `${h}:${m}`;
+}
+
+/**
+ * Checks if this is an advance holiday reminder due right now for a task.
+ */
+export function isTaskHolidayAdvanceReminderDue(
+  task: AppTask,
+  currentJalaliDate: string,
+  currentTimeHHMM: string,
+  currentDayOfWeek: number,
+  isHolidayToday: boolean,
+  leadMinutes: number = 15
+): boolean {
+  if (task.isCompleted || !isHolidayToday) return false;
+
+  const targetTime = task.time || task.reminderTime;
+  if (!targetTime) return false;
+
+  // Verify date relevance
+  let dateMatches = false;
+  if (task.reminderDate) {
+    dateMatches = task.reminderDate === currentJalaliDate;
+  } else if (task.dueDate) {
+    dateMatches = task.dueDate === currentJalaliDate;
+  } else if (task.repeatType === 'DAILY') {
+    dateMatches = true;
+  } else if (task.repeatType === 'WEEKLY') {
+    dateMatches = Array.isArray(task.repeatDaysOfWeek) && task.repeatDaysOfWeek.includes(currentDayOfWeek);
+  } else {
+    return false;
+  }
+
+  if (!dateMatches) return false;
+
+  // Target trigger time is (targetTime - leadMinutes)
+  const holidayTriggerTime = subtractMinutesFromHHMM(targetTime, leadMinutes);
+  if (currentTimeHHMM !== holidayTriggerTime) return false;
+
+  const slotKey = `holiday-advance-${currentJalaliDate} ${currentTimeHHMM}`;
+  if (task.lastNotifiedAt === slotKey) {
+    return false;
+  }
+
+  return true;
+}
+
+/**
  * Fires reminder: Browser notification + gentle audio alarm
  */
 export function triggerReminderAlarm(
   task: AppTask,
   settings: ReminderSettings,
-  onTaskClick?: () => void
+  onTaskClick?: () => void,
+  holidayNotice?: string
 ): () => void {
   // 1. Audio Alarm
   let stopAudio: () => void = () => {};
@@ -152,8 +239,16 @@ export function triggerReminderAlarm(
   }
 
   // 2. Browser Native Notification
-  sendBrowserNotification(`یادآور جوانه: ${task.title}`, {
-    body: task.notes ? `${task.notes}\nزمان: ${task.time || ''}` : `موعد این تسک مهم فرا رسیده است.`,
+  const title = holidayNotice 
+    ? `🗓️ یادآور روز تعطیل: ${task.title}` 
+    : `یادآور جوانه: ${task.title}`;
+  
+  const bodyText = holidayNotice
+    ? `امروز (${holidayNotice}) است! تسک شما در ساعت ${task.time || task.reminderTime || ''} شروع می‌شود.`
+    : (task.notes ? `${task.notes}\nزمان: ${task.time || ''}` : `موعد این تسک مهم فرا رسیده است.`);
+
+  sendBrowserNotification(title, {
+    body: bodyText,
     tag: `task-${task.id}`,
     onClick: onTaskClick,
   });

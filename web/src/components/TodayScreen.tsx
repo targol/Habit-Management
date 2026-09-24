@@ -10,7 +10,8 @@ import {
   isDateHoliday, 
   jalaliToFormattedString,
   getCurrentWeekJalaliDays,
-  WEEKDAYS_SHORT
+  WEEKDAYS_SHORT,
+  compareJalaliDateStrings
 } from '../calendar/jalali';
 import { 
   CheckCircle2, 
@@ -36,6 +37,8 @@ import {
 } from 'lucide-react';
 import { PlantIcon } from './PlantIcon';
 import { EntityBadge, EntityIcon } from './EntityIcon';
+import { Hourglass, History } from 'lucide-react';
+import { FocusHistoryModal } from './FocusHistoryModal';
 
 interface Props {
   tasks: AppTask[];
@@ -47,7 +50,18 @@ interface Props {
   onToggleTask: (taskId: string) => void;
   onToggleHabitToday: (habitId: string) => void;
   onToggleHabitDate?: (habitId: string, dateStr: string) => void;
-  onOpenTimer: (title: string, minutes: number, onDone: () => void) => void;
+  onOpenTimer: (
+    title: string,
+    minutes: number,
+    onDone?: (elapsedSeconds: number, isFullyCompleted: boolean) => void,
+    options?: {
+      entityType?: 'TASK' | 'HABIT';
+      taskId?: string;
+      habitId?: string;
+      initialElapsedSeconds?: number;
+      currentProgressPercent?: number;
+    }
+  ) => void;
   onOpenNewTask: () => void;
   onOpenNewHabit: () => void;
   onDuplicateTask?: (task: AppTask) => void;
@@ -78,26 +92,97 @@ export const TodayScreen: React.FC<Props> = ({
 
   const [activeViewMode, setActiveViewMode] = useState<'DAY' | 'WEEK'>('DAY');
   const [showCompletedTasks, setShowCompletedTasks] = useState(true);
+  const [focusHistoryEntity, setFocusHistoryEntity] = useState<{
+    isOpen: boolean;
+    title: string;
+    entityType: 'TASK' | 'HABIT';
+    sessions: any[];
+    timerTargetMinutes: number;
+    currentElapsedSeconds: number;
+    currentProgressPercent: number;
+    taskId?: string;
+    habitId?: string;
+  } | null>(null);
 
   // 7 days of the current week (from شنبه to جمعه)
   const currentWeekDays = React.useMemo(() => getCurrentWeekJalaliDays(today), [today]);
   const currentWeekDateStrings = React.useMemo(() => currentWeekDays.map(d => d.dateStr), [currentWeekDays]);
 
-  // Filter Tasks: ONLY items for today or items without a specific date (never future tasks)
-  const todayTasks = tasks.filter(t => {
-    // 1. If it has a specific due date, it MUST match today
-    if (t.dueDate) {
-      return t.dueDate === todayStr;
+  const [holidayPrompt, setHolidayPrompt] = useState<{
+    isOpen: boolean;
+    title: string;
+    holidayTitle: string;
+    onConfirm: () => void;
+  } | null>(null);
+
+  // Helper: check if a linked goal is in the future
+  const isGoalInFuture = (goalId?: string | null): boolean => {
+    if (!goalId) return false;
+    const g = goals.find(item => item.id === goalId);
+    if (!g) return false;
+    const gYear = g.year || today.year;
+    if (gYear > today.year) return true;
+    if (gYear === today.year) {
+      if (g.period === 'SEASONAL' && g.seasonIndex !== undefined) {
+        const curSeason = Math.floor((today.month - 1) / 3);
+        if (g.seasonIndex > curSeason) return true;
+      }
+      if (g.period === 'MONTHLY' && g.monthIndex !== undefined) {
+        if (g.monthIndex > today.month) return true;
+      }
     }
-    // 2. Daily repeating task
+    // Also if the goal itself has a future startDate
+    if (g.startDate && compareJalaliDateStrings(g.startDate, todayStr) > 0) {
+      return true;
+    }
+    return false;
+  };
+
+  // Filter Tasks: ONLY items active for today (respecting start date, deadline range, and future goals)
+  const todayTasks = tasks.filter(t => {
+    // 0. If task is linked to a future goal, it belongs to the future/upcoming, not today's daily radar
+    if (t.goalId && isGoalInFuture(t.goalId)) {
+      return false;
+    }
+
+    // 0.1 If task has a specific startDate and today is strictly before startDate, it has not started yet
+    if (t.startDate && compareJalaliDateStrings(todayStr, t.startDate) < 0) {
+      return false;
+    }
+
+    // 0.2 If task has monthOfYear specified and current month doesn't match
+    if (t.monthOfYear && t.monthOfYear !== today.month) {
+      return false;
+    }
+
+    // 1. Repeating tasks
     if (t.repeatType === 'DAILY') {
       return true;
     }
-    // 3. Weekly repeating task: must include today's weekday
     if (t.repeatType === 'WEEKLY') {
       return Array.isArray(t.repeatDaysOfWeek) && t.repeatDaysOfWeek.includes(currentDayOfWeek);
     }
-    // 4. Tasks without any specific due date or schedule: show in pending pool if not completed
+
+    // 2. If it has a specific due date (deadline):
+    if (t.dueDate) {
+      const isPastOrTodayDeadline = compareJalaliDateStrings(todayStr, t.dueDate) <= 0;
+      // If task has a startDate (or no specific startDate, meaning it has an open deadline window until dueDate)
+      // When a task has an upcoming deadline (today <= dueDate), and startDate is today or earlier (or not set),
+      // it should remain visible in daily tasks throughout its active window until completed!
+      if (!t.isCompleted) {
+        // Active pending task within its deadline window or due today
+        if (isPastOrTodayDeadline) {
+          return true;
+        }
+        // If overdue (today > dueDate), still show in today's pending list to not get lost
+        return true;
+      } else {
+        // If completed, only show if completed today or due today
+        return t.dueDate === todayStr || t.completedAt === todayStr;
+      }
+    }
+
+    // 3. Tasks without any specific due date or schedule: show in pending pool if not completed
     return !t.isCompleted;
   });
 
@@ -141,6 +226,26 @@ export const TodayScreen: React.FC<Props> = ({
     }
   };
 
+  // Helper: notify or confirm before starting tasks/habits on official holidays
+  const startTimerWithHolidayNotification = (
+    title: string,
+    action: () => void
+  ) => {
+    if (holidayInfo.isHoliday) {
+      setHolidayPrompt({
+        isOpen: true,
+        title,
+        holidayTitle: holidayInfo.title || 'تعطیل رسمی',
+        onConfirm: () => {
+          setHolidayPrompt(null);
+          action();
+        },
+      });
+    } else {
+      action();
+    }
+  };
+
   return (
     <div className="space-y-5 animate-fade-in pb-12">
       {/* Modern Uncluttered Garden Visual */}
@@ -162,6 +267,26 @@ export const TodayScreen: React.FC<Props> = ({
           <strong>«درخت تنومند، روزی دانه‌ای کوچک بوده است.»</strong> هر تسک و عادت امروز، قدمی محکم برای رشد و شکوفایی اهداف بزرگ شماست.
         </div>
       </div>
+
+      {/* Official Iranian Holiday Alert Banner */}
+      {holidayInfo.isHoliday && (
+        <div className="bg-rose-50/90 border border-rose-200/90 rounded-2xl p-4 shadow-2xs animate-scale-up space-y-2">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="w-3 h-3 rounded-full bg-rose-500 animate-pulse"></span>
+              <span className="text-xs font-black text-rose-900">
+                امروز در تقویم رسمی ایران تعطیل است:
+              </span>
+            </div>
+            <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-rose-200/80 text-rose-950 border border-rose-300">
+              {holidayInfo.title}
+            </span>
+          </div>
+          <p className="text-[11px] text-rose-800 leading-relaxed">
+            💡 <strong>توجه به روز تعطیل:</strong> امروز فرصت مناسبی برای استراحت، تجدید انرژی، یا پیگیری بدون دغدغه کارهای آرامش‌بخش است. پیش از شروع ساعت شنی تسک‌ها یا پروژه‌های جدی کاری، تعطیلی رسمی در نظر گرفته می‌شود.
+          </p>
+        </div>
+      )}
 
       {/* View Switcher: روز (امروز) vs هفته (برنامه و عادات هفتگی) */}
       <div className="flex bg-white p-1 rounded-2xl border border-emerald-100/90 shadow-2xs text-xs font-bold gap-1">
@@ -293,11 +418,52 @@ export const TodayScreen: React.FC<Props> = ({
                             {t.notes && (
                               <span className="text-gray-400 truncate max-w-[150px]">{t.notes}</span>
                             )}
+
+                            {/* Hourglass Focus Progress Pill */}
+                            {(t.focusProgressPercent !== undefined || (t.focusSessions && t.focusSessions.length > 0)) && (
+                              <button
+                                type="button"
+                                onClick={() => setFocusHistoryEntity({
+                                  isOpen: true,
+                                  title: t.title,
+                                  entityType: 'TASK',
+                                  sessions: t.focusSessions || [],
+                                  timerTargetMinutes: Math.floor(t.timerSecondsTarget / 60) || 25,
+                                  currentElapsedSeconds: t.timerSecondsElapsed || 0,
+                                  currentProgressPercent: t.focusProgressPercent || 0,
+                                  taskId: t.id,
+                                })}
+                                className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-md font-bold bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 transition-colors cursor-pointer"
+                                title="مشاهده تاریخچه ساعت شنی و پیشرفت"
+                              >
+                                <Hourglass className="w-2.5 h-2.5 text-amber-600" />
+                                <span>پیشرفت تمرکز: {toPersianDigits(t.focusProgressPercent ?? 0)}٪</span>
+                              </button>
+                            )}
                           </div>
                         </div>
                       </div>
 
                       <div className="flex items-center gap-1 shrink-0">
+                        {/* History button */}
+                        <button
+                          type="button"
+                          onClick={() => setFocusHistoryEntity({
+                            isOpen: true,
+                            title: t.title,
+                            entityType: 'TASK',
+                            sessions: t.focusSessions || [],
+                            timerTargetMinutes: Math.floor(t.timerSecondsTarget / 60) || 25,
+                            currentElapsedSeconds: t.timerSecondsElapsed || 0,
+                            currentProgressPercent: t.focusProgressPercent || 0,
+                            taskId: t.id,
+                          })}
+                          title="مشاهده تاریخچه جلسات تمرکز ساعت شنی"
+                          className="p-1.5 text-gray-400 hover:text-amber-700 hover:bg-amber-50 rounded-lg transition-colors cursor-pointer"
+                        >
+                          <History className="w-3.5 h-3.5" />
+                        </button>
+
                         {onDuplicateTask && (
                           <button
                             type="button"
@@ -322,11 +488,28 @@ export const TodayScreen: React.FC<Props> = ({
 
                         <button
                           type="button"
-                          onClick={() => onOpenTimer(t.title, Math.floor(t.timerSecondsTarget / 60) || 25, () => onToggleTask(t.id))}
-                          title="شروع تمرکز روی این تسک"
-                          className="p-2 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-lg shrink-0 transition-colors cursor-pointer"
+                          onClick={() => startTimerWithHolidayNotification(t.title, () => {
+                            onOpenTimer(
+                              t.title,
+                              Math.floor(t.timerSecondsTarget / 60) || 25,
+                              (elapsed, isDone) => {
+                                if (isDone) onToggleTask(t.id);
+                              },
+                              {
+                                entityType: 'TASK',
+                                taskId: t.id,
+                                initialElapsedSeconds: t.timerSecondsElapsed || 0,
+                                currentProgressPercent: t.focusProgressPercent || 0,
+                              }
+                            );
+                          })}
+                          title="شروع ساعت شنی تمرکز روی این تسک"
+                          className="p-2 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-lg shrink-0 transition-colors cursor-pointer flex items-center gap-1"
                         >
-                          <Play className="w-3.5 h-3.5" />
+                          <Hourglass className="w-3.5 h-3.5 text-emerald-700" />
+                          {t.focusProgressPercent && t.focusProgressPercent > 0 && (
+                            <span className="text-[10px] font-bold text-emerald-800">{toPersianDigits(t.focusProgressPercent)}٪</span>
+                          )}
                         </button>
                       </div>
                     </div>
@@ -446,7 +629,7 @@ export const TodayScreen: React.FC<Props> = ({
                           <p className={`text-xs font-bold truncate ${isDoneToday ? 'line-through text-gray-500' : 'text-gray-900'}`}>
                             {h.title}
                           </p>
-                          <div className="flex items-center gap-2 mt-0.5 text-[11px] text-gray-500">
+                          <div className="flex flex-wrap items-center gap-2 mt-0.5 text-[11px] text-gray-500">
                             <EntityBadge type="HABIT" size="xs" />
                             <span className="text-emerald-700 font-medium">{h.plantType}</span>
                             {h.timerMinutes > 0 && (
@@ -455,19 +638,75 @@ export const TodayScreen: React.FC<Props> = ({
                                 <span>{toPersianDigits(h.timerMinutes)} دقیقه</span>
                               </span>
                             )}
+                            {/* Today Habit Focus Progress */}
+                            {h.dailyProgressHistory?.[todayStr] !== undefined && (
+                              <button
+                                type="button"
+                                onClick={() => setFocusHistoryEntity({
+                                  isOpen: true,
+                                  title: h.title,
+                                  entityType: 'HABIT',
+                                  sessions: h.focusSessions || [],
+                                  timerTargetMinutes: h.timerMinutes || 25,
+                                  currentElapsedSeconds: h.dailyElapsedSeconds?.[todayStr] || 0,
+                                  currentProgressPercent: h.dailyProgressHistory?.[todayStr] || 0,
+                                  habitId: h.id,
+                                })}
+                                className="flex items-center gap-1 text-[10px] px-1.5 py-0.2 rounded-md font-bold bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 transition-colors cursor-pointer"
+                              >
+                                <Hourglass className="w-2.5 h-2.5 text-amber-600" />
+                                <span>{toPersianDigits(h.dailyProgressHistory[todayStr])}٪</span>
+                              </button>
+                            )}
                           </div>
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-2 shrink-0">
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {/* Focus History */}
+                        <button
+                          type="button"
+                          onClick={() => setFocusHistoryEntity({
+                            isOpen: true,
+                            title: h.title,
+                            entityType: 'HABIT',
+                            sessions: h.focusSessions || [],
+                            timerTargetMinutes: h.timerMinutes || 25,
+                            currentElapsedSeconds: h.dailyElapsedSeconds?.[todayStr] || 0,
+                            currentProgressPercent: h.dailyProgressHistory?.[todayStr] || 0,
+                            habitId: h.id,
+                          })}
+                          title="مشاهده تاریخچه ساعت شنی تمرکز"
+                          className="p-1.5 text-gray-400 hover:text-amber-700 hover:bg-amber-50 rounded-lg transition-colors cursor-pointer"
+                        >
+                          <History className="w-3.5 h-3.5" />
+                        </button>
+
                         {h.timerMinutes > 0 && !isDoneToday && (
                           <button
                             type="button"
-                            onClick={() => onOpenTimer(h.title, h.timerMinutes, () => onToggleHabitToday(h.id))}
-                            title="شروع تمرکز روی عادت"
-                            className="p-1.5 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-lg transition-colors cursor-pointer"
+                            onClick={() => startTimerWithHolidayNotification(h.title, () => {
+                              onOpenTimer(
+                                h.title,
+                                h.timerMinutes,
+                                (elapsed, isDone) => {
+                                  if (isDone) onToggleHabitToday(h.id);
+                                },
+                                {
+                                  entityType: 'HABIT',
+                                  habitId: h.id,
+                                  initialElapsedSeconds: h.dailyElapsedSeconds?.[todayStr] || 0,
+                                  currentProgressPercent: h.dailyProgressHistory?.[todayStr] || 0,
+                                }
+                              );
+                            })}
+                            title="شروع ساعت شنی تمرکز روی عادت"
+                            className="p-1.5 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-lg transition-colors cursor-pointer flex items-center gap-1"
                           >
-                            <Play className="w-3 h-3" />
+                            <Hourglass className="w-3.5 h-3.5 text-emerald-700" />
+                            {h.dailyProgressHistory?.[todayStr] ? (
+                              <span className="text-[10px] font-bold">{toPersianDigits(h.dailyProgressHistory[todayStr])}٪</span>
+                            ) : null}
                           </button>
                         )}
                         <button
@@ -569,25 +808,34 @@ export const TodayScreen: React.FC<Props> = ({
                         <div className="grid grid-cols-7 gap-1.5 sm:gap-2">
                           {currentWeekDays.map((day) => {
                             const isDone = !!h.completionHistory[day.dateStr];
+                            const dayHol = isDateHoliday(day.date);
+                            const isHol = dayHol.isHoliday;
                             return (
                               <button
                                 key={day.dateStr}
                                 type="button"
                                 onClick={() => handleDayToggle(h.id, day.dateStr)}
+                                title={isHol ? `${dayHol.title} (تعطیل رسمی)` : day.dateStr}
                                 className={`py-2 px-1 rounded-xl text-center flex flex-col items-center justify-center gap-1 transition-all cursor-pointer border ${
                                   isDone
                                     ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs font-bold'
                                     : day.isToday
                                     ? 'bg-emerald-50/80 border-emerald-300 text-emerald-950 font-bold hover:bg-emerald-100'
+                                    : isHol
+                                    ? 'bg-rose-50/80 border-rose-200 text-rose-700 hover:bg-rose-100 font-semibold'
                                     : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100'
                                 }`}
                               >
-                                <span className="text-[10px] opacity-80">{day.shortName}</span>
-                                <span className="text-xs">{toPersianDigits(day.date.day)}</span>
+                                <span className={`text-[10px] ${isHol && !isDone ? 'text-rose-600 font-bold' : 'opacity-80'}`}>
+                                  {day.shortName}
+                                </span>
+                                <span className={`text-xs ${isHol && !isDone ? 'text-rose-700 font-extrabold' : ''}`}>
+                                  {toPersianDigits(day.date.day)}
+                                </span>
                                 {isDone ? (
                                   <Check className="w-3.5 h-3.5" />
                                 ) : (
-                                  <Droplets className={`w-3 h-3 ${day.isToday ? 'text-sky-600' : 'text-gray-300'}`} />
+                                  <Droplets className={`w-3 h-3 ${day.isToday ? 'text-sky-600' : isHol ? 'text-rose-400' : 'text-gray-300'}`} />
                                 )}
                               </button>
                             );
@@ -692,6 +940,83 @@ export const TodayScreen: React.FC<Props> = ({
                 })}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Focus History Modal for Tasks and Habits */}
+      {focusHistoryEntity && (
+        <FocusHistoryModal
+          isOpen={focusHistoryEntity.isOpen}
+          title={focusHistoryEntity.title}
+          entityType={focusHistoryEntity.entityType}
+          sessions={focusHistoryEntity.sessions}
+          timerTargetMinutes={focusHistoryEntity.timerTargetMinutes}
+          currentElapsedSeconds={focusHistoryEntity.currentElapsedSeconds}
+          currentProgressPercent={focusHistoryEntity.currentProgressPercent}
+          onClose={() => setFocusHistoryEntity(null)}
+          onOpenTimerNow={() => {
+            const ent = focusHistoryEntity;
+            setFocusHistoryEntity(null);
+            onOpenTimer(
+              ent.title,
+              ent.timerTargetMinutes,
+              (elapsed, isDone) => {
+                if (isDone) {
+                  if (ent.entityType === 'TASK' && ent.taskId) onToggleTask(ent.taskId);
+                  if (ent.entityType === 'HABIT' && ent.habitId) onToggleHabitToday(ent.habitId);
+                }
+              },
+              {
+                entityType: ent.entityType,
+                taskId: ent.taskId,
+                habitId: ent.habitId,
+                initialElapsedSeconds: ent.currentElapsedSeconds,
+                currentProgressPercent: ent.currentProgressPercent,
+              }
+            );
+          }}
+        />
+      )}
+
+      {/* Holiday Notification Dialog Before Task/Habit Start */}
+      {holidayPrompt && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs animate-fade-in">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-5 shadow-xl border border-rose-200 space-y-4 animate-scale-up">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-rose-100 text-rose-600 flex items-center justify-center shrink-0">
+                <AlertCircle className="w-5 h-5" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-sm font-extrabold text-gray-900">
+                  اطلاع‌رسانی تعطیلی رسمی تقویم
+                </h3>
+                <p className="text-xs text-rose-700 font-bold">
+                  امروز به دلیل «{holidayPrompt.holidayTitle}» تعطیل رسمی کشور است.
+                </p>
+              </div>
+            </div>
+
+            <p className="text-xs text-gray-600 leading-relaxed bg-rose-50/60 p-3 rounded-xl border border-rose-100">
+              قصد دارید کار روی «<strong className="text-gray-900">{holidayPrompt.title}</strong>» را آغاز کنید. آیا تمایل دارید تایمر تمرکز این فعالیت در روز تعطیل شروع شود؟
+            </p>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setHolidayPrompt(null)}
+                className="px-3 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-100 rounded-xl transition-colors cursor-pointer"
+              >
+                انصراف و استراحت
+              </button>
+              <button
+                type="button"
+                onClick={() => holidayPrompt.onConfirm()}
+                className="px-4 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-xs transition-colors cursor-pointer"
+              >
+                بله، شروع تمرکز
+              </button>
+            </div>
           </div>
         </div>
       )}

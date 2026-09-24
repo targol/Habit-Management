@@ -63,35 +63,132 @@ export function getTodayJalali(): JalaliDate {
 }
 
 export function getDayOfWeek(j: JalaliDate): number {
-  // Approximate reference: 1403/01/01 was Wednesday (index 4 in Sat=0..Fri=6)
-  // Let's compute based on current Date() if today:
-  const now = new Date();
-  const d = now.getDay(); // Sunday=0, Monday=1.. Saturday=6
-  return (d + 1) % 7; // Saturday=0..Friday=6
+  const g = jalaliToGregorian(j.year, j.month, j.day);
+  const d = g.getDay(); // Sunday=0, Monday=1.. Saturday=6
+  return (d + 1) % 7; // Saturday=0 (شنبه).. Friday=6 (جمعه)
 }
 
-// Iranian official holidays fixed in Solar Calendar
+// Iranian official holidays fixed in Solar Calendar (شمسی ثابت)
 export const IRANIAN_SOLAR_HOLIDAYS: Record<string, string> = {
-  '01/01': 'عید نوروز',
+  '01/01': 'عید نوروز (آغاز سال نو)',
   '01/02': 'عید نوروز',
   '01/03': 'عید نوروز',
   '01/04': 'عید نوروز',
-  '01/12': 'روز جمهوری اسلامی',
+  '01/12': 'روز جمهوری اسلامی ایران',
   '01/13': 'روز طبیعت (سیزده‌بدر)',
-  '03/14': 'رحلت امام خمینی',
+  '03/14': 'رحلت حضرت امام خمینی (ره)',
   '03/15': 'قیام ۱۵ خرداد',
-  '11/22': 'پیروزی انقلاب اسلامی',
+  '11/22': 'پیروزی انقلاب اسلامی ایران',
   '12/29': 'روز ملی شدن صنعت نفت'
 };
 
-export function isDateHoliday(j: JalaliDate): { isHoliday: boolean; title?: string } {
+// Iranian official lunar religious holidays mapped by Jalali year
+// (1403, 1404, 1405 covering current and adjacent Iranian years)
+export const IRANIAN_YEAR_LUNAR_HOLIDAYS: Record<number, Record<string, string>> = {
+  1403: {
+    '01/12': 'شهادت حضرت علی (ع)',
+    '01/22': 'عید سعید فطر',
+    '01/23': 'تعطیل به مناسبت عید سعید فطر',
+    '02/15': 'شهادت امام جعفر صادق (ع)',
+    '03/28': 'عید سعید قربان',
+    '04/05': 'عید سعید غدیر خم',
+    '04/25': 'تاسوعای حسینی',
+    '04/26': 'عاشورای حسینی',
+    '06/04': 'اربعین حسینی',
+    '06/12': 'رحلت پیامبر اکرم (ص) و شهادت امام حسن مجتبی (ع)',
+    '06/14': 'شهادت امام رضا (ع)',
+    '06/22': 'شهادت امام حسن عسکری (ع)',
+    '06/31': 'میلاد پیامبر اکرم (ص) و ولادت امام جعفر صادق (ع)',
+    '09/15': 'شهادت حضرت فاطمه زهرا (س)',
+    '10/25': 'ولادت حضرت امام علی (ع)',
+    '11/09': 'مبعث حضرت رسول اکرم (ص)',
+    '11/26': 'ولادت حضرت قائم (عج) (نیمه شعبان)',
+  },
+  1404: {
+    '01/01': 'شهادت حضرت علی (ع)',
+    '01/11': 'عید سعید فطر',
+    '01/12': 'تعطیل به مناسبت عید سعید فطر',
+    '02/04': 'شهادت امام جعفر صادق (ع)',
+    '03/16': 'عید سعید قربان',
+    '03/24': 'عید سعید غدیر خم',
+    '04/14': 'تاسوعای حسینی',
+    '04/15': 'عاشورای حسینی',
+    '05/23': 'اربعین حسینی',
+    '05/31': 'رحلت پیامبر اکرم (ص) و شهادت امام حسن مجتبی (ع)',
+    '06/02': 'شهادت امام رضا (ع)',
+    '06/11': 'شهادت امام حسن عسکری (ع)',
+    '06/20': 'میلاد پیامبر اکرم (ص) و ولادت امام جعفر صادق (ع)',
+    '09/04': 'شهادت حضرت فاطمه زهرا (س)',
+    '10/14': 'ولادت حضرت امام علی (ع)',
+    '10/28': 'مبعث حضرت رسول اکرم (ص)',
+    '11/15': 'ولادت حضرت قائم (عج) (نیمه شعبان)',
+    '12/21': 'شهادت حضرت علی (ع)',
+  },
+  1405: {
+    '01/01': 'عید سعید فطر',
+    '01/02': 'تعطیل به مناسبت عید سعید فطر',
+    '01/24': 'شهادت امام جعفر صادق (ع)',
+    '03/06': 'عید سعید قربان',
+    '03/14': 'عید سعید غدیر خم',
+    '04/04': 'تاسوعای حسینی',
+    '04/05': 'عاشورای حسینی',
+    '05/13': 'اربعین حسینی',
+    '05/21': 'رحلت رسول اکرم (ص) و شهادت امام حسن مجتبی (ع)',
+    '05/23': 'شهادت امام رضا (ع)',
+    '05/31': 'شهادت امام حسن عسکری (ع)',
+    '06/09': 'میلاد رسول اکرم (ص) و امام جعفر صادق (ع)',
+    '08/24': 'شهادت حضرت فاطمه زهرا (س)',
+    '10/04': 'ولادت حضرت امام علی (ع)',
+    '10/18': 'مبعث حضرت رسول اکرم (ص)',
+    '11/05': 'ولادت حضرت قائم (عج) (نیمه شعبان)',
+    '12/10': 'شهادت حضرت علی (ع)',
+    '12/29': 'عید سعید فطر',
+  }
+};
+
+export interface HolidayCheckResult {
+  isHoliday: boolean;
+  isFriday: boolean;
+  title?: string;
+}
+
+export function isDateHoliday(j: JalaliDate): HolidayCheckResult {
+  const dow = getDayOfWeek(j);
+  const isFriday = dow === 6;
+
   const m = j.month.toString().padStart(2, '0');
   const d = j.day.toString().padStart(2, '0');
   const key = `${m}/${d}`;
+
+  // 1. Solar national holiday
   if (IRANIAN_SOLAR_HOLIDAYS[key]) {
-    return { isHoliday: true, title: IRANIAN_SOLAR_HOLIDAYS[key] };
+    return {
+      isHoliday: true,
+      isFriday,
+      title: IRANIAN_SOLAR_HOLIDAYS[key] + (isFriday ? ' (جمعه)' : '')
+    };
   }
-  return { isHoliday: false };
+
+  // 2. Year-specific Lunar religious holiday
+  const yearLunar = IRANIAN_YEAR_LUNAR_HOLIDAYS[j.year];
+  if (yearLunar && yearLunar[key]) {
+    return {
+      isHoliday: true,
+      isFriday,
+      title: yearLunar[key] + (isFriday ? ' (جمعه)' : '')
+    };
+  }
+
+  // 3. Friday (official Iranian weekend holiday)
+  if (isFriday) {
+    return {
+      isHoliday: true,
+      isFriday: true,
+      title: 'جمعه (تعطیل رسمی هفتگی)'
+    };
+  }
+
+  return { isHoliday: false, isFriday: false };
 }
 
 // Jalali to Gregorian conversion
@@ -194,11 +291,18 @@ export function parseJalaliString(str: string): JalaliDate | null {
   return null;
 }
 
+export function isJalaliLeapYear(jy: number): boolean {
+  // Common 33-year cycle leap year remainder test:
+  // Remainder in [1, 5, 9, 13, 17, 22, 26, 30] of (jy % 33)
+  const rem = (jy + 38) % 33;
+  return [1, 5, 9, 13, 17, 22, 26, 30].includes(rem);
+}
+
 export function getDaysInJalaliMonth(year: number, month: number): number {
   if (month <= 6) return 31;
   if (month <= 11) return 30;
-  // Esfand leap year check (simplified)
-  return 29;
+  // Esfand leap year check
+  return isJalaliLeapYear(year) ? 30 : 29;
 }
 
 export const WEEKS_OF_MONTH = [
@@ -269,6 +373,133 @@ export function getCurrentWeekJalaliDays(baseDate?: JalaliDate): WeekDayInfo[] {
   }
   return days;
 }
+
+// Check if a season has completely ended
+export function isSeasonPast(year: number, seasonIndex: number, currentJalali?: JalaliDate): boolean {
+  const now = currentJalali || getTodayJalali();
+  if (year < now.year) return true;
+  if (year > now.year) return false;
+  const currentSeason = getSeasonByMonth(now.month);
+  return seasonIndex < currentSeason;
+}
+
+// Check if a month has completely ended
+export function isMonthPast(year: number, monthIndex: number, currentJalali?: JalaliDate): boolean {
+  const now = currentJalali || getTodayJalali();
+  if (year < now.year) return true;
+  if (year > now.year) return false;
+  return monthIndex < now.month;
+}
+
+// Check if a year has completely ended
+export function isYearPast(year: number, currentJalali?: JalaliDate): boolean {
+  const now = currentJalali || getTodayJalali();
+  return year < now.year;
+}
+
+export interface JalaliMonthDay {
+  year: number;
+  month: number;
+  day: number;
+  dateStr: string;
+  dayOfWeek: number; // 0=Sat (شنبه) .. 6=Fri (جمعه)
+  isToday: boolean;
+  isHoliday: boolean;
+  isFriday: boolean;
+  holidayTitle?: string;
+  isCurrentMonth: boolean;
+}
+
+/**
+ * Returns a complete grid of calendar days for a given Jalali month (year, month).
+ * Includes padding days from previous and next months to form aligned 7-column rows (starting on شنبه).
+ */
+export function getJalaliMonthCalendar(year: number, month: number): JalaliMonthDay[] {
+  const today = getTodayJalali();
+  const todayStr = jalaliToFormattedString(today);
+  const daysInMonth = getDaysInJalaliMonth(year, month);
+  
+  // Day of week for the 1st of this month (0: Sat, ... 6: Fri)
+  const firstDayDOW = getDayOfWeek({ year, month, day: 1 });
+
+  const grid: JalaliMonthDay[] = [];
+
+  // Padding days from previous month
+  if (firstDayDOW > 0) {
+    const prevYear = month === 1 ? year - 1 : year;
+    const prevMonth = month === 1 ? 12 : month - 1;
+    const daysInPrevMonth = getDaysInJalaliMonth(prevYear, prevMonth);
+    const startPrevDay = daysInPrevMonth - firstDayDOW + 1;
+
+    for (let d = startPrevDay; d <= daysInPrevMonth; d++) {
+      const jDate: JalaliDate = { year: prevYear, month: prevMonth, day: d };
+      const dStr = jalaliToFormattedString(jDate);
+      const hol = isDateHoliday(jDate);
+      const dow = getDayOfWeek(jDate);
+      grid.push({
+        year: prevYear,
+        month: prevMonth,
+        day: d,
+        dateStr: dStr,
+        dayOfWeek: dow,
+        isToday: dStr === todayStr,
+        isHoliday: hol.isHoliday,
+        isFriday: hol.isFriday,
+        holidayTitle: hol.title,
+        isCurrentMonth: false,
+      });
+    }
+  }
+
+  // Days of the current month
+  for (let d = 1; d <= daysInMonth; d++) {
+    const jDate: JalaliDate = { year, month, day: d };
+    const dStr = jalaliToFormattedString(jDate);
+    const hol = isDateHoliday(jDate);
+    const dow = getDayOfWeek(jDate);
+    grid.push({
+      year,
+      month,
+      day: d,
+      dateStr: dStr,
+      dayOfWeek: dow,
+      isToday: dStr === todayStr,
+      isHoliday: hol.isHoliday,
+      isFriday: hol.isFriday,
+      holidayTitle: hol.title,
+      isCurrentMonth: true,
+    });
+  }
+
+  // Padding days for next month to complete the row (multiples of 7)
+  const remainder = grid.length % 7;
+  if (remainder !== 0) {
+    const nextPaddingNeeded = 7 - remainder;
+    const nextYear = month === 12 ? year + 1 : year;
+    const nextMonth = month === 12 ? 1 : month + 1;
+    for (let d = 1; d <= nextPaddingNeeded; d++) {
+      const jDate: JalaliDate = { year: nextYear, month: nextMonth, day: d };
+      const dStr = jalaliToFormattedString(jDate);
+      const hol = isDateHoliday(jDate);
+      const dow = getDayOfWeek(jDate);
+      grid.push({
+        year: nextYear,
+        month: nextMonth,
+        day: d,
+        dateStr: dStr,
+        dayOfWeek: dow,
+        isToday: dStr === todayStr,
+        isHoliday: hol.isHoliday,
+        isFriday: hol.isFriday,
+        holidayTitle: hol.title,
+        isCurrentMonth: false,
+      });
+    }
+  }
+
+  return grid;
+}
+
 
 
 

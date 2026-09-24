@@ -8,6 +8,7 @@ import {
   WEEKDAYS_SHORT, 
   getDayOfWeek,
   addDaysJalali,
+  isDateHoliday
 } from '../calendar/jalali';
 import { 
   Plus, 
@@ -32,6 +33,8 @@ import {
 import { PlantIcon } from './PlantIcon';
 import { EntityBadge, EntityIcon } from './EntityIcon';
 import { HabitContributionGrid } from './HabitContributionGrid';
+import { Hourglass } from 'lucide-react';
+import { FocusHistoryModal } from './FocusHistoryModal';
 
 const SEASONS = ['بهار', 'تابستان', 'پاییز', 'زمستان'];
 const SEASON_ICONS = ['🌸', '☀️', '🍂', '❄️'];
@@ -45,7 +48,18 @@ interface Props {
   onEditHabit: (habit: Habit) => void;
   onDuplicateHabit?: (habit: Habit) => void;
   onNewHabit: () => void;
-  onOpenTimer: (title: string, minutes: number, onDone: () => void) => void;
+  onOpenTimer: (
+    title: string,
+    minutes: number,
+    onDone?: (elapsedSeconds: number, isFullyCompleted: boolean) => void,
+    options?: {
+      entityType?: 'TASK' | 'HABIT';
+      taskId?: string;
+      habitId?: string;
+      initialElapsedSeconds?: number;
+      currentProgressPercent?: number;
+    }
+  ) => void;
   onToggleCloseHabit?: (habitId: string) => void;
 }
 
@@ -70,6 +84,7 @@ export const HabitsScreen: React.FC<Props> = ({
   const [expandedGrid, setExpandedGrid] = useState<Record<string, boolean>>({});
   const [customDateModalHabit, setCustomDateModalHabit] = useState<Habit | null>(null);
   const [customDateInput, setCustomDateInput] = useState<string>(todayStr);
+  const [focusHistoryHabit, setFocusHistoryHabit] = useState<Habit | null>(null);
 
   const getCategory = (catId: string) => categories.find(c => c.id === catId);
   const getGoal = (goalId?: string | null) => goals.find(g => g.id === goalId);
@@ -321,6 +336,16 @@ export const HabitsScreen: React.FC<Props> = ({
 
                     {/* Actions Menu */}
                     <div className="flex items-center gap-1 shrink-0">
+                      {/* Focus history modal */}
+                      <button
+                        type="button"
+                        onClick={() => setFocusHistoryHabit(h)}
+                        title="مشاهده تاریخچه ساعت شنی تمرکز"
+                        className="p-1.5 text-gray-400 hover:text-amber-700 hover:bg-amber-50 rounded-lg transition-colors cursor-pointer"
+                      >
+                        <History className="w-3.5 h-3.5" />
+                      </button>
+
                       {onToggleCloseHabit && (
                         <button
                           type="button"
@@ -417,6 +442,8 @@ export const HabitsScreen: React.FC<Props> = ({
                         const isDone = Boolean(h.completionHistory?.[dateStr]);
                         const isScheduled = targetDays.includes(dIdx);
                         const isToday = dIdx === todayDayOfWeek;
+                        const hol = isDateHoliday(d);
+                        const isHol = hol.isHoliday;
 
                         return (
                           <button
@@ -428,17 +455,19 @@ export const HabitsScreen: React.FC<Props> = ({
                                 ? 'bg-emerald-600 text-white border-emerald-700 shadow-2xs hover:bg-emerald-700'
                                 : isToday
                                 ? 'bg-emerald-50 text-emerald-900 border-emerald-300 hover:bg-emerald-100'
+                                : isHol
+                                ? 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'
                                 : isScheduled
                                 ? 'bg-white text-gray-700 border-gray-200 hover:bg-gray-100'
                                 : 'bg-gray-100/70 text-gray-400 border-gray-200/50 hover:bg-gray-100'
                             }`}
-                            title={`${WEEKDAYS[dIdx]} (${dateStr}) - ${isDone ? 'انجام شده (کلیک برای لغو)' : 'برای ثبت انجام کلیک کنید'}`}
+                            title={`${WEEKDAYS[dIdx]} (${dateStr})${isHol ? ` (تعطیل رسمی: ${hol.title})` : ''} - ${isDone ? 'انجام شده (کلیک برای لغو)' : 'برای ثبت انجام کلیک کنید'}`}
                           >
-                            <span className="text-[10px] opacity-75">{WEEKDAYS_SHORT[dIdx]}</span>
+                            <span className={`text-[10px] ${isHol && !isDone ? 'text-rose-600 font-bold' : 'opacity-75'}`}>{WEEKDAYS_SHORT[dIdx]}</span>
                             {isDone ? (
                               <Check className="w-3.5 h-3.5 stroke-[3]" />
                             ) : (
-                              <span className="text-[10px] font-medium">{toPersianDigits(d.day)}</span>
+                              <span className={`text-[10px] ${isHol ? 'text-rose-700 font-bold' : 'font-medium'}`}>{toPersianDigits(d.day)}</span>
                             )}
                             {isToday && (
                               <span className="absolute -top-1 -right-1 w-2 h-2 bg-amber-500 rounded-full ring-1 ring-white" title="امروز"></span>
@@ -502,12 +531,36 @@ export const HabitsScreen: React.FC<Props> = ({
                   {h.timerMinutes > 0 && (
                     <button
                       type="button"
-                      onClick={() => onOpenTimer(h.title, h.timerMinutes, () => onToggleHabitDate(h.id, todayStr))}
-                      title={`شروع جلسه تمرکز (${toPersianDigits(h.timerMinutes)} دقیقه)`}
+                      onClick={() => {
+                        const todayHol = isDateHoliday(today);
+                        if (todayHol.isHoliday) {
+                          const proceed = window.confirm(`توجه: امروز به دلیل «${todayHol.title}» در تقویم رسمی کشور تعطیل است.\nآیا مایل به شروع ساعت شنی تمرکز روی این عادت هستید؟`);
+                          if (!proceed) return;
+                        }
+                        onOpenTimer(
+                          h.title,
+                          h.timerMinutes,
+                          (elapsed, isDone) => {
+                            if (isDone) onToggleHabitDate(h.id, todayStr);
+                          },
+                          {
+                            entityType: 'HABIT',
+                            habitId: h.id,
+                            initialElapsedSeconds: h.dailyElapsedSeconds?.[todayStr] || 0,
+                            currentProgressPercent: h.dailyProgressHistory?.[todayStr] || 0,
+                          }
+                        );
+                      }}
+                      title={`شروع ساعت شنی تمرکز (${toPersianDigits(h.timerMinutes)} دقیقه)`}
                       className="py-2 px-2.5 text-xs font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 rounded-xl border border-emerald-200 transition-colors flex items-center gap-1 cursor-pointer shrink-0"
                     >
-                      <Play className="w-3.5 h-3.5 fill-emerald-700 text-emerald-700" />
+                      <Hourglass className="w-3.5 h-3.5 text-emerald-700" />
                       <span className="hidden sm:inline">{toPersianDigits(h.timerMinutes)} دقیقه</span>
+                      {h.dailyProgressHistory?.[todayStr] ? (
+                        <span className="text-[10px] font-bold text-amber-700 bg-amber-100/80 px-1 rounded">
+                          {toPersianDigits(h.dailyProgressHistory[todayStr])}٪
+                        </span>
+                      ) : null}
                     </button>
                   )}
                 </div>
@@ -611,6 +664,37 @@ export const HabitsScreen: React.FC<Props> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* Focus History Modal for Habits */}
+      {focusHistoryHabit && (
+        <FocusHistoryModal
+          isOpen={Boolean(focusHistoryHabit)}
+          title={focusHistoryHabit.title}
+          entityType="HABIT"
+          sessions={focusHistoryHabit.focusSessions || []}
+          timerTargetMinutes={focusHistoryHabit.timerMinutes || 25}
+          currentElapsedSeconds={focusHistoryHabit.dailyElapsedSeconds?.[todayStr] || 0}
+          currentProgressPercent={focusHistoryHabit.dailyProgressHistory?.[todayStr] || 0}
+          onClose={() => setFocusHistoryHabit(null)}
+          onOpenTimerNow={() => {
+            const h = focusHistoryHabit;
+            setFocusHistoryHabit(null);
+            onOpenTimer(
+              h.title,
+              h.timerMinutes || 25,
+              (elapsed, isDone) => {
+                if (isDone) onToggleHabitDate(h.id, todayStr);
+              },
+              {
+                entityType: 'HABIT',
+                habitId: h.id,
+                initialElapsedSeconds: h.dailyElapsedSeconds?.[todayStr] || 0,
+                currentProgressPercent: h.dailyProgressHistory?.[todayStr] || 0,
+              }
+            );
+          }}
+        />
       )}
     </div>
   );

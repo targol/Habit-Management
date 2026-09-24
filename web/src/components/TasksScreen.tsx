@@ -13,7 +13,8 @@ import {
   isUpcomingJalaliDate,
   isOverdueJalaliDate,
   isTodayJalaliDate,
-  normalizeJalaliDateStr
+  normalizeJalaliDateStr,
+  isDateHoliday
 } from '../calendar/jalali';
 import { 
   CheckCircle2, 
@@ -31,11 +32,14 @@ import {
   Archive,
   RotateCcw,
   Copy,
-  Calendar
+  Calendar,
+  Database
 } from 'lucide-react';
 import { EntityBadge, EntityIcon } from './EntityIcon';
 import { SeasonBadge } from './SeasonBadge';
 import { TransferTaskModal } from './TransferTaskModal';
+import { Hourglass, History } from 'lucide-react';
+import { FocusHistoryModal } from './FocusHistoryModal';
 
 interface Props {
   tasks: AppTask[];
@@ -45,7 +49,18 @@ interface Props {
   onDeleteTask: (taskId: string) => void;
   onEditTask: (task: AppTask) => void;
   onNewTask: () => void;
-  onOpenTimer: (title: string, minutes: number, onDone: () => void) => void;
+  onOpenTimer: (
+    title: string,
+    minutes: number,
+    onDone?: (elapsedSeconds: number, isFullyCompleted: boolean) => void,
+    options?: {
+      entityType?: 'TASK' | 'HABIT';
+      taskId?: string;
+      habitId?: string;
+      initialElapsedSeconds?: number;
+      currentProgressPercent?: number;
+    }
+  ) => void;
   onTransferTask?: (taskId: string, targetGoalId: string | null, closeTask: boolean, noteAppend?: string) => void;
   onCreateSeasonalGoalAndTransfer?: (
     taskId: string, 
@@ -59,6 +74,7 @@ interface Props {
   onRestoreTask?: (taskId: string) => void;
   onClearArchivedTasks?: (taskIds?: string[]) => void;
   onDuplicateTask?: (task: AppTask) => void;
+  onOpenTasksBackup?: () => void;
 }
 
 type FilterTab = 'TODAY' | 'OVERDUE' | 'UPCOMING' | 'RECURRING' | 'COMPLETED' | 'ALL' | 'ARCHIVE';
@@ -78,6 +94,7 @@ export const TasksScreen: React.FC<Props> = ({
   onRestoreTask,
   onClearArchivedTasks,
   onDuplicateTask,
+  onOpenTasksBackup,
 }) => {
   const today = getTodayJalali();
   const todayStr = jalaliToFormattedString(today);
@@ -89,6 +106,7 @@ export const TasksScreen: React.FC<Props> = ({
   const [selectedCatId, setSelectedCatId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [taskToTransfer, setTaskToTransfer] = useState<AppTask | null>(null);
+  const [focusHistoryTask, setFocusHistoryTask] = useState<AppTask | null>(null);
 
   const getCategory = (catId: string) => categories.find(c => c.id === catId);
   const getGoal = (goalId?: string | null) => goals.find(g => g.id === goalId);
@@ -106,23 +124,79 @@ export const TasksScreen: React.FC<Props> = ({
     return false;
   };
 
+  // Helper: check if a linked goal is in the future
+  const isGoalInFuture = (goalId?: string | null): boolean => {
+    if (!goalId) return false;
+    const g = goals.find(item => item.id === goalId);
+    if (!g) return false;
+    const gYear = g.year || today.year;
+    if (gYear > today.year) return true;
+    if (gYear === today.year) {
+      if (g.period === 'SEASONAL' && g.seasonIndex !== undefined) {
+        const curSeason = Math.floor((today.month - 1) / 3);
+        if (g.seasonIndex > curSeason) return true;
+      }
+      if (g.period === 'MONTHLY' && g.monthIndex !== undefined) {
+        if (g.monthIndex > today.month) return true;
+      }
+    }
+    if (g.startDate && compareJalaliDateStrings(g.startDate, todayStr) > 0) {
+      return true;
+    }
+    return false;
+  };
+
+  // Helper: Check if a task is active for today
+  const isTaskActiveForToday = (t: AppTask): boolean => {
+    if (t.isCompleted) return false;
+    // If task is linked to a future goal, it is upcoming, not today
+    if (t.goalId && isGoalInFuture(t.goalId)) return false;
+    // If task has a specific startDate in the future, it has not started yet
+    if (t.startDate && compareJalaliDateStrings(todayStr, t.startDate) < 0) return false;
+    // If task specifies monthOfYear and current month does not match
+    if (t.monthOfYear && t.monthOfYear !== today.month) return false;
+
+    // Repeating tasks
+    if (t.repeatType === 'DAILY') return true;
+    if (t.repeatType === 'WEEKLY' && Array.isArray(t.repeatDaysOfWeek) && t.repeatDaysOfWeek.includes(currentDayOfWeek)) return true;
+
+    // Due date handling
+    if (t.dueDate) {
+      // Overdue tasks show in today's radar
+      if (isOverdueJalaliDate(t.dueDate, todayStr)) return true;
+      // Active window: today <= dueDate and (no startDate or today >= startDate)
+      if (compareJalaliDateStrings(todayStr, t.dueDate) <= 0) {
+        return true;
+      }
+      return false;
+    }
+
+    // No due date (ongoing task)
+    return true;
+  };
+
+  // Helper: Check if a task is upcoming (scheduled for the future)
+  const isTaskUpcoming = (t: AppTask): boolean => {
+    if (t.isCompleted) return false;
+    // Future goal link makes it upcoming
+    if (t.goalId && isGoalInFuture(t.goalId)) return true;
+    // Future startDate makes it upcoming
+    if (t.startDate && compareJalaliDateStrings(todayStr, t.startDate) < 0) return true;
+    // Future monthOfYear makes it upcoming
+    if (t.monthOfYear && t.monthOfYear > today.month) return true;
+    // Standard upcoming due date if not already visible today
+    if (t.dueDate && isUpcomingJalaliDate(t.dueDate, todayStr) && !isTaskActiveForToday(t)) return true;
+    return false;
+  };
+
   // Split tasks into active (current) and archived
   const activeTasks = tasks.filter(t => !isTaskArchived(t));
   const archivedTasks = tasks.filter(t => isTaskArchived(t));
 
   // Counts for each tab
-  const todayCount = activeTasks.filter(t => {
-    if (t.isCompleted) return false;
-    if (isTodayJalaliDate(t.dueDate, todayStr)) return true;
-    if (t.repeatType === 'DAILY') return true;
-    if (t.repeatType === 'WEEKLY' && Array.isArray(t.repeatDaysOfWeek) && t.repeatDaysOfWeek.includes(currentDayOfWeek)) return true;
-    if (!t.dueDate) return true; // Undated pending tasks also need attention
-    if (isOverdueJalaliDate(t.dueDate, todayStr)) return true; // Overdue tasks should show in today's radar
-    return false;
-  }).length;
-
+  const todayCount = activeTasks.filter(t => isTaskActiveForToday(t)).length;
   const overdueCount = activeTasks.filter(t => !t.isCompleted && isOverdueJalaliDate(t.dueDate, todayStr)).length;
-  const upcomingCount = activeTasks.filter(t => !t.isCompleted && isUpcomingJalaliDate(t.dueDate, todayStr)).length;
+  const upcomingCount = activeTasks.filter(t => isTaskUpcoming(t)).length;
   const recurringCount = activeTasks.filter(t => t.repeatType && t.repeatType !== 'NONE').length;
   const completedCount = activeTasks.filter(t => t.isCompleted).length;
   // All count should literally represent ALL tasks in the system
@@ -156,11 +230,8 @@ export const TasksScreen: React.FC<Props> = ({
       }
 
       const isOverdue = Boolean(t.dueDate && isOverdueJalaliDate(t.dueDate, todayStr) && !t.isCompleted);
-      const isUpcoming = Boolean(t.dueDate && isUpcomingJalaliDate(t.dueDate, todayStr) && !t.isCompleted);
-      const isTodayScheduled = isTodayJalaliDate(t.dueDate, todayStr) || 
-        t.repeatType === 'DAILY' || 
-        (t.repeatType === 'WEEKLY' && Array.isArray(t.repeatDaysOfWeek) && t.repeatDaysOfWeek.includes(currentDayOfWeek)) ||
-        (!t.dueDate && !t.isCompleted);
+      const isUpcoming = isTaskUpcoming(t);
+      const isTodayScheduled = isTaskActiveForToday(t);
 
       // Tab
       switch (activeTab) {
@@ -218,14 +289,27 @@ export const TasksScreen: React.FC<Props> = ({
             <h2 className="text-lg font-bold text-gray-900">مدیریت تسک‌ها</h2>
             <p className="text-xs text-gray-500 mt-0.5">برنامه‌ریزی، اولویت‌بندی و بایگانی هوشمند وظایف</p>
           </div>
-          <button
-            type="button"
-            onClick={onNewTask}
-            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs flex items-center gap-1.5 transition-colors cursor-pointer"
-          >
-            <Plus className="w-4 h-4" />
-            <span>تسک جدید</span>
-          </button>
+          <div className="flex items-center gap-2">
+            {onOpenTasksBackup && (
+              <button
+                type="button"
+                onClick={onOpenTasksBackup}
+                className="px-3 py-2 bg-white hover:bg-emerald-50 text-emerald-800 border border-emerald-200 text-xs font-bold rounded-xl shadow-2xs flex items-center gap-1.5 transition-colors cursor-pointer"
+                title="بکاپ‌گیری و بارگذاری سریع تسک‌ها"
+              >
+                <Database className="w-3.5 h-3.5 text-emerald-600" />
+                <span>بکاپ تسک‌ها</span>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onNewTask}
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              <span>تسک جدید</span>
+            </button>
+          </div>
         </div>
 
         {/* Search Input */}
@@ -661,22 +745,35 @@ export const TasksScreen: React.FC<Props> = ({
                         )}
 
                         {t.dueDate ? (
-                          <span className={`px-2 py-0.5 rounded-md text-[10px] font-medium flex items-center gap-1 ${
-                            !t.isCompleted && isOverdueJalaliDate(t.dueDate, todayStr)
-                              ? 'bg-rose-100 text-rose-800 border border-rose-200 font-bold'
-                              : isTodayJalaliDate(t.dueDate, todayStr)
-                              ? 'bg-emerald-100 text-emerald-800 border border-emerald-200 font-bold'
-                              : isUpcomingJalaliDate(t.dueDate, todayStr)
-                              ? 'bg-blue-50/80 text-blue-800 border border-blue-200/70 font-medium'
-                              : 'text-gray-600 bg-gray-100'
-                          }`}>
-                            {!t.isCompleted && isOverdueJalaliDate(t.dueDate, todayStr) && <AlertCircle className="w-2.5 h-2.5 text-rose-600" />}
-                            <span>
-                              {!t.isCompleted && isOverdueJalaliDate(t.dueDate, todayStr) ? 'معوقه: ' : 'موعد: '}
-                              {toPersianDigits(t.dueDate)}
-                              {t.deadlineTime ? ` (${toPersianDigits(t.deadlineTime)})` : ''}
-                            </span>
-                          </span>
+                          (() => {
+                            const parsed = parseJalaliString(t.dueDate);
+                            const hol = parsed ? isDateHoliday(parsed) : null;
+                            const isHol = hol?.isHoliday;
+
+                            return (
+                              <span className={`px-2 py-0.5 rounded-md text-[10px] font-medium flex items-center gap-1 ${
+                                !t.isCompleted && isOverdueJalaliDate(t.dueDate, todayStr)
+                                  ? 'bg-rose-100 text-rose-800 border border-rose-200 font-bold'
+                                  : isTodayJalaliDate(t.dueDate, todayStr)
+                                  ? 'bg-emerald-100 text-emerald-800 border border-emerald-200 font-bold'
+                                  : isHol
+                                  ? 'bg-rose-50 text-rose-800 border border-rose-200 font-bold'
+                                  : isUpcomingJalaliDate(t.dueDate, todayStr)
+                                  ? 'bg-blue-50/80 text-blue-800 border border-blue-200/70 font-medium'
+                                  : 'text-gray-600 bg-gray-100'
+                              }`}
+                              title={isHol ? `تعطیل رسمی: ${hol?.title}` : undefined}
+                              >
+                                {!t.isCompleted && isOverdueJalaliDate(t.dueDate, todayStr) && <AlertCircle className="w-2.5 h-2.5 text-rose-600" />}
+                                <span>
+                                  {!t.isCompleted && isOverdueJalaliDate(t.dueDate, todayStr) ? 'معوقه: ' : 'موعد: '}
+                                  {toPersianDigits(t.dueDate)}
+                                  {t.deadlineTime ? ` (${toPersianDigits(t.deadlineTime)})` : ''}
+                                  {isHol ? ` (تعطیل: ${hol?.title})` : ''}
+                                </span>
+                              </span>
+                            );
+                          })()
                         ) : (
                           <span className="text-gray-600 bg-gray-50 border border-dashed border-gray-300 px-2 py-0.5 rounded-md text-[10px]" title="بدون تاریخ موعد معین - مهلت پیش‌فرض: پایان سال">
                             مهلت: پایان سال {toPersianDigits(today.year)}
@@ -687,6 +784,19 @@ export const TasksScreen: React.FC<Props> = ({
                           <span className="text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md text-[10px]">
                             تکمیل: {toPersianDigits(t.completedAt)}
                           </span>
+                        )}
+
+                        {/* Hourglass Progress Badge */}
+                        {(t.focusProgressPercent !== undefined || (t.focusSessions && t.focusSessions.length > 0)) && (
+                          <button
+                            type="button"
+                            onClick={() => setFocusHistoryTask(t)}
+                            className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-md font-bold bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 transition-colors cursor-pointer"
+                            title="مشاهده تاریخچه ساعت شنی تمرکز"
+                          >
+                            <Hourglass className="w-2.5 h-2.5 text-amber-600" />
+                            <span>پیشرفت تمرکز: {toPersianDigits(t.focusProgressPercent ?? 0)}٪</span>
+                          </button>
                         )}
 
                         {t.time && (
@@ -771,14 +881,46 @@ export const TasksScreen: React.FC<Props> = ({
                       </button>
                     )}
 
+                    {/* Focus History Modal trigger */}
+                    <button
+                      type="button"
+                      onClick={() => setFocusHistoryTask(t)}
+                      title="مشاهده تاریخچه ساعت شنی تمرکز"
+                      className="p-1.5 text-gray-400 hover:text-amber-700 hover:bg-amber-50 rounded-lg transition-colors cursor-pointer"
+                    >
+                      <History className="w-3.5 h-3.5" />
+                    </button>
+
                     {!t.isCompleted && (
                       <button
                         type="button"
-                        onClick={() => onOpenTimer(t.title, Math.floor(t.timerSecondsTarget / 60) || 25, () => onToggleTask(t.id))}
-                        title="شروع تمرکز"
-                        className="p-1.5 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-lg transition-colors cursor-pointer"
+                        onClick={() => {
+                          const todayHol = isDateHoliday(today);
+                          if (todayHol.isHoliday) {
+                            const proceed = window.confirm(`توجه: امروز به دلیل «${todayHol.title}» در تقویم رسمی کشور تعطیل است.\nآیا مایل به شروع ساعت شنی تمرکز روی این تسک هستید؟`);
+                            if (!proceed) return;
+                          }
+                          onOpenTimer(
+                            t.title,
+                            Math.floor(t.timerSecondsTarget / 60) || 25,
+                            (elapsed, isDone) => {
+                              if (isDone) onToggleTask(t.id);
+                            },
+                            {
+                              entityType: 'TASK',
+                              taskId: t.id,
+                              initialElapsedSeconds: t.timerSecondsElapsed || 0,
+                              currentProgressPercent: t.focusProgressPercent || 0,
+                            }
+                          );
+                        }}
+                        title="شروع ساعت شنی تمرکز"
+                        className="p-1.5 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-lg transition-colors cursor-pointer flex items-center gap-1"
                       >
-                        <Play className="w-3.5 h-3.5" />
+                        <Hourglass className="w-3.5 h-3.5" />
+                        {t.focusProgressPercent && t.focusProgressPercent > 0 ? (
+                          <span className="text-[10px] font-bold">{toPersianDigits(t.focusProgressPercent)}٪</span>
+                        ) : null}
                       </button>
                     )}
 
@@ -838,6 +980,37 @@ export const TasksScreen: React.FC<Props> = ({
           setTaskToTransfer(null);
         }}
       />
+
+      {/* Focus History Modal for Tasks */}
+      {focusHistoryTask && (
+        <FocusHistoryModal
+          isOpen={Boolean(focusHistoryTask)}
+          title={focusHistoryTask.title}
+          entityType="TASK"
+          sessions={focusHistoryTask.focusSessions || []}
+          timerTargetMinutes={Math.floor(focusHistoryTask.timerSecondsTarget / 60) || 25}
+          currentElapsedSeconds={focusHistoryTask.timerSecondsElapsed || 0}
+          currentProgressPercent={focusHistoryTask.focusProgressPercent || 0}
+          onClose={() => setFocusHistoryTask(null)}
+          onOpenTimerNow={() => {
+            const task = focusHistoryTask;
+            setFocusHistoryTask(null);
+            onOpenTimer(
+              task.title,
+              Math.floor(task.timerSecondsTarget / 60) || 25,
+              (elapsed, isDone) => {
+                if (isDone) onToggleTask(task.id);
+              },
+              {
+                entityType: 'TASK',
+                taskId: task.id,
+                initialElapsedSeconds: task.timerSecondsElapsed || 0,
+                currentProgressPercent: task.focusProgressPercent || 0,
+              }
+            );
+          }}
+        />
+      )}
     </div>
   );
 };

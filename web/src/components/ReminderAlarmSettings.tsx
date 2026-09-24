@@ -28,7 +28,10 @@ import {
   Sparkles, 
   AlertCircle,
   ExternalLink,
-  Info
+  Info,
+  Clock,
+  RotateCcw,
+  Zap
 } from 'lucide-react';
 
 interface Props {
@@ -53,6 +56,16 @@ export const ReminderAlarmSettings: React.FC<Props> = ({
   const [playingSoundId, setPlayingSoundId] = useState<string | null>(null);
   const [notifPermission, setNotifPermission] = useState<NotificationPermission>('default');
   const [savedSuccess, setSavedSuccess] = useState(false);
+
+  // Smart Snooze Intervals & Local Notification Settings
+  const [snoozeIntervalMinutes, setSnoozeIntervalMinutes] = useState<number>(current.snoozeIntervalMinutes ?? 10);
+  const [autoReNotifyCount, setAutoReNotifyCount] = useState<number>(current.autoReNotifyCount ?? 2);
+  const [customSnoozeMinutes, setCustomSnoozeMinutes] = useState<string>('');
+  const [availableSnoozeIntervals, setAvailableSnoozeIntervals] = useState<number[]>(
+    current.availableSnoozeIntervals && current.availableSnoozeIntervals.length > 0
+      ? current.availableSnoozeIntervals
+      : [5, 10, 15, 30, 60]
+  );
 
   // New custom audio form
   const [isAddingAudio, setIsAddingAudio] = useState(false);
@@ -187,10 +200,14 @@ export const ReminderAlarmSettings: React.FC<Props> = ({
       selectedSoundId,
       volume,
       customSounds,
+      snoozeIntervalMinutes,
+      availableSnoozeIntervals,
+      autoReNotifyCount,
+      autoReNotifyIntervalMinutes: snoozeIntervalMinutes,
     };
     onSaveSettings(updated);
     setSavedSuccess(true);
-    onNotify?.('تنظیمات سیستم یادآور و آلارم با موفقیت ذخیره شد.');
+    onNotify?.('تنظیمات یادآور، فواصل یادآوری هوشمند و آلارم با موفقیت ذخیره شد.');
     setTimeout(() => setSavedSuccess(false), 3000);
   };
 
@@ -306,6 +323,130 @@ export const ReminderAlarmSettings: React.FC<Props> = ({
               <Sparkles className="w-3.5 h-3.5 text-teal-600" />
               <span>تست هم‌زمان اعلان و زنگ 🔔🎵</span>
             </button>
+          </div>
+        </div>
+
+        {/* Smart Snooze & Local Notification Intervals Section */}
+        <div className="p-4 bg-gradient-to-br from-amber-50/70 via-emerald-50/30 to-teal-50/50 rounded-2xl border border-amber-200/80 shadow-2xs space-y-3.5">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="flex items-center gap-2">
+              <div className="p-2 bg-amber-500 text-white rounded-xl shadow-2xs">
+                <RotateCcw className="w-4 h-4" />
+              </div>
+              <div>
+                <span className="text-xs font-bold text-amber-950 block">فواصل یادآوری هوشمند و تعویق (Smart Snooze)</span>
+                <span className="text-[11px] text-amber-800/80 block">مدیریت فواصل اعلان‌های محلی در صورت تعویق یا رسیدگی نکردن به تسک</span>
+              </div>
+            </div>
+            <span className="text-[11px] font-semibold text-amber-800 bg-amber-100/70 px-2 py-0.5 rounded-full border border-amber-200">
+              مدیریت با اعلانات محلی (Local Notifications)
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 pt-1">
+            {/* Quick Default Interval Choice */}
+            <div className="bg-white p-3.5 rounded-xl border border-amber-100 space-y-2.5 shadow-2xs">
+              <label className="text-xs font-bold text-gray-800 flex items-center justify-between">
+                <span className="flex items-center gap-1.5">
+                  <Clock className="w-3.5 h-3.5 text-amber-600" />
+                  <span>فاصله پیش‌فرض یادآوری دوباره (تعویق)</span>
+                </span>
+                <span className="text-xs font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200">
+                  {toPersianDigits(snoozeIntervalMinutes)} دقیقه بعد
+                </span>
+              </label>
+
+              {/* Chips for choosing intervals */}
+              <div className="flex flex-wrap gap-1.5 pt-1">
+                {availableSnoozeIntervals.map((mins) => {
+                  const isSelected = snoozeIntervalMinutes === mins;
+                  return (
+                    <button
+                      key={mins}
+                      type="button"
+                      onClick={() => setSnoozeIntervalMinutes(mins)}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1 cursor-pointer ${
+                        isSelected
+                          ? 'bg-amber-600 text-white shadow-xs scale-102 ring-2 ring-amber-400/40'
+                          : 'bg-gray-50 hover:bg-amber-50 text-gray-700 border border-gray-200 hover:border-amber-300'
+                      }`}
+                    >
+                      <span>{toPersianDigits(mins)} دقیقه</span>
+                      {isSelected && <Check className="w-3 h-3" />}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Add custom snooze interval */}
+              <div className="pt-2 flex items-center gap-2 border-t border-gray-100">
+                <input
+                  type="number"
+                  min="1"
+                  max="240"
+                  placeholder="فاصله دلخواه (دقیقه)..."
+                  value={customSnoozeMinutes}
+                  onChange={(e) => setCustomSnoozeMinutes(e.target.value)}
+                  className="px-2.5 py-1.5 bg-gray-50 rounded-lg border border-gray-200 text-xs w-36 outline-hidden focus:border-amber-500 font-medium"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    const parsed = parseInt(customSnoozeMinutes, 10);
+                    if (!isNaN(parsed) && parsed > 0) {
+                      if (!availableSnoozeIntervals.includes(parsed)) {
+                        const updated = [...availableSnoozeIntervals, parsed].sort((a, b) => a - b);
+                        setAvailableSnoozeIntervals(updated);
+                      }
+                      setSnoozeIntervalMinutes(parsed);
+                      setCustomSnoozeMinutes('');
+                      onNotify?.(`فاصله ${toPersianDigits(parsed)} دقیقه به گزینه‌ها اضافه شد.`);
+                    }
+                  }}
+                  className="px-2.5 py-1.5 bg-amber-100 hover:bg-amber-200 text-amber-900 font-bold text-xs rounded-lg transition-colors cursor-pointer flex items-center gap-1"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>افزودن فاصله</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Auto Re-Notify Behavior */}
+            <div className="bg-white p-3.5 rounded-xl border border-amber-100 space-y-2.5 shadow-2xs">
+              <label className="text-xs font-bold text-gray-800 flex items-center justify-between">
+                <span className="flex items-center gap-1.5">
+                  <Zap className="w-3.5 h-3.5 text-amber-600" />
+                  <span>تکرار خودکار اعلان در صورت عدم واکنش</span>
+                </span>
+                <span className="text-xs font-bold text-teal-700 bg-teal-50 px-2 py-0.5 rounded-md border border-teal-200">
+                  {autoReNotifyCount === 0 ? 'غیرفعال' : `تا ${toPersianDigits(autoReNotifyCount)} مرتبه`}
+                </span>
+              </label>
+
+              <p className="text-[11px] text-gray-500 leading-relaxed">
+                اگر هنگام پخش یادآور متوجه زنگ نشدید، سامانه پس از هر {toPersianDigits(snoozeIntervalMinutes)} دقیقه مجدداً از طریق اعلانات محلی مرورگر شما را باخبر می‌کند.
+              </p>
+
+              <div className="flex items-center gap-2 pt-1">
+                {[0, 1, 2, 3, 5].map((cnt) => {
+                  const isSelected = autoReNotifyCount === cnt;
+                  return (
+                    <button
+                      key={cnt}
+                      type="button"
+                      onClick={() => setAutoReNotifyCount(cnt)}
+                      className={`flex-1 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                        isSelected
+                          ? 'bg-teal-700 text-white shadow-xs scale-102 ring-2 ring-teal-400/40'
+                          : 'bg-gray-50 hover:bg-teal-50 text-gray-700 border border-gray-200'
+                      }`}
+                    >
+                      {cnt === 0 ? 'خاموش' : `${toPersianDigits(cnt)} بار`}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
           </div>
         </div>
 

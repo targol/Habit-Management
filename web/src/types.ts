@@ -46,12 +46,23 @@ export interface Goal {
 
 export type TaskRepeatType = 'NONE' | 'DAILY' | 'WEEKLY' | 'MONTHLY';
 
+export interface FocusSessionLog {
+  id: string;
+  dateStr: string; // "1403/07/15"
+  timestamp: string; // ISO string
+  durationSeconds: number;
+  targetSeconds: number;
+  completed100: boolean; // whether user marked 100% or timer fully finished
+  progressPercent: number; // 0 to 100
+}
+
 export interface AppTask {
   id: string;
   title: string;
   notes: string;
   categoryId: string;
   goalId?: string | null;
+  startDate?: string | null; // "1403/07/15" - تاریخ شروع یا نمایش تسک (در صورت تعیین، تسک قبل از این تاریخ فعال نمی‌شود)
   dueDate: string; // "1403/07/15" یا خالی برای تسک بدون موعد معین (پیش‌فرض پایان سال)
   time?: string | null; // "14:30" - زمان/ساعت انجام تسک
   deadlineTime?: string | null; // "18:00" - زمان نهایی پایان تسک (اختیاری)
@@ -62,12 +73,17 @@ export interface AppTask {
   reminderDate?: string | null; // تاریخ مشخص یادآور مثلا "1403/07/15"
   customAlarmSound?: string | null; // شناسه زنگ اختصاصی یا پیش‌فرض
   lastNotifiedAt?: string | null; // آخرین زمان ارسال اعلان برای جلوگیری از تکرار
+  snoozeCount?: number; // تعداد دفعات تعویق یا یادآوری مجدد
+  nextSnoozeAt?: string | null; // زمان یادآوری هوشمند بعدی HH:mm
   repeatType: TaskRepeatType;
   repeatDaysOfWeek: number[]; // 0: Saturday .. 6: Friday
-  weekOfMonth?: number; // 1 to 5 (هفته اول، دوم، سوم، چهارم، پنجم ماه)
-  dayOfWeek?: number; // 0 to 6 (روز شنبه تا جمعه)
+  monthOfYear?: number | null; // 1 to 12 (فروردین تا اسفند) یا خالی (همه ماه‌ها)
+  weekOfMonth?: number | null; // 1 to 5 (هفته اول، دوم، سوم، چهارم، پنجم ماه) یا خالی
+  dayOfWeek?: number | null; // 0 to 6 (روز شنبه تا جمعه) یا خالی
   timerSecondsTarget: number;
   timerSecondsElapsed: number;
+  focusProgressPercent?: number; // 0 to 100 درصد پیشرفت تمرکز روزانه
+  focusSessions?: FocusSessionLog[]; // تاریخچه جلسات تمرکز ساعت شنی
   isCompleted: boolean;
   completedAt?: string | null;
   isArchived?: boolean; // آیا به بخش بایگانی منتقل شده است
@@ -89,6 +105,9 @@ export interface Habit {
   exemptWeekends: boolean;
   plantType: string;
   completionHistory: Record<string, boolean>; // "1403/07/15": true
+  dailyProgressHistory?: Record<string, number>; // "1403/07/15": 65 (درصد انجام شده از هدف ساعت شنی)
+  dailyElapsedSeconds?: Record<string, number>; // "1403/07/15": 900 ثانیه
+  focusSessions?: FocusSessionLog[]; // تاریخچه جلسات تمرکز ساعت شنی
   createdAt: string;
   isClosed?: boolean; // آیا عادت خاتمه یافته و از لیست فعال بسته شده است؟ (تاریخچه حفظ می‌شود)
   closedAt?: string | null; // تاریخ بسته شدن
@@ -125,6 +144,13 @@ export interface ReminderSettings {
   selectedSoundId: string;
   volume: number; // 0.1 to 1.0
   customSounds: AlarmSoundItem[];
+  // Smart snooze and local notification intervals
+  snoozeIntervalMinutes?: number; // default e.g. 10 minutes
+  availableSnoozeIntervals?: number[]; // e.g. [5, 10, 15, 30, 60]
+  autoReNotifyCount?: number; // How many times to re-notify if ignored (0 = off, 1, 2, 3)
+  autoReNotifyIntervalMinutes?: number; // Interval for auto re-notify e.g. 10 min
+  notifyBeforeHolidayTasks?: boolean; // Notify before task starts on official holidays
+  holidayLeadMinutes?: number; // Minutes before task to notify on holidays (e.g. 15 or 30 mins)
 }
 
 export interface AppBackupData {

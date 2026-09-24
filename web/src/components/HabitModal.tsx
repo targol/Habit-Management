@@ -1,6 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { Habit, Category, Goal } from '../types';
-import { getTodayJalali, jalaliToFormattedString, WEEKDAYS_SHORT, toPersianDigits, PERSIAN_MONTHS } from '../calendar/jalali';
+import { 
+  getTodayJalali, 
+  jalaliToFormattedString, 
+  WEEKDAYS_SHORT, 
+  toPersianDigits, 
+  PERSIAN_MONTHS,
+  isSeasonPast,
+  isMonthPast,
+  isYearPast
+} from '../calendar/jalali';
 import { X, Folder, Target, Clock, ShieldCheck, Sprout, Edit3, Plus, Archive, Sparkles, Copy } from 'lucide-react';
 import { PlantIcon, ALL_PLANT_TYPES } from './PlantIcon';
 
@@ -38,14 +47,17 @@ export const HabitModal: React.FC<Props> = ({
   const [isInheritedFromGoal, setIsInheritedFromGoal] = useState(false);
   const [isClosed, setIsClosed] = useState(false);
   const [isDuplicateMode, setIsDuplicateMode] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
 
   // Synchronize state when modal opens or habit prop changes
   useEffect(() => {
     if (!isOpen) {
       setIsDuplicateMode(false);
+      setErrorMessage('');
       return;
     }
 
+    setErrorMessage('');
     const dupl = Boolean(isDuplicate);
     setIsDuplicateMode(dupl);
 
@@ -131,7 +143,32 @@ export const HabitModal: React.FC<Props> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title.trim()) return;
+    if (!title.trim()) {
+      setErrorMessage('لطفاً عنوان عادت را وارد نمایید.');
+      return;
+    }
+
+    // Check if linked goal is in past
+    if (goalId) {
+      const g = goals.find(item => item.id === goalId);
+      if (g) {
+        const gYear = g.year || today.year;
+        if (isYearPast(gYear, today)) {
+          setErrorMessage(`امکان اتصال به هدف سال گذشته (${toPersianDigits(gYear)}) وجود ندارد.`);
+          return;
+        }
+        if (g.period === 'SEASONAL' && g.seasonIndex !== undefined && isSeasonPast(gYear, g.seasonIndex, today)) {
+          setErrorMessage('امکان اتصال به هدف فصل تمام‌شده وجود ندارد.');
+          return;
+        }
+        if (g.period === 'MONTHLY' && g.monthIndex !== undefined && isMonthPast(gYear, g.monthIndex, today)) {
+          setErrorMessage('امکان اتصال به هدف ماه تمام‌شده وجود ندارد.');
+          return;
+        }
+      }
+    }
+
+    setErrorMessage('');
 
     let habitId: string;
     if (isActuallyDuplicate) {
@@ -211,6 +248,12 @@ export const HabitModal: React.FC<Props> = ({
 
         {/* Scrollable Form Body */}
         <form id="habit-form" onSubmit={handleSubmit} className="flex-1 overflow-y-auto px-5 py-4 space-y-4 text-xs">
+          {errorMessage && (
+            <div className="bg-rose-50 border border-rose-300 text-rose-800 text-xs px-3.5 py-2.5 rounded-xl flex items-center gap-2 shadow-2xs">
+              <span className="font-semibold">{errorMessage}</span>
+            </div>
+          )}
+
           <div>
             <label className="block font-bold text-gray-800 mb-1">
               عنوان عادت *
@@ -281,11 +324,14 @@ export const HabitModal: React.FC<Props> = ({
                   <optgroup label="🎯 اهداف سالانه (جاری در تمام فصول سال)">
                     {goals
                       .filter(g => g.period === 'ANNUAL')
-                      .map((g) => (
-                        <option key={g.id} value={g.id}>
-                          🎯 سال {toPersianDigits(g.year)}: {g.title}
-                        </option>
-                      ))}
+                      .map((g) => {
+                        const isPast = isYearPast(g.year || today.year, today);
+                        return (
+                          <option key={g.id} value={g.id} disabled={isPast}>
+                            {isPast ? '⛔ [پایان یافته] ' : ''}🎯 سال {toPersianDigits(g.year)}: {g.title}
+                          </option>
+                        );
+                      })}
                   </optgroup>
                 )}
 
@@ -296,6 +342,7 @@ export const HabitModal: React.FC<Props> = ({
                       .filter(g => g.period === 'SEASONAL')
                       .map((g) => {
                         const sIdx = g.seasonIndex ?? 0;
+                        const isPast = isSeasonPast(g.year || today.year, sIdx, today);
                         const sIcons = ['🌸', '☀️', '🍂', '❄️'];
                         const sNames = ['بهار', 'تابستان', 'پاییز', 'زمستان'];
                         const icon = sIcons[sIdx] || '🌱';
@@ -303,8 +350,8 @@ export const HabitModal: React.FC<Props> = ({
                         const parent = g.parentId ? goals.find(p => p.id === g.parentId) : undefined;
                         const parentText = parent ? ` [ذیل ${parent.title}]` : '';
                         return (
-                          <option key={g.id} value={g.id}>
-                            {icon} فصل {name} {toPersianDigits(g.year)}: {g.title}{parentText}
+                          <option key={g.id} value={g.id} disabled={isPast}>
+                            {isPast ? '⛔ [پایان یافته] ' : ''}{icon} فصل {name} {toPersianDigits(g.year)}: {g.title}{parentText}
                           </option>
                         );
                       })}
@@ -318,10 +365,11 @@ export const HabitModal: React.FC<Props> = ({
                       .filter(g => g.period === 'MONTHLY')
                       .map((g) => {
                         const mIdx = g.monthIndex ? g.monthIndex - 1 : 0;
+                        const isPast = isMonthPast(g.year || today.year, mIdx + 1, today);
                         const mName = PERSIAN_MONTHS[mIdx] || 'ماه';
                         return (
-                          <option key={g.id} value={g.id}>
-                            📅 ماه {mName} {toPersianDigits(g.year)}: {g.title}
+                          <option key={g.id} value={g.id} disabled={isPast}>
+                            {isPast ? '⛔ [پایان یافته] ' : ''}📅 ماه {mName} {toPersianDigits(g.year)}: {g.title}
                           </option>
                         );
                       })}

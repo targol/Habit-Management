@@ -13,10 +13,10 @@ export interface ReleaseNote {
 }
 
 export const APP_VERSION_INFO = {
-  currentVersion: '1.2.0',
-  currentVersionCode: 120,
-  releaseDate: '۱۴۰۵/۰۷/۰۱',
-  apkFileName: 'javaneh-v1.2.0.apk',
+  currentVersion: '1.3.0',
+  currentVersionCode: 130,
+  releaseDate: '۱۴۰۵/۰۷/۱۵',
+  apkFileName: 'javaneh-v1.3.0.apk',
   apkPackageName: 'ir.javaneh.app',
   targetSdk: 'Android 14 (API 34)',
   minSdk: 'Android 7.0 (API 24)',
@@ -24,6 +24,43 @@ export const APP_VERSION_INFO = {
 };
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.3.0',
+    versionCode: 130,
+    releaseDate: '۱۴۰۵/۰۷/۱۵',
+    gregorianDate: '2026-10-06',
+    title: 'فواصل یادآوری هوشمند محلی و اعتبارسنجی بازه‌های زمانی',
+    highlights: [
+      'امکان تعیین فواصل یادآوری هوشمند (مانند ۱۰ دقیقه بعد، ۱۵، ۳۰ و دلخواه) از طریق اعلانات محلی (Local Notifications)',
+      'سیستم تکرار خودکار اعلان‌های محلی در صورت متوجه نشدن یا بازخورد ندادن کاربر',
+      'منوی انتخاب سریع فاصله یادآوری مجدد در پنجره هشدار اعلان',
+      'جلوگیری هوشمند از تعریف تسک، هدف یا عادت برای بازه‌ها یا فصل‌های سپری‌شده',
+      'پشتیبانی کامل از تاریخ شروع (Start Date) و نمایش روزانه تا زمان سررسید مهلت تسک',
+      'امکان خالی گذاشتن ماه یا هفته در تسک‌های تکرارشونده و انعطاف‌پذیری تقویم'
+    ],
+    changes: [
+      {
+        type: 'FEATURE',
+        title: 'فواصل یادآوری هوشمند (Smart Snooze Intervals)',
+        description: 'افزوده شدن بخش پیکربندی فواصل یادآور در تنظیمات، امکان انتخاب فاصله پیش‌فرض تعویق (مثلاً ۱۰ دقیقه بعد) و ایجاد فواصل سفارشی با مدیریت مستقیم اعلان‌های محلی مرورگر (Local Notifications).'
+      },
+      {
+        type: 'FEATURE',
+        title: 'تکرار خودکار اعلانات محلی در صورت غیبت کاربر',
+        description: 'امکان تنظیم تکرار هوشمند اعلان برای تسک‌های مهم در صورت عدم تایید کاربر تا ۳ یا ۵ نوبت با فاصله تعیین‌شده.'
+      },
+      {
+        type: 'IMPROVEMENT',
+        title: 'اعتبارسنجی بازه‌های سپری‌شده (Past-Period Blocking)',
+        description: 'عدم اجازه برای ایجاد تسک، عادت یا هدف در ماه‌ها یا فصول پایان‌یافته با نمایش پیام راهنمای مناسب به کاربر.'
+      },
+      {
+        type: 'IMPROVEMENT',
+        title: 'منطق زمان شروع و مهلت پیوسته تسک‌ها',
+        description: 'تسک‌های دارای تاریخ شروع تا پیش از فرارسیدن موعد در لیست آتی قرار می‌گیرند و تسک‌های جاری دارای مهلت تا زمان اتمام در تمام روزها نمایش داده می‌شوند.'
+      }
+    ]
+  },
   {
     version: '1.2.0',
     versionCode: 120,

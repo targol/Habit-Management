@@ -33,7 +33,7 @@ import {
   WEEKDAYS,
   isDateHoliday
 } from './calendar/jalali';
-import { isTaskReminderDue, triggerReminderAlarm } from './services/reminderService';
+import { isTaskReminderDue, isTaskHolidayAdvanceReminderDue, triggerReminderAlarm, calculateSnoozeTime } from './services/reminderService';
 import { stopAllAlarmSounds, PRESET_ALARM_SOUNDS } from './services/soundService';
 import { TodayScreen } from './components/TodayScreen';
 import { TasksScreen } from './components/TasksScreen';
@@ -41,6 +41,7 @@ import { HabitsScreen } from './components/HabitsScreen';
 import { GoalsScreen } from './components/GoalsScreen';
 import { ReportsScreen } from './components/ReportsScreen';
 import { SettingsScreen } from './components/SettingsScreen';
+import { PersianCalendarScreen } from './components/PersianCalendarScreen';
 import { TaskModal } from './components/TaskModal';
 import { HabitModal } from './components/HabitModal';
 import { GoalModal } from './components/GoalModal';
@@ -48,6 +49,8 @@ import { AnnualGoalWizardModal } from './components/AnnualGoalWizardModal';
 import { GoalDetailHistoryModal } from './components/GoalDetailHistoryModal';
 import { TimerModal } from './components/TimerModal';
 import { ReminderAlertModal } from './components/ReminderAlertModal';
+import { UpdateAndBackupModal } from './components/UpdateAndBackupModal';
+import { ApkIntegrityModal } from './components/ApkIntegrityModal';
 import { 
   Sprout, 
   CheckSquare, 
@@ -62,7 +65,7 @@ import {
   AlertCircle
 } from 'lucide-react';
 
-type NavTab = 'TODAY' | 'TASKS' | 'HABITS' | 'GOALS' | 'REPORTS' | 'SETTINGS';
+type NavTab = 'TODAY' | 'TASKS' | 'HABITS' | 'CALENDAR' | 'GOALS' | 'REPORTS' | 'SETTINGS';
 
 // Helper to flatten nested goals arrays and sanitize objects
 export function flattenAndSanitizeGoals(raw: any[]): Goal[] {
@@ -134,6 +137,7 @@ export const App: React.FC = () => {
   });
 
   const [activeReminderTask, setActiveReminderTask] = useState<AppTask | null>(null);
+  const [activeReminderHolidayNotice, setActiveReminderHolidayNotice] = useState<string | null>(null);
 
   const [isStorageReady, setIsStorageReady] = useState(false);
   const isInitialMount = useRef(true);
@@ -326,16 +330,43 @@ export const App: React.FC = () => {
     const checkReminders = () => {
       const now = new Date();
       const currentHHMM = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-      const currentDayOfWeek = getDayOfWeek(today.year, today.month, today.day);
+      const currentDayOfWeek = getDayOfWeek(today);
+      const holidayInfo = isDateHoliday(today);
 
       // Find tasks that are due and not yet notified recently
       for (const task of tasks) {
         if (task.isCompleted) continue;
+
+        // 1. Check proactive advance reminder for tasks scheduled on holidays
+        if (reminderSettings.notifyBeforeHolidayTasks && holidayInfo.isHoliday) {
+          const leadMinutes = reminderSettings.holidayLeadMinutes || 15;
+          if (isTaskHolidayAdvanceReminderDue(task, todayStr, currentHHMM, currentDayOfWeek, holidayInfo.isHoliday, leadMinutes)) {
+            const holidayTitle = holidayInfo.title || 'تعطیل رسمی';
+            triggerReminderAlarm(
+              task,
+              reminderSettings,
+              () => {
+                setActiveReminderHolidayNotice(holidayTitle);
+                setActiveReminderTask(task);
+              },
+              holidayTitle
+            );
+
+            const slotKey = `holiday-advance-${todayStr} ${currentHHMM}`;
+            setTasks(prev => prev.map(t => t.id === task.id ? { ...t, lastNotifiedAt: slotKey } : t));
+            setActiveReminderHolidayNotice(holidayTitle);
+            setActiveReminderTask(task);
+            break;
+          }
+        }
+
+        // 2. Standard due-time reminder check
         if (!task.reminderEnabled && !task.isImportant) continue;
 
         if (isTaskReminderDue(task, todayStr, currentHHMM, currentDayOfWeek)) {
           // Trigger reminder notification and audio alarm
           triggerReminderAlarm(task, reminderSettings, () => {
+            setActiveReminderHolidayNotice(null);
             setActiveReminderTask(task);
           });
 
@@ -344,6 +375,7 @@ export const App: React.FC = () => {
           setTasks(prev => prev.map(t => t.id === task.id ? { ...t, lastNotifiedAt: slotKey } : t));
 
           // Set active reminder task for the on-screen alert modal
+          setActiveReminderHolidayNotice(null);
           setActiveReminderTask(task);
           break; // Ring one at a time
         }
@@ -355,7 +387,7 @@ export const App: React.FC = () => {
 
     const intervalId = setInterval(checkReminders, 15000);
     return () => clearInterval(intervalId);
-  }, [tasks, reminderSettings, todayStr, today.year, today.month, today.day]);
+  }, [tasks, reminderSettings, todayStr, today.year, today.month, today.day, today]);
 
   const handleSaveUserProfile = (updated: UserProfile) => {
     setUserProfile(updated);
@@ -387,34 +419,66 @@ export const App: React.FC = () => {
 
   const handleDismissReminder = () => {
     stopAllAlarmSounds();
+    // If auto re-notify is configured and user just closed the popup without completing or explicit snooze:
+    if (activeReminderTask && (reminderSettings.autoReNotifyCount ?? 0) > 0) {
+      const currentCount = activeReminderTask.snoozeCount ?? 0;
+      const maxCount = reminderSettings.autoReNotifyCount ?? 2;
+      const interval = reminderSettings.autoReNotifyIntervalMinutes || reminderSettings.snoozeIntervalMinutes || 10;
+      if (currentCount < maxCount) {
+        const nextTime = calculateSnoozeTime(interval);
+        setTasks(prev => prev.map(t => {
+          if (t.id === activeReminderTask.id) {
+            return {
+              ...t,
+              nextSnoozeAt: nextTime,
+              snoozeCount: currentCount + 1,
+              lastNotifiedAt: null,
+            };
+          }
+          return t;
+        }));
+      }
+    }
     setActiveReminderTask(null);
+    setActiveReminderHolidayNotice(null);
   };
 
   const handleCompleteReminderTask = (taskId: string) => {
     stopAllAlarmSounds();
     handleToggleTask(taskId);
+    // Clear snooze state upon task completion
+    setTasks(prev => prev.map(t => {
+      if (t.id === taskId) {
+        return {
+          ...t,
+          nextSnoozeAt: null,
+          snoozeCount: 0,
+        };
+      }
+      return t;
+    }));
     setActiveReminderTask(null);
+    setActiveReminderHolidayNotice(null);
   };
 
   const handleSnoozeReminder = (taskId: string, minutes: number) => {
     stopAllAlarmSounds();
-    const now = new Date();
-    now.setMinutes(now.getMinutes() + minutes);
-    const hours = String(now.getHours()).padStart(2, '0');
-    const mins = String(now.getMinutes()).padStart(2, '0');
-    const snoozeTime = `${hours}:${mins}`;
+    const snoozeTime = calculateSnoozeTime(minutes);
 
     setTasks(prev => prev.map(t => {
       if (t.id === taskId) {
         return {
           ...t,
+          nextSnoozeAt: snoozeTime,
           reminderTime: snoozeTime,
+          snoozeCount: (t.snoozeCount || 0) + 1,
           lastNotifiedAt: null, // allow notifying at new snoozed time
         };
       }
       return t;
     }));
     setActiveReminderTask(null);
+    setActiveReminderHolidayNotice(null);
   };
 
   // --- Active Tab ---
@@ -443,12 +507,21 @@ export const App: React.FC = () => {
     isOpen: boolean;
     title: string;
     minutes: number;
-    onDone?: () => void;
+    initialElapsedSeconds?: number;
+    currentProgressPercent?: number;
+    entityType?: 'TASK' | 'HABIT';
+    taskId?: string;
+    habitId?: string;
+    onDone?: (elapsedSeconds: number, isFullyCompleted: boolean) => void;
   }>({
     isOpen: false,
     title: '',
     minutes: 25,
   });
+
+  // Direct Tasks Backup and APK Modal State
+  const [isTasksBackupModalOpen, setIsTasksBackupModalOpen] = useState(false);
+  const [isApkDownloadModalOpen, setIsApkDownloadModalOpen] = useState(false);
 
   // --- Plant Growth State Calculation ---
   const todayTasks = tasks.filter(t => {
@@ -1312,13 +1385,104 @@ export const App: React.FC = () => {
   };
 
   // --- Timer Helper ---
-  const openTimer = (title: string, minutes: number, onDone?: () => void) => {
+  const openTimer = (
+    title: string,
+    minutes: number,
+    onDone?: (elapsedSeconds: number, isFullyCompleted: boolean) => void,
+    options?: {
+      entityType?: 'TASK' | 'HABIT';
+      taskId?: string;
+      habitId?: string;
+      initialElapsedSeconds?: number;
+      currentProgressPercent?: number;
+    }
+  ) => {
     setTimerConfig({
       isOpen: true,
       title,
       minutes,
+      entityType: options?.entityType || 'TASK',
+      taskId: options?.taskId,
+      habitId: options?.habitId,
+      initialElapsedSeconds: options?.initialElapsedSeconds || 0,
+      currentProgressPercent: options?.currentProgressPercent || 0,
       onDone,
     });
+  };
+
+  const handleTimerComplete = (elapsedSeconds: number, isFullyCompleted: boolean) => {
+    const timestampNow = new Date().toISOString();
+    const targetSeconds = (timerConfig.minutes || 25) * 60;
+    const progressPct = isFullyCompleted 
+      ? 100 
+      : Math.min(100, Math.round((elapsedSeconds / Math.max(1, targetSeconds)) * 100));
+
+    // Handle Task Focus Session
+    if (timerConfig.taskId) {
+      const taskId = timerConfig.taskId;
+      setTasks(prev => prev.map(t => {
+        if (t.id === taskId) {
+          const session: FocusSessionLog = {
+            id: `session-${Date.now()}`,
+            dateStr: todayStr,
+            timestamp: timestampNow,
+            durationSeconds: elapsedSeconds,
+            targetSeconds,
+            completed100: isFullyCompleted || progressPct >= 100,
+            progressPercent: progressPct,
+          };
+          const nextSessions = [session, ...(t.focusSessions || [])];
+          return {
+            ...t,
+            timerSecondsElapsed: elapsedSeconds,
+            focusProgressPercent: progressPct,
+            focusSessions: nextSessions,
+            isCompleted: isFullyCompleted ? true : (t.isCompleted || false),
+            completedAt: isFullyCompleted ? todayStr : (t.isCompleted ? t.completedAt : null),
+          };
+        }
+        return t;
+      }));
+    }
+
+    // Handle Habit Focus Session
+    if (timerConfig.habitId) {
+      const habitId = timerConfig.habitId;
+      setHabits(prev => prev.map(h => {
+        if (h.id === habitId) {
+          const session: FocusSessionLog = {
+            id: `session-${Date.now()}`,
+            dateStr: todayStr,
+            timestamp: timestampNow,
+            durationSeconds: elapsedSeconds,
+            targetSeconds,
+            completed100: isFullyCompleted || progressPct >= 100,
+            progressPercent: progressPct,
+          };
+          const nextSessions = [session, ...(h.focusSessions || [])];
+          const nextDailyProgress = { ...(h.dailyProgressHistory || {}), [todayStr]: progressPct };
+          const nextDailyElapsed = { ...(h.dailyElapsedSeconds || {}), [todayStr]: elapsedSeconds };
+          const nextCompletion = { ...h.completionHistory };
+          if (isFullyCompleted) {
+            nextCompletion[todayStr] = true;
+          }
+
+          return {
+            ...h,
+            dailyProgressHistory: nextDailyProgress,
+            dailyElapsedSeconds: nextDailyElapsed,
+            completionHistory: nextCompletion,
+            focusSessions: nextSessions,
+          };
+        }
+        return h;
+      }));
+    }
+
+    // Call custom onDone if provided
+    if (timerConfig.onDone) {
+      timerConfig.onDone(elapsedSeconds, isFullyCompleted);
+    }
   };
 
   return (
@@ -1337,18 +1501,36 @@ export const App: React.FC = () => {
               <p className="text-[10px] text-gray-400">تسک‌ها، عادات و اهداف سالانه</p>
             </div>
 
-            {/* Main Header Persian Date (Visible across all tabs) */}
-            <div className="hidden sm:flex items-center gap-2 mr-3 px-2.5 py-1 bg-emerald-50/70 border border-emerald-200/70 rounded-xl text-xs text-emerald-950 font-bold">
-              <Calendar className="w-3.5 h-3.5 text-emerald-600" />
+            {/* Main Header Persian Date (Clickable to switch to Persian Calendar) */}
+            <button
+              type="button"
+              onClick={() => setCurrentTab('CALENDAR')}
+              title="مشاهده تقویم شمسی و تعطیلات رسمی ایران"
+              className={`hidden sm:flex items-center gap-2 mr-3 px-2.5 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                currentTab === 'CALENDAR'
+                  ? 'bg-emerald-600 text-white shadow-xs'
+                  : 'bg-emerald-50/70 border border-emerald-200/70 text-emerald-950 hover:bg-emerald-100'
+              }`}
+            >
+              <Calendar className="w-3.5 h-3.5" />
               <span>{WEEKDAYS[getDayOfWeek(today)]}، {toPersianDigits(today.day)} {PERSIAN_MONTHS[today.month - 1]} {toPersianDigits(today.year)}</span>
-            </div>
+            </button>
           </div>
 
           <div className="flex items-center gap-2">
             {/* Small mobile date chip */}
-            <div className="sm:hidden flex items-center gap-1 px-2 py-1 bg-emerald-50/70 border border-emerald-200/60 rounded-lg text-[11px] text-emerald-900 font-bold">
+            <button
+              type="button"
+              onClick={() => setCurrentTab('CALENDAR')}
+              title="مشاهده تقویم شمسی"
+              className={`sm:hidden flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-bold cursor-pointer transition-colors ${
+                currentTab === 'CALENDAR'
+                  ? 'bg-emerald-600 text-white'
+                  : 'bg-emerald-50/70 border border-emerald-200/60 text-emerald-900'
+              }`}
+            >
               <span>{toPersianDigits(today.day)} {PERSIAN_MONTHS[today.month - 1]}</span>
-            </div>
+            </button>
 
             <button
               type="button"
@@ -1389,7 +1571,7 @@ export const App: React.FC = () => {
             onToggleTask={handleToggleTask}
             onToggleHabitToday={(id) => handleToggleHabitDate(id, todayStr)}
             onToggleHabitDate={handleToggleHabitDate}
-            onOpenTimer={(title, mins, cb) => openTimer(title, mins, cb)}
+            onOpenTimer={(title, mins, cb, opts) => openTimer(title, mins, cb, opts)}
             onOpenNewTask={() => { setEditingTask(null); setIsDuplicateTask(false); setIsTaskModalOpen(true); }}
             onOpenNewHabit={() => { setEditingHabit(null); setIsDuplicateHabit(false); setIsHabitModalOpen(true); }}
             onDuplicateTask={(t) => { setEditingTask(t); setIsDuplicateTask(true); setIsTaskModalOpen(true); }}
@@ -1407,12 +1589,13 @@ export const App: React.FC = () => {
             onEditTask={(t) => { setEditingTask(t); setIsDuplicateTask(false); setIsTaskModalOpen(true); }}
             onDuplicateTask={(t) => { setEditingTask(t); setIsDuplicateTask(true); setIsTaskModalOpen(true); }}
             onNewTask={() => { setEditingTask(null); setIsDuplicateTask(false); setIsTaskModalOpen(true); }}
-            onOpenTimer={(title, mins, cb) => openTimer(title, mins, cb)}
+            onOpenTimer={(title, mins, cb, opts) => openTimer(title, mins, cb, opts)}
             onTransferTask={handleTransferSingleTask}
             onCreateSeasonalGoalAndTransfer={handleCreateSeasonalGoalAndTransferTask}
             onArchiveTask={handleArchiveTask}
             onRestoreTask={handleRestoreTask}
             onClearArchivedTasks={handleClearArchivedTasks}
+            onOpenTasksBackup={() => setIsTasksBackupModalOpen(true)}
           />
         )}
 
@@ -1426,8 +1609,25 @@ export const App: React.FC = () => {
             onEditHabit={(h) => { setEditingHabit(h); setIsDuplicateHabit(false); setIsHabitModalOpen(true); }}
             onDuplicateHabit={(h) => { setEditingHabit(h); setIsDuplicateHabit(true); setIsHabitModalOpen(true); }}
             onNewHabit={() => { setEditingHabit(null); setIsDuplicateHabit(false); setIsHabitModalOpen(true); }}
-            onOpenTimer={(title, mins, cb) => openTimer(title, mins, cb)}
+            onOpenTimer={(title, mins, cb, opts) => openTimer(title, mins, cb, opts)}
             onToggleCloseHabit={handleToggleCloseHabit}
+          />
+        )}
+
+        {currentTab === 'CALENDAR' && (
+          <PersianCalendarScreen
+            tasks={tasks}
+            habits={habits}
+            categories={categories}
+            goals={goals}
+            onToggleTask={handleToggleTask}
+            onToggleHabitDate={(id, dateStr) => handleToggleHabitDate(id, dateStr)}
+            onOpenTimer={(title, mins, cb, opts) => openTimer(title, mins, cb, opts)}
+            onNewTaskWithDate={(dateStr) => {
+              setEditingTask(null);
+              setIsDuplicateTask(false);
+              setIsTaskModalOpen(true);
+            }}
           />
         )}
 
@@ -1526,6 +1726,17 @@ export const App: React.FC = () => {
 
           <button
             type="button"
+            onClick={() => setCurrentTab('CALENDAR')}
+            className={`flex flex-col items-center gap-1 cursor-pointer transition-colors ${
+              currentTab === 'CALENDAR' ? 'text-emerald-700 font-bold' : 'text-gray-400 hover:text-gray-600'
+            }`}
+          >
+            <Calendar className={`w-5 h-5 ${currentTab === 'CALENDAR' ? 'stroke-[2.5]' : ''}`} />
+            <span className="text-[10px]">تقویم</span>
+          </button>
+
+          <button
+            type="button"
             onClick={() => setCurrentTab('GOALS')}
             className={`flex flex-col items-center gap-1 cursor-pointer transition-colors ${
               currentTab === 'GOALS' ? 'text-emerald-700 font-bold' : 'text-gray-400 hover:text-gray-600'
@@ -1620,11 +1831,12 @@ export const App: React.FC = () => {
         isOpen={timerConfig.isOpen}
         title={timerConfig.title}
         initialMinutes={timerConfig.minutes}
+        initialElapsedSeconds={timerConfig.initialElapsedSeconds || 0}
+        currentProgressPercent={timerConfig.currentProgressPercent || 0}
+        entityType={timerConfig.entityType || 'TASK'}
         onClose={() => setTimerConfig(prev => ({ ...prev, isOpen: false }))}
-        onComplete={(elapsed) => {
-          if (timerConfig.onDone) {
-            timerConfig.onDone();
-          }
+        onComplete={(elapsed, isFullyCompleted) => {
+          handleTimerComplete(elapsed, isFullyCompleted);
         }}
       />
 
@@ -1638,9 +1850,32 @@ export const App: React.FC = () => {
           reminderSettings.customSounds?.find(s => s.id === activeReminderTask?.customAlarmSound)?.title ||
           'آرامش صبحگاهی'
         }
+        reminderSettings={reminderSettings}
+        holidayNotice={activeReminderHolidayNotice}
         onDismiss={handleDismissReminder}
         onComplete={handleCompleteReminderTask}
         onSnooze={handleSnoozeReminder}
+      />
+
+      {/* Direct Tasks Backup & Restore Modal */}
+      <UpdateAndBackupModal
+        isOpen={isTasksBackupModalOpen}
+        onClose={() => setIsTasksBackupModalOpen(false)}
+        initialTab="TASKS_BACKUP"
+        tasks={tasks}
+        goals={goals}
+        habits={habits}
+        categories={categories}
+        userProfile={userProfile}
+        reminderSettings={reminderSettings}
+        onImportTasksOnly={handleImportTasksOnly}
+        onOpenFullApkDownload={() => setIsApkDownloadModalOpen(true)}
+      />
+
+      {/* Direct APK Download Modal */}
+      <ApkIntegrityModal
+        isOpen={isApkDownloadModalOpen}
+        onClose={() => setIsApkDownloadModalOpen(false)}
       />
     </div>
   );

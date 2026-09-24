@@ -1,6 +1,6 @@
 import React from 'react';
 import { Habit } from '../types';
-import { getTodayJalali, addDaysJalali, jalaliToFormattedString, toPersianDigits, WEEKDAYS_SHORT } from '../calendar/jalali';
+import { getTodayJalali, addDaysJalali, jalaliToFormattedString, toPersianDigits, WEEKDAYS_SHORT, isDateHoliday } from '../calendar/jalali';
 import { Flame, Check } from 'lucide-react';
 
 interface Props {
@@ -13,15 +13,18 @@ export const HabitContributionGrid: React.FC<Props> = ({ habit, onToggleDate }) 
   const todayStr = jalaliToFormattedString(today);
 
   // Generate the last 28 days (4 weeks x 7 days)
-  const days: { dateStr: string; dayNumber: number; isCompleted: boolean; isToday: boolean }[] = [];
+  const days: { dateStr: string; dayNumber: number; isCompleted: boolean; isToday: boolean; isHoliday: boolean; holidayTitle?: string }[] = [];
   for (let i = 27; i >= 0; i--) {
     const d = addDaysJalali(today, -i);
     const dateStr = jalaliToFormattedString(d);
+    const hol = isDateHoliday(d);
     days.push({
       dateStr,
       dayNumber: d.day,
       isCompleted: !!habit.completionHistory[dateStr],
       isToday: dateStr === todayStr,
+      isHoliday: hol.isHoliday,
+      holidayTitle: hol.title,
     });
   }
 
@@ -71,17 +74,19 @@ export const HabitContributionGrid: React.FC<Props> = ({ habit, onToggleDate }) 
               key={d.dateStr}
               type="button"
               onClick={() => onToggleDate(d.dateStr)}
-              title={`${d.dateStr} - ${d.isCompleted ? 'انجام شده (برای لغو کلیک کنید)' : 'انجام نشده (برای ثبت کلیک کنید)'}`}
+              title={`${d.dateStr}${d.isHoliday ? ` (تعطیل رسمی: ${d.holidayTitle})` : ''} - ${d.isCompleted ? 'انجام شده (برای لغو کلیک کنید)' : 'انجام نشده (برای ثبت کلیک کنید)'}`}
               className={`h-7 rounded-lg flex items-center justify-center text-[11px] font-medium transition-all duration-200 cursor-pointer select-none relative ${
                 d.isCompleted
                   ? 'bg-emerald-600 text-white shadow-xs hover:bg-emerald-700'
+                  : d.isHoliday
+                  ? 'bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200 font-bold'
                   : 'bg-emerald-50/70 text-emerald-900/60 hover:bg-emerald-100/80 border border-emerald-200/40'
               } ${d.isToday ? 'ring-2 ring-emerald-400 ring-offset-1 font-bold' : ''}`}
             >
               {d.isCompleted ? (
                 <Check className="w-3.5 h-3.5 stroke-[3]" />
               ) : (
-                <span>{toPersianDigits(d.dayNumber)}</span>
+                <span className={d.isHoliday ? 'text-rose-700 font-bold' : ''}>{toPersianDigits(d.dayNumber)}</span>
               )}
             </button>
           );

@@ -25,6 +25,12 @@ export const DEFAULT_REMINDER_SETTINGS: ReminderSettings = {
   selectedSoundId: 'serenity',
   volume: 0.8,
   customSounds: [],
+  snoozeIntervalMinutes: 10,
+  availableSnoozeIntervals: [5, 10, 15, 30, 60],
+  autoReNotifyCount: 2,
+  autoReNotifyIntervalMinutes: 10,
+  notifyBeforeHolidayTasks: true,
+  holidayLeadMinutes: 15,
 };
 
 export const STORAGE_KEYS = {

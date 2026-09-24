@@ -5,7 +5,10 @@ import {
   jalaliToFormattedString, 
   toPersianDigits, 
   PERSIAN_MONTHS, 
-  getCurrentPersianDateTimeString 
+  getCurrentPersianDateTimeString,
+  isSeasonPast,
+  isMonthPast,
+  isYearPast
 } from '../calendar/jalali';
 import { X, Target, Calendar, Folder, Sprout, Check, Sparkles, Edit3, AlertCircle, Lock } from 'lucide-react';
 import { PlantIcon, ALL_PLANT_TYPES } from './PlantIcon';
@@ -185,12 +188,32 @@ export const GoalModal: React.FC<Props> = ({
       titleInputRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
       return;
     }
-    setTitleError('');
 
-    const timestampNow = getCurrentPersianDateTimeString();
     const effectiveYear = isCustomYear 
       ? (parseInt(customYearInput, 10) || today.year)
       : year;
+
+    // Check if user is trying to create a NEW goal for an already ended period
+    if (!isEdit) {
+      if (period === 'ANNUAL' && isYearPast(effectiveYear, today)) {
+        setTitleError(`امکان تعریف هدف جدید برای سال گذشته (${toPersianDigits(effectiveYear)}) وجود ندارد.`);
+        return;
+      }
+      if (period === 'SEASONAL' && isSeasonPast(effectiveYear, seasonIndex ?? 0, today)) {
+        const sName = SEASON_OPTIONS[seasonIndex ?? 0]?.name || 'انتخاب‌شده';
+        setTitleError(`امکان تعریف هدف جدید برای فصل تمام‌شده (${sName} سال ${toPersianDigits(effectiveYear)}) وجود ندارد.`);
+        return;
+      }
+      if (period === 'MONTHLY' && isMonthPast(effectiveYear, monthIndex, today)) {
+        const mName = PERSIAN_MONTHS[monthIndex - 1] || 'انتخاب‌شده';
+        setTitleError(`امکان تعریف هدف جدید برای ماه تمام‌شده (${mName} سال ${toPersianDigits(effectiveYear)}) وجود ندارد.`);
+        return;
+      }
+    }
+
+    setTitleError('');
+
+    const timestampNow = getCurrentPersianDateTimeString();
 
     let history: GoalHistoryEntry[] = isEdit && goal?.history ? [...goal.history] : [];
 
