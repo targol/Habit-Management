@@ -125,6 +125,8 @@ export interface UserProfile {
   title?: string;
   avatarUrl?: string; // تصویر بارگذاری‌شده (Base64) یا آیکون گیاه برگزیده
   bio?: string;
+  themeColor?: string; // شناسه تم رنگی برگزیده: emerald, teal, blue, indigo, purple, amber, rose, slate
+  darkMode?: boolean;
 }
 
 export interface AlarmSoundItem {

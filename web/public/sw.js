@@ -1,15 +1,24 @@
-const CACHE_NAME = 'javaneh-v2';
+const CACHE_NAME = 'javaneh-v3';
 const STATIC_ASSETS = [
   './',
   './index.html',
   './icon.svg',
+  './pwa-192x192.png',
+  './pwa-512x512.png',
+  './apple-touch-icon.png',
   './manifest.webmanifest'
 ];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(STATIC_ASSETS);
+    caches.open(CACHE_NAME).then(async (cache) => {
+      for (const asset of STATIC_ASSETS) {
+        try {
+          await cache.add(asset);
+        } catch (e) {
+          console.warn('PWA Asset cache skip:', asset, e);
+        }
+      }
     })
   );
   self.skipWaiting();

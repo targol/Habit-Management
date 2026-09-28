@@ -1,8 +1,11 @@
-const CACHE_NAME = 'javaneh-v2';
+const CACHE_NAME = 'javaneh-v3';
 const STATIC_ASSETS = [
   './',
   './index.html',
   './icon.svg',
+  './pwa-192x192.png',
+  './pwa-512x512.png',
+  './apple-touch-icon.png',
   './manifest.webmanifest'
 ];
 

@@ -10,6 +10,7 @@ import { UserProfileSettings } from './UserProfileSettings';
 import { ReminderAlarmSettings } from './ReminderAlarmSettings';
 import { ApkIntegrityModal } from './ApkIntegrityModal';
 import { UpdateAndBackupModal } from './UpdateAndBackupModal';
+import { MobileInstallModal } from './MobileInstallModal';
 import { APP_VERSION_INFO } from '../version';
 import { 
   Settings, 
@@ -67,8 +68,20 @@ import {
   HelpCircle,
   ChevronDown,
   ChevronUp,
-  Globe
+  Globe,
+  QrCode,
+  Share2,
+  Moon,
+  Monitor,
+  Flame,
+  Vibrate,
+  Eye,
+  SlidersHorizontal,
+  RefreshCw,
+  Clock
 } from 'lucide-react';
+
+export type SettingsTabId = 'PROFILE' | 'REMINDERS' | 'THEMES' | 'CATEGORIES' | 'DATA' | 'MOBILE' | 'ALL';
 
 interface Props {
   categories: Category[];
@@ -77,6 +90,8 @@ interface Props {
   habits: Habit[];
   userProfile?: UserProfile;
   reminderSettings?: ReminderSettings;
+  deferredPrompt?: any;
+  onInstallClick?: () => void;
   onSaveUserProfile?: (profile: UserProfile) => void;
   onSaveReminderSettings?: (settings: ReminderSettings) => void;
   onSaveCategory: (category: Category) => void;
@@ -95,6 +110,118 @@ interface Props {
     mode?: 'REPLACE' | 'MERGE'
   ) => void;
 }
+
+export interface ColorThemeItem {
+  id: string;
+  name: string;
+  subtitle: string;
+  primaryHex: string;
+  accentHex: string;
+  gradientHeader: string;
+  badgeClass: string;
+  activeRing: string;
+  emoji: string;
+  description: string;
+}
+
+export const THEME_PALETTES: ColorThemeItem[] = [
+  {
+    id: 'emerald',
+    name: 'زمردی جوانه',
+    subtitle: 'رویش، طبیعت و نشاط بهاری (پیش‌فرض)',
+    primaryHex: '#10B981',
+    accentHex: '#059669',
+    gradientHeader: 'from-emerald-900 via-emerald-800 to-teal-900',
+    badgeClass: 'bg-emerald-50 text-emerald-800 border-emerald-200',
+    activeRing: 'ring-emerald-500',
+    emoji: '🌱',
+    description: 'تم اصیل و امضای تصویری برنامه جوانه، نماد رشد مداوم و انگیزه روزانه'
+  },
+  {
+    id: 'teal',
+    name: 'فیروزه‌ای خلیج',
+    subtitle: 'آرامش اقیانوس و زلالی ذهن',
+    primaryHex: '#0D9488',
+    accentHex: '#06B6D4',
+    gradientHeader: 'from-teal-900 via-teal-800 to-cyan-900',
+    badgeClass: 'bg-teal-50 text-teal-800 border-teal-200',
+    activeRing: 'ring-teal-500',
+    emoji: '🌊',
+    description: 'رنگ‌های خنک و آرام‌بخش برای تمرکز عمیق، کاهش اضطراب و آرامش کارها'
+  },
+  {
+    id: 'blue',
+    name: 'آبی آسمان',
+    subtitle: 'افق روشن و انگیزه پایدار',
+    primaryHex: '#2563EB',
+    accentHex: '#3B82F6',
+    gradientHeader: 'from-blue-900 via-blue-800 to-indigo-900',
+    badgeClass: 'bg-blue-50 text-blue-800 border-blue-200',
+    activeRing: 'ring-blue-500',
+    emoji: '☁️',
+    description: 'رنگ کلاسیک برنامه‌ریزی حرفه‌ای، بهره‌وری اداری و نظم ذهنی دقیق'
+  },
+  {
+    id: 'indigo',
+    name: 'نیلی شبانه',
+    subtitle: 'تمرکز عمیق و تفکر هوشمندانه',
+    primaryHex: '#4F46E5',
+    accentHex: '#6366F1',
+    gradientHeader: 'from-indigo-950 via-indigo-900 to-purple-950',
+    badgeClass: 'bg-indigo-50 text-indigo-800 border-indigo-200',
+    activeRing: 'ring-indigo-500',
+    emoji: '🌌',
+    description: 'رنگ مدرن و متمرکز، مناسب ساعت‌های مطالعه، پژوهش و غرقگی فکری'
+  },
+  {
+    id: 'purple',
+    name: 'بنفش ارکیده',
+    subtitle: 'خلاقیت، نوآوری و شکوه بصری',
+    primaryHex: '#9333EA',
+    accentHex: '#A855F7',
+    gradientHeader: 'from-purple-950 via-purple-900 to-fuchsia-950',
+    badgeClass: 'bg-purple-50 text-purple-800 border-purple-200',
+    activeRing: 'ring-purple-500',
+    emoji: '🌸',
+    description: 'الهام‌بخش رویاهای بزرگ، تقویت قوه تجسم و طراحی اهداف هنری و خلاقانه'
+  },
+  {
+    id: 'amber',
+    name: 'کهربایی غروب',
+    subtitle: 'گرمای آفتاب، شور و انرژی روزانه',
+    primaryHex: '#D97706',
+    accentHex: '#F59E0B',
+    gradientHeader: 'from-amber-950 via-amber-800 to-orange-950',
+    badgeClass: 'bg-amber-50 text-amber-800 border-amber-200',
+    activeRing: 'ring-amber-500',
+    emoji: '☀️',
+    description: 'رنگ خورشید و گرما، تقویت اراده برای آغاز صبح‌های پرانرژی و متعهدانه'
+  },
+  {
+    id: 'rose',
+    name: 'یاقوتی گل سرخ',
+    subtitle: 'عشق به اهداف و اشتیاق آتشین',
+    primaryHex: '#E11D48',
+    accentHex: '#F43F5E',
+    gradientHeader: 'from-rose-950 via-rose-900 to-pink-950',
+    badgeClass: 'bg-rose-50 text-rose-800 border-rose-200',
+    activeRing: 'ring-rose-500',
+    emoji: '🌹',
+    description: 'پرشور و چشم‌گیر، مناسب ایجاد تحول و انرژی مضاعف در پیگیری پروژه‌ها'
+  },
+  {
+    id: 'slate',
+    name: 'سنگی مینیمال',
+    subtitle: 'سکوت بصری و سادگی مدرن',
+    primaryHex: '#475569',
+    accentHex: '#64748B',
+    gradientHeader: 'from-slate-900 via-slate-800 to-zinc-900',
+    badgeClass: 'bg-slate-100 text-slate-800 border-slate-300',
+    activeRing: 'ring-slate-500',
+    emoji: '🪨',
+    description: 'بدون شلوغی و حواس‌پرتی، انتخابی ایده‌آل برای طرفداران مینیمالیسم خالص'
+  }
+];
 
 const PRESET_COLORS = [
   { hex: '#10B981', label: 'زمردی' },
@@ -137,6 +264,8 @@ export const SettingsScreen: React.FC<Props> = ({
   habits,
   userProfile,
   reminderSettings,
+  deferredPrompt,
+  onInstallClick,
   onSaveUserProfile,
   onSaveReminderSettings,
   onSaveCategory,
@@ -145,6 +274,33 @@ export const SettingsScreen: React.FC<Props> = ({
   onImportTasksOnly,
   onImportAllData,
 }) => {
+  // Active Navigation Tab for Settings Menu (Default: PROFILE on initial view or restored from localStorage)
+  const [activeTab, setActiveTab] = useState<SettingsTabId>(() => {
+    try {
+      const saved = localStorage.getItem('javaneh_settings_active_tab') as SettingsTabId;
+      if (['PROFILE', 'REMINDERS', 'THEMES', 'CATEGORIES', 'DATA', 'MOBILE', 'ALL'].includes(saved)) {
+        return saved;
+      }
+    } catch {}
+    return 'PROFILE';
+  });
+
+  // Color Theme State
+  const [selectedThemeId, setSelectedThemeId] = useState<string>(() => {
+    return userProfile?.themeColor || localStorage.getItem('javaneh_theme_color') || 'emerald';
+  });
+
+  // Appearance & Display Preferences
+  const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
+    return userProfile?.darkMode ?? (localStorage.getItem('javaneh_dark_mode') === 'true');
+  });
+  const [enablePlantAnimations, setEnablePlantAnimations] = useState<boolean>(() => {
+    return localStorage.getItem('javaneh_plant_animations') !== 'false';
+  });
+  const [enableHapticFeedback, setEnableHapticFeedback] = useState<boolean>(() => {
+    return localStorage.getItem('javaneh_haptic_feedback') !== 'false';
+  });
+
   // Modal / Form state for Category add/edit
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
@@ -157,8 +313,10 @@ export const SettingsScreen: React.FC<Props> = ({
   // Status message for actions
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
-  // Troubleshooting guide toggle for Android APK
-  const [showTroubleshooting, setShowTroubleshooting] = useState(true);
+  // Mobile Install & Troubleshooting guide toggle
+  const [isMobileInstallModalOpen, setIsMobileInstallModalOpen] = useState(false);
+  const [showTroubleshooting, setShowTroubleshooting] = useState(false);
+  const [showApkDetails, setShowApkDetails] = useState(false);
   const [isApkModalOpen, setIsApkModalOpen] = useState(false);
   const [isUpdateAndBackupModalOpen, setIsUpdateAndBackupModalOpen] = useState(false);
 
@@ -171,9 +329,105 @@ export const SettingsScreen: React.FC<Props> = ({
     linkedHabitsCount: number;
   } | null>(null);
 
+  // Restore Modal State
+  const [restoreModal, setRestoreModal] = useState<{
+    isOpen: boolean;
+    fileName: string;
+    fileSizeKb: number;
+    exportDate: string;
+    data: {
+      categories: Category[];
+      goals: Goal[];
+      tasks: AppTask[];
+      habits: Habit[];
+      userProfile?: UserProfile;
+      reminderSettings?: ReminderSettings;
+    };
+    counts: {
+      categories: number;
+      goals: number;
+      tasks: number;
+      habits: number;
+    };
+    mode: 'REPLACE' | 'MERGE';
+    autoBackupBeforeRestore: boolean;
+  } | null>(null);
+
+  const [isTextPasteModalOpen, setIsTextPasteModalOpen] = useState(false);
+  const [rawJsonInput, setRawJsonInput] = useState('');
+  const [isCopyingJson, setIsCopyingJson] = useState(false);
+  const [isDraggingFile, setIsDraggingFile] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Handle Tab Change with persistence
+  const handleTabChange = (tab: SettingsTabId) => {
+    setActiveTab(tab);
+    try {
+      localStorage.setItem('javaneh_settings_active_tab', tab);
+    } catch {}
+  };
+
   const showNotification = (msg: string) => {
     setStatusMessage(msg);
-    setTimeout(() => setStatusMessage(null), 3000);
+    setTimeout(() => setStatusMessage(null), 3500);
+  };
+
+  // Sync theme to DOM and UserProfile
+  const handleApplyTheme = (themeId: string) => {
+    setSelectedThemeId(themeId);
+    try {
+      localStorage.setItem('javaneh_theme_color', themeId);
+      document.documentElement.setAttribute('data-app-theme', themeId);
+    } catch {}
+
+    if (onSaveUserProfile) {
+      const current = userProfile || DEFAULT_USER_PROFILE;
+      onSaveUserProfile({
+        ...current,
+        themeColor: themeId,
+        darkMode: isDarkMode,
+      });
+    }
+
+    const matched = THEME_PALETTES.find(t => t.id === themeId);
+    showNotification(`تم «${matched ? matched.name : themeId}» با موفقیت فعال و ذخیره شد.`);
+  };
+
+  const handleToggleDarkMode = (dark: boolean) => {
+    setIsDarkMode(dark);
+    try {
+      localStorage.setItem('javaneh_dark_mode', dark ? 'true' : 'false');
+      document.documentElement.classList.toggle('dark', dark);
+    } catch {}
+
+    if (onSaveUserProfile) {
+      const current = userProfile || DEFAULT_USER_PROFILE;
+      onSaveUserProfile({
+        ...current,
+        darkMode: dark,
+        themeColor: selectedThemeId,
+      });
+    }
+    showNotification(dark ? 'حالت شب (تیره) فعال شد.' : 'حالت روز (روشن) فعال شد.');
+  };
+
+  const handleTogglePlantAnimations = (enabled: boolean) => {
+    setEnablePlantAnimations(enabled);
+    try {
+      localStorage.setItem('javaneh_plant_animations', enabled ? 'true' : 'false');
+    } catch {}
+    showNotification(enabled ? 'انیمیشن‌های رشد گیاهان فعال شدند.' : 'انیمیشن‌ها برای صرفه‌جویی در باتری غیرفعال شدند.');
+  };
+
+  const handleToggleHaptic = (enabled: boolean) => {
+    setEnableHapticFeedback(enabled);
+    try {
+      localStorage.setItem('javaneh_haptic_feedback', enabled ? 'true' : 'false');
+      if (enabled && typeof window !== 'undefined' && 'vibrate' in navigator) {
+        navigator.vibrate(20);
+      }
+    } catch {}
+    showNotification(enabled ? 'بازخورد لمسی (ویبره کوتاه) فعال شد.' : 'بازخورد لمسی غیرفعال شد.');
   };
 
   const openAddCategory = () => {
@@ -229,36 +483,6 @@ export const SettingsScreen: React.FC<Props> = ({
     });
   };
 
-  // Restore Modal State
-  const [restoreModal, setRestoreModal] = useState<{
-    isOpen: boolean;
-    fileName: string;
-    fileSizeKb: number;
-    exportDate: string;
-    data: {
-      categories: Category[];
-      goals: Goal[];
-      tasks: AppTask[];
-      habits: Habit[];
-      userProfile?: UserProfile;
-      reminderSettings?: ReminderSettings;
-    };
-    counts: {
-      categories: number;
-      goals: number;
-      tasks: number;
-      habits: number;
-    };
-    mode: 'REPLACE' | 'MERGE';
-    autoBackupBeforeRestore: boolean;
-  } | null>(null);
-
-  const [isTextPasteModalOpen, setIsTextPasteModalOpen] = useState(false);
-  const [rawJsonInput, setRawJsonInput] = useState('');
-  const [isCopyingJson, setIsCopyingJson] = useState(false);
-  const [isDraggingFile, setIsDraggingFile] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
   // 1. Export JSON with durable Blob download and Jalali formatted filename
   const handleExportData = () => {
     try {
@@ -266,7 +490,7 @@ export const SettingsScreen: React.FC<Props> = ({
       const datePart = `${todayJ.year}-${String(todayJ.month).padStart(2, '0')}-${String(todayJ.day).padStart(2, '0')}`;
       const backup: AppBackupData = {
         appName: 'جوانه (Javaneh)',
-        version: '1.0.0',
+        version: '1.3.0',
         exportDate: new Date().toISOString(),
         exportPersianDate: getCurrentPersianDateTimeString(),
         counts: {
@@ -305,7 +529,7 @@ export const SettingsScreen: React.FC<Props> = ({
     try {
       const backup: AppBackupData = {
         appName: 'جوانه (Javaneh)',
-        version: '1.0.0',
+        version: '1.3.0',
         exportDate: new Date().toISOString(),
         exportPersianDate: getCurrentPersianDateTimeString(),
         counts: {
@@ -410,7 +634,6 @@ export const SettingsScreen: React.FC<Props> = ({
   const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       handleFileSelect(e.target.files[0]);
-      // Reset input value so same file can be re-selected if needed
       e.target.value = '';
     }
   };
@@ -452,519 +675,1002 @@ export const SettingsScreen: React.FC<Props> = ({
     return <IconComp className={className} />;
   };
 
+  const currentProfile = userProfile || DEFAULT_USER_PROFILE;
+  const activeTheme = THEME_PALETTES.find(t => t.id === selectedThemeId) || THEME_PALETTES[0];
+
+  // Settings Menu Navigation Items
+  const menuItems = [
+    {
+      id: 'PROFILE' as SettingsTabId,
+      label: 'پروفایل کاربری',
+      shortLabel: 'پروفایل',
+      icon: User,
+      badge: currentProfile.name || 'باغبان',
+      colorClass: 'emerald'
+    },
+    {
+      id: 'REMINDERS' as SettingsTabId,
+      label: 'تنظیمات یادآور و صدا',
+      shortLabel: 'یادآورها',
+      icon: Bell,
+      badge: reminderSettings?.enabled ? 'فعال' : 'خاموش',
+      colorClass: 'amber'
+    },
+    {
+      id: 'THEMES' as SettingsTabId,
+      label: 'تم‌های رنگی و ظاهر',
+      shortLabel: 'تم‌های رنگی',
+      icon: Palette,
+      badge: activeTheme.name.split(' ')[0],
+      colorClass: 'purple'
+    },
+    {
+      id: 'CATEGORIES' as SettingsTabId,
+      label: 'دسته‌ها و گیاهان',
+      shortLabel: 'دسته‌بندی‌ها',
+      icon: Tag,
+      badge: `${toPersianDigits(categories.length)} دسته`,
+      colorClass: 'teal'
+    },
+    {
+      id: 'DATA' as SettingsTabId,
+      label: 'مدیریت داده‌ها و ذخیره‌سازی',
+      shortLabel: 'مدیریت داده‌ها',
+      icon: Database,
+      badge: `${toPersianDigits(goals.length + tasks.length + habits.length)} رکورد`,
+      colorClass: 'blue'
+    },
+    {
+      id: 'MOBILE' as SettingsTabId,
+      label: 'نصب اپلیکیشن در گوشی',
+      shortLabel: 'نصب موبایل',
+      icon: Smartphone,
+      badge: 'نسخه رسمی',
+      colorClass: 'green'
+    },
+    {
+      id: 'ALL' as SettingsTabId,
+      label: 'نمایش یکپارچه (همه بخش‌ها)',
+      shortLabel: 'همه بخش‌ها',
+      icon: Layers,
+      badge: 'کامل',
+      colorClass: 'gray'
+    },
+  ];
+
   return (
-    <div className="space-y-6 animate-fade-in pb-12">
-      {/* Sticky Top Banner */}
+    <div className="space-y-6 animate-fade-in pb-16">
+      {/* Sticky Top Header Banner with User Profile Summary */}
       <div className="sticky -top-5 z-20 pt-5 pb-2.5 bg-[#F8F9F5]/95 backdrop-blur-md -mx-4 px-4 sm:mx-0 sm:px-0">
-        <div className="bg-gradient-to-l from-emerald-900 via-emerald-800 to-teal-900 text-white rounded-2xl p-4 sm:p-5 shadow-sm">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-white/10 backdrop-blur-xs flex items-center justify-center border border-white/20">
-              <Settings className="w-5 h-5 text-emerald-300" />
+        <div className={`bg-gradient-to-l ${activeTheme.gradientHeader} text-white rounded-2xl p-4 sm:p-5 shadow-sm transition-all duration-300`}>
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <div className="flex items-center gap-3">
+              {/* Profile Avatar / Botanical Badge */}
+              <div 
+                onClick={() => handleTabChange('PROFILE')}
+                className="w-12 h-12 rounded-2xl bg-white/15 backdrop-blur-xs flex items-center justify-center border border-white/25 shadow-inner cursor-pointer hover:scale-105 active:scale-95 transition-transform shrink-0 overflow-hidden"
+                title="مشاهده و ویرایش پروفایل"
+              >
+                {currentProfile.avatarUrl && (currentProfile.avatarUrl.startsWith('data:image') || currentProfile.avatarUrl.startsWith('http')) ? (
+                  <img src={currentProfile.avatarUrl} alt="پروفایل" className="w-full h-full object-cover" />
+                ) : (
+                  <span className="text-2xl select-none">{currentProfile.avatarUrl || '🌱'}</span>
+                )}
+              </div>
+
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h2 className="text-base font-bold text-white flex items-center gap-2">
+                    <span>{currentProfile.name || 'باغبان جوانه'}</span>
+                  </h2>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-white/20 text-white border border-white/30 backdrop-blur-xs">
+                    نسخه {APP_VERSION_INFO.currentVersion}
+                  </span>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-white/15 text-white/90 border border-white/20">
+                    تم: {activeTheme.name}
+                  </span>
+                </div>
+                <p className="text-xs text-white/80 mt-0.5 line-clamp-1">
+                  {currentProfile.title || 'تنظیمات یکپارچه، مدیریت پروفایل، یادآورها، تم‌های رنگی و پایگاه داده'}
+                </p>
+              </div>
             </div>
-            <div>
-              <h2 className="text-base font-bold text-white flex items-center gap-2">
-                <span>تنظیمات برنامه جوانه</span>
-              </h2>
-              <p className="text-xs text-emerald-100/90 mt-0.5">
-                پروفایل کاربری، آلارم و یادآورهای صوتی، دسته‌بندی‌های اهداف و پشتیبان‌گیری
-              </p>
+
+            {/* Quick action buttons on banner */}
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleExportData}
+                className="px-3 py-1.5 bg-white/15 hover:bg-white/25 text-white text-xs font-bold rounded-xl border border-white/20 flex items-center gap-1.5 transition-colors cursor-pointer"
+                title="دانلود سریع فایل پشتیبان JSON"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">پشتیبان سریع</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  if (deferredPrompt && onInstallClick) {
+                    onInstallClick();
+                  } else {
+                    setIsMobileInstallModalOpen(true);
+                  }
+                }}
+                className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-white text-xs font-black rounded-xl shadow-xs flex items-center gap-1.5 transition-all cursor-pointer active:scale-95"
+                title="نصب اپلیکیشن روی گوشی"
+              >
+                <Smartphone className="w-3.5 h-3.5" />
+                <span>نصب در گوشی</span>
+              </button>
             </div>
           </div>
         </div>
       </div>
 
       {statusMessage && (
-        <div className="p-3 bg-emerald-100/90 border border-emerald-300 text-emerald-900 text-xs font-semibold rounded-xl flex items-center gap-2 shadow-xs transition-all">
+        <div className="p-3 bg-emerald-100/90 border border-emerald-300 text-emerald-900 text-xs font-semibold rounded-xl flex items-center gap-2 shadow-xs transition-all animate-fade-in">
           <Check className="w-4 h-4 text-emerald-700 shrink-0" />
           <span>{statusMessage}</span>
         </div>
       )}
 
-      {/* Section 1: User Profile & Identity */}
-      {onSaveUserProfile && (
-        <UserProfileSettings
-          userProfile={userProfile}
-          onSaveProfile={onSaveUserProfile}
-          onNotify={showNotification}
-        />
-      )}
-
-      {/* Section 2: Reminder & Gentle Alarm Settings */}
-      {onSaveReminderSettings && (
-        <ReminderAlarmSettings
-          reminderSettings={reminderSettings}
-          onSaveSettings={onSaveReminderSettings}
-          onNotify={showNotification}
-        />
-      )}
-
-      {/* Section 3: Categories & Plants Management */}
-      <div className="bg-white rounded-2xl border border-emerald-100/80 p-5 shadow-xs space-y-4">
-        <div className="flex items-center justify-between flex-wrap gap-2">
-          <div>
-            <h3 className="text-sm font-bold text-emerald-950 flex items-center gap-2">
-              <Tag className="w-4 h-4 text-emerald-600" />
-              <span>دسته‌بندی‌های اهداف و گیاهان اختصاصی</span>
-            </h3>
-            <p className="text-xs text-gray-500 mt-0.5">
-              هر دسته‌بندی دارای رنگ و گیاه نمادین است که به زیرمجموعه‌ها، تسک‌ها و عادات ارث داده می‌شود.
-            </p>
+      {/* --- Settings Menu: Interactive Categorized Tab Navigation --- */}
+      <div className="bg-white rounded-2xl border border-gray-200/90 p-2 sm:p-2.5 shadow-xs">
+        <div className="flex items-center justify-between pb-2 px-2 border-b border-gray-100 mb-2">
+          <div className="flex items-center gap-1.5 text-xs font-bold text-gray-700">
+            <SlidersHorizontal className="w-4 h-4 text-emerald-600" />
+            <span>منوی دسته‌بندی تنظیمات</span>
           </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={openAddCategory}
-              className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs flex items-center gap-1.5 transition-colors cursor-pointer"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>دسته‌بندی جدید</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                if (window.confirm('آیا مایل به بازنشانی دسته‌بندی‌ها به مقادیر پیش‌فرض هستید؟')) {
-                  onResetCategories();
-                  showNotification('دسته‌بندی‌ها به حالت اولیه بازنشانی شدند.');
-                }
-              }}
-              title="بازنشانی دسته‌های اولیه"
-              className="p-1.5 bg-gray-50 hover:bg-gray-100 text-gray-600 border border-gray-200 rounded-xl transition-colors cursor-pointer"
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
-            </button>
-          </div>
+          <span className="text-[11px] text-gray-400">
+            برای پیمایش سریع و راحت روی گوشی، بخش مورد نظر را لمس کنید
+          </span>
         </div>
 
-        {/* Categories Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
-          {categories.map((cat) => {
-            const linkedGoals = goals.filter(g => g.categoryId === cat.id);
-            const linkedTasks = tasks.filter(t => t.categoryId === cat.id);
-            const linkedHabits = habits.filter(h => h.categoryId === cat.id);
-            const plantObj = ALL_PLANT_TYPES.find(p => p.id === cat.plantType) || ALL_PLANT_TYPES[0];
-
+        {/* Scrollable Navigation Bar (Mobile-first ergonomics) */}
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+          {menuItems.map((item) => {
+            const Icon = item.icon;
+            const isActive = activeTab === item.id;
             return (
-              <div
-                key={cat.id}
-                className="rounded-xl border p-4 bg-white hover:border-emerald-300 transition-all flex flex-col justify-between gap-3 shadow-2xs group"
-                style={{ borderRightWidth: '4px', borderRightColor: cat.colorHex }}
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => handleTabChange(item.id)}
+                className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all cursor-pointer shrink-0 ${
+                  isActive
+                    ? 'bg-emerald-700 text-white shadow-sm ring-2 ring-emerald-500/30'
+                    : 'bg-gray-50 hover:bg-emerald-50 text-gray-700 hover:text-emerald-900 border border-gray-200/70'
+                }`}
               >
-                <div className="flex items-start justify-between gap-2">
-                  <div className="flex items-center gap-2.5">
-                    <div
-                      className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 border"
-                      style={{
-                        backgroundColor: `${cat.colorHex}15`,
-                        borderColor: `${cat.colorHex}40`,
-                        color: cat.colorHex,
-                      }}
-                    >
-                      {renderIcon(cat.iconName, 'w-4 h-4')}
-                    </div>
-                    <div>
-                      <h4 className="text-xs sm:text-sm font-bold text-gray-900 flex items-center gap-1.5">
-                        <span>{cat.title}</span>
-                        <span
-                          className="w-2.5 h-2.5 rounded-full inline-block shrink-0"
-                          style={{ backgroundColor: cat.colorHex }}
-                          title={`کد رنگ: ${cat.colorHex}`}
-                        />
-                      </h4>
-                      <div className="flex items-center gap-2 mt-1 text-[11px] text-gray-400">
-                        <span>{toPersianDigits(linkedGoals.length)} هدف</span>
-                        <span>•</span>
-                        <span>{toPersianDigits(linkedTasks.length)} تسک</span>
-                        <span>•</span>
-                        <span>{toPersianDigits(linkedHabits.length)} عادت</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-1">
-                    <button
-                      type="button"
-                      onClick={() => openEditCategory(cat)}
-                      className="p-1.5 text-gray-400 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition-colors cursor-pointer"
-                      title="ویرایش دسته‌بندی و گیاه"
-                    >
-                      <Edit3 className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteCategoryClick(cat.id, cat.title)}
-                      className="p-1.5 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
-                      title="حذف دسته‌بندی"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-
-                {/* Plant details card */}
-                <div className="bg-emerald-50/50 rounded-lg p-2 flex items-center justify-between gap-2 border border-emerald-100/60">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <PlantIcon type={cat.plantType} size="sm" />
-                    <div className="min-w-0">
-                      <span className="text-[11px] font-bold text-emerald-950 block truncate">
-                        گیاه نمادین: {cat.plantType || 'بونسای'}
-                      </span>
-                      <span className="text-[10px] text-emerald-800/80 block truncate">
-                        {plantObj.description}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </div>
+                <Icon className={`w-3.5 h-3.5 ${isActive ? 'text-white' : 'text-gray-500'}`} />
+                <span>{item.shortLabel}</span>
+                {item.badge && (
+                  <span
+                    className={`text-[10px] px-1.5 py-0.2 rounded-full font-medium ${
+                      isActive
+                        ? 'bg-white/25 text-white'
+                        : 'bg-gray-200/80 text-gray-600'
+                    }`}
+                  >
+                    {item.badge}
+                  </span>
+                )}
+              </button>
             );
           })}
         </div>
       </div>
 
-      {/* Section: Mobile App & Android APK Download */}
-      <div className="bg-gradient-to-br from-emerald-50/80 via-white to-green-50/40 rounded-2xl border border-emerald-200/90 p-5 shadow-xs space-y-5">
-        <div className="flex items-start justify-between flex-wrap gap-3">
-          <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-emerald-600 to-green-500 text-white flex items-center justify-center shadow-xs shrink-0">
-              <Smartphone className="w-6 h-6" />
+      {/* ========================================================================= */}
+      {/* SECTION 1: USER PROFILE MANAGEMENT (مدیریت پروفایل کاربری) */}
+      {/* ========================================================================= */}
+      {(activeTab === 'PROFILE' || activeTab === 'ALL') && (
+        <div className="space-y-4 animate-fade-in">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-black text-gray-900 flex items-center gap-2">
+              <div className="w-6 h-6 rounded-lg bg-emerald-100 text-emerald-800 flex items-center justify-center">
+                <User className="w-3.5 h-3.5" />
+              </div>
+              <span>بخش اول: مدیریت پروفایل کاربری</span>
+            </h3>
+            <span className="text-[11px] text-gray-400">شناسنامه و نماد شخصی باغبان</span>
+          </div>
+
+          {/* Quick Profile Stats Highlight */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+            <div className="bg-emerald-50/70 border border-emerald-200/70 rounded-xl p-3 text-center">
+              <span className="text-[10px] text-emerald-800 block">نام نمایشی</span>
+              <span className="text-sm font-bold text-emerald-950 mt-0.5 block truncate">
+                {currentProfile.name || 'باغبان'}
+              </span>
             </div>
-            <div>
-              <h3 className="text-sm font-extrabold text-emerald-950 flex items-center gap-2">
-                <span>دانلود اپلیکیشن اندروید (فایل نصبی APK)</span>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
-                  نسخه آفلاین موبایل
-                </span>
-              </h3>
-              <p className="text-xs text-gray-500 mt-0.5">
-                نصب مستقیم اپلیکیشن «جوانه» روی گوشی یا تبلت اندرویدی با فایل ۲۲ مگابایتی
-              </p>
+            <div className="bg-teal-50/70 border border-teal-200/70 rounded-xl p-3 text-center">
+              <span className="text-[10px] text-teal-800 block">اهداف متصل</span>
+              <span className="text-sm font-bold text-teal-950 mt-0.5 block">
+                {toPersianDigits(goals.length)} هدف فعال
+              </span>
+            </div>
+            <div className="bg-blue-50/70 border border-blue-200/70 rounded-xl p-3 text-center">
+              <span className="text-[10px] text-blue-800 block">تسک‌ها و عادات</span>
+              <span className="text-sm font-bold text-blue-950 mt-0.5 block">
+                {toPersianDigits(tasks.length + habits.length)} مورد
+              </span>
+            </div>
+            <div className="bg-purple-50/70 border border-purple-200/70 rounded-xl p-3 text-center">
+              <span className="text-[10px] text-purple-800 block">تم انتخابی</span>
+              <span className="text-sm font-bold text-purple-950 mt-0.5 block truncate">
+                {activeTheme.emoji} {activeTheme.name}
+              </span>
             </div>
           </div>
 
-          <div className="flex items-center gap-2 flex-wrap">
-            <button
-              type="button"
-              onClick={() => setIsUpdateAndBackupModalOpen(true)}
-              className="px-4 py-2.5 bg-emerald-800 hover:bg-emerald-900 text-white text-xs font-black rounded-xl shadow-sm hover:shadow-md flex items-center gap-2 transition-all cursor-pointer active:scale-95"
-              title="بررسی ایمنی به‌روزرسانی، تهیه خودکار نسخه پشتیبان و لاگ نسخه‌ها"
-            >
-              <ShieldCheck className="w-4 h-4 text-emerald-300" />
-              <span>به‌روزرسانی امن و لاگ نسخه‌ها (v{APP_VERSION_INFO.currentVersion})</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setIsApkModalOpen(true)}
-              className="px-4 py-2.5 bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-700 hover:to-green-700 text-white text-xs font-black rounded-xl shadow-sm hover:shadow-md flex items-center gap-2 transition-all cursor-pointer active:scale-95"
-              title="بررسی هش، سلامت فایل و دانلود هوشمند با قابلیت Resume"
-            >
-              <Smartphone className="w-4 h-4" />
-              <span>دانلود هوشمند APK (با قابلیت Resume)</span>
-            </button>
-
-            <a
-              href="/javaneh.apk"
-              download="javaneh.apk"
-              className="px-3.5 py-2.5 bg-white hover:bg-emerald-50 text-emerald-800 border border-emerald-300 text-xs font-bold rounded-xl shadow-2xs flex items-center gap-2 transition-all cursor-pointer"
-              title="دانلود مستقیم فایل نصبی اندروید (javaneh.apk)"
-            >
-              <Download className="w-4 h-4 text-emerald-600" />
-              <span>دانلود مستقیم فایل (۲۲.۵۸ مگابایت)</span>
-            </a>
-          </div>
-        </div>
-
-        {/* Installation guide 3 Steps */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          <div className="p-3 bg-white/90 rounded-xl border border-emerald-100 shadow-2xs space-y-1">
-            <span className="text-[11px] font-extrabold text-emerald-900 flex items-center gap-1.5">
-              <span className="w-4 h-4 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center text-[10px]">۱</span>
-              <span>دانلود فایل</span>
-            </span>
-            <p className="text-[10px] text-gray-500 leading-relaxed">
-              دکمه سبز بالا را لمس کنید تا فایل <code className="bg-gray-100 px-1 py-0.5 rounded text-emerald-800 font-mono">javaneh.apk</code> به طور کامل روی گوشی ذخیره شود.
-            </p>
-          </div>
-
-          <div className="p-3 bg-white/90 rounded-xl border border-emerald-100 shadow-2xs space-y-1">
-            <span className="text-[11px] font-extrabold text-emerald-900 flex items-center gap-1.5">
-              <span className="w-4 h-4 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center text-[10px]">۲</span>
-              <span>رفع هشدار Play Protect</span>
-            </span>
-            <p className="text-[10px] text-gray-500 leading-relaxed">
-              روی فایل کلیک کنید. اگر پیام امنیتی داد، روی <strong>«جزئیات بیشتر (More details)»</strong> و سپس <strong>«نصب به هر حال (Install anyway)»</strong> بزنید.
-            </p>
-          </div>
-
-          <div className="p-3 bg-white/90 rounded-xl border border-emerald-100 shadow-2xs space-y-1">
-            <span className="text-[11px] font-extrabold text-emerald-900 flex items-center gap-1.5">
-              <span className="w-4 h-4 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center text-[10px]">۳</span>
-              <span>نصب و اجرای برنامه</span>
-            </span>
-            <p className="text-[10px] text-gray-500 leading-relaxed">
-              دکمه Install / نصب را بزنید تا آیکون «جوانه» روی صفحه برنامه‌ها قرار گیرد.
-            </p>
-          </div>
-        </div>
-
-        {/* Troubleshooting toggle box */}
-        <div className="border border-amber-200/80 bg-amber-50/60 rounded-xl p-3.5 space-y-2.5">
-          <button
-            type="button"
-            onClick={() => setShowTroubleshooting(!showTroubleshooting)}
-            className="w-full flex items-center justify-between text-right cursor-pointer"
-          >
-            <span className="text-xs font-bold text-amber-900 flex items-center gap-2">
-              <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
-              <span>فایل APK نصب نشد یا خطا داد؟ (راهنمای رفع مشکل)</span>
-            </span>
-            {showTroubleshooting ? (
-              <ChevronUp className="w-4 h-4 text-amber-700" />
-            ) : (
-              <ChevronDown className="w-4 h-4 text-amber-700" />
-            )}
-          </button>
-
-          {showTroubleshooting && (
-            <div className="text-xs text-amber-950 space-y-2 pt-1 border-t border-amber-200/60 leading-relaxed">
-              <div className="space-y-1 bg-white/80 p-2.5 rounded-lg border border-amber-100">
-                <span className="font-extrabold text-amber-900 block">
-                  ۱. حذف کامل نسخه قبلی برنامه (در صورت وجود نسخه قدیمی):
-                </span>
-                <p className="text-[11px] text-gray-600">
-                  اگر قبلاً نسخه‌ای از جوانه را روی گوشی خود نصب داشته‌اید، اندروید به دلیل تفاوت در امضای دیجیتال بسته اجازه به‌روزرسانی روی نسخه قبلی را نمی‌دهد و خطای «برنامه نصب نشد» می‌دهد. <strong>ابتدا برنامه قبلی را از گوشی لغو نصب (Uninstall) کنید</strong> و سپس فایل نصبی جدید را اجرا نمایید.
-                </p>
-              </div>
-
-              <div className="space-y-1 bg-white/80 p-2.5 rounded-lg border border-amber-100">
-                <span className="font-extrabold text-amber-900 block">
-                  ۲. پیام «برنامه مسدود شد» یا Google Play Protect (بسیار رایج):
-                </span>
-                <p className="text-[11px] text-gray-600">
-                  چون این برنامه مستقیماً دانلود شده و در گوگل‌پلی منتشر نشده، سپر امنیتی گوگل آن را اخطار می‌دهد. کافیست در همان پنجره روی فلش یا متن <strong>«جزئیات بیشتر (More details)»</strong> ضربه بزنید و سپس گزینه <strong>«نصب به هر حال (Install anyway)»</strong> را انتخاب کنید.
-                </p>
-              </div>
-
-              <div className="space-y-1 bg-white/80 p-2.5 rounded-lg border border-amber-100">
-                <span className="font-extrabold text-amber-900 block">
-                  ۳. خطای «خطا در تجزیه بسته (There was a problem parsing the package)»:
-                </span>
-                <p className="text-[11px] text-gray-600">
-                  این خطا معمولاً به علت <strong>دانلود ناقص یا فایل کش‌شده قبلی</strong> رخ می‌دهد. فایل‌های قبلی <code className="text-emerald-800 font-mono font-bold">javaneh.apk</code> را از پوشه Downloads (بارگیری‌ها) گوشی به طور کامل حذف کرده و مجدداً دانلود را انجام دهید.
-                </p>
-              </div>
-
-              <div className="space-y-1 bg-white/80 p-2.5 rounded-lg border border-amber-100">
-                <span className="font-extrabold text-amber-900 block">
-                  ۴. خطای «نصب برنامه‌های ناشناخته (Install unknown apps)»:
-                </span>
-                <p className="text-[11px] text-gray-600">
-                  در صورت نمایش این پیام، روی گزینه <strong>تنظیمات (Settings)</strong> کلیک کرده و کلید <strong>«اجازه دادن از این منبع (Allow from this source)»</strong> را برای مرورگر یا مدیریت فایل فعال نمایید.
-                </p>
-              </div>
-            </div>
+          {/* Embedded UserProfileSettings component */}
+          {onSaveUserProfile && (
+            <UserProfileSettings
+              userProfile={userProfile}
+              onSaveProfile={onSaveUserProfile}
+              onNotify={showNotification}
+            />
           )}
         </div>
+      )}
 
-        {/* Section: Recommended guaranteed PWA alternative */}
-        <div className="p-4 bg-gradient-to-r from-emerald-600 to-teal-700 rounded-xl text-white shadow-xs space-y-2.5">
-          <div className="flex items-center gap-2">
-            <Globe className="w-5 h-5 text-emerald-200" />
-            <h4 className="text-xs font-black text-white">
-              روش جایگزین و تضمینی ۱۰۰٪ بدون نیاز به فایل APK: نصب نسخه وب‌اپلیکیشن (PWA)
-            </h4>
-          </div>
-          <p className="text-[11px] text-emerald-50 leading-relaxed">
-            برنامه «جوانه» یک وب‌اپلیکیشن پیشرو (PWA) کامل است. بدون نیاز به دانلود ۲۲ مگابایت فایل و بدون هیچ اخطار امنیتی، می‌توانید آن را مانند یک برنامه بومی روی صفحه گوشی خود نصب کنید:
-          </p>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1 text-[11px]">
-            <div className="bg-white/10 backdrop-blur-xs p-2.5 rounded-lg border border-white/15">
-              <span className="font-bold block text-emerald-200 mb-0.5">گام اول:</span>
-              <span>همین صفحه را در مرورگر <strong>Google Chrome</strong> یا <strong>Samsung Internet</strong> گوشی خود باز کنید.</span>
-            </div>
-            <div className="bg-white/10 backdrop-blur-xs p-2.5 rounded-lg border border-white/15">
-              <span className="font-bold block text-emerald-200 mb-0.5">گام دوم:</span>
-              <span>روی <strong>سه نقطه (⋮)</strong> در بالای مرورگر ضربه بزنید.</span>
-            </div>
-            <div className="bg-white/10 backdrop-blur-xs p-2.5 rounded-lg border border-white/15">
-              <span className="font-bold block text-emerald-200 mb-0.5">گام سوم:</span>
-              <span>گزینه <strong>«افزودن به صفحه اصلی (Add to Home screen)»</strong> یا <strong>«نصب برنامه (Install App)»</strong> را لمس کنید.</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Section 2: Data Backup & Persistent Storage (Export & Restore) */}
-      <div className="bg-white rounded-2xl border border-emerald-100/80 p-5 shadow-xs space-y-5">
-        <div className="flex items-start justify-between flex-wrap gap-2">
-          <div>
-            <h3 className="text-sm font-bold text-emerald-950 flex items-center gap-2">
-              <Database className="w-4 h-4 text-emerald-600" />
-              <span>پشتیبان‌گیری و بازگردانی اطلاعات (Export & Restore)</span>
+      {/* ========================================================================= */}
+      {/* SECTION 2: REMINDER & GENTLE ALARMS (تنظیمات یادآور و هشدارهای صوتی) */}
+      {/* ========================================================================= */}
+      {(activeTab === 'REMINDERS' || activeTab === 'ALL') && (
+        <div className="space-y-4 animate-fade-in">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-black text-gray-900 flex items-center gap-2">
+              <div className="w-6 h-6 rounded-lg bg-amber-100 text-amber-800 flex items-center justify-center">
+                <Bell className="w-3.5 h-3.5" />
+              </div>
+              <span>بخش دوم: تنظیمات یادآور، آلارم و آوای ملایم</span>
             </h3>
-            <p className="text-xs text-gray-500 mt-0.5">
-              تهیه نسخه پشتیبان شخصی به صورت فایل استاندارد JSON روی حافظه دستگاه شما و امکان بازگردانی کامل یا ادغام هر زمان که نیاز باشد.
-            </p>
+            <span className="text-[11px] text-gray-400">یادآوری‌های صوتی بدون اضطراب</span>
           </div>
 
-          {/* Current Entities Summary Badges */}
-          <div className="flex items-center gap-1.5 flex-wrap text-[11px]">
-            <span className="px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-200/80 font-semibold flex items-center gap-1">
-              <Target className="w-3 h-3 text-emerald-600" />
-              <span>{toPersianDigits(goals.length)} هدف</span>
-            </span>
-            <span className="px-2.5 py-1 rounded-lg bg-blue-50 text-blue-800 border border-blue-200/80 font-semibold flex items-center gap-1">
-              <CheckCircle2 className="w-3 h-3 text-blue-600" />
-              <span>{toPersianDigits(tasks.length)} تسک</span>
-            </span>
-            <span className="px-2.5 py-1 rounded-lg bg-teal-50 text-teal-800 border border-teal-200/80 font-semibold flex items-center gap-1">
-              <Sprout className="w-3 h-3 text-teal-600" />
-              <span>{toPersianDigits(habits.length)} عادت</span>
-            </span>
-            <span className="px-2.5 py-1 rounded-lg bg-purple-50 text-purple-800 border border-purple-200/80 font-semibold flex items-center gap-1">
-              <Tag className="w-3 h-3 text-purple-600" />
-              <span>{toPersianDigits(categories.length)} دسته‌بندی</span>
-            </span>
-          </div>
+          {onSaveReminderSettings && (
+            <ReminderAlarmSettings
+              reminderSettings={reminderSettings}
+              onSaveSettings={onSaveReminderSettings}
+              onNotify={showNotification}
+            />
+          )}
         </div>
+      )}
 
-        {/* Persistence Architecture Status Banner */}
-        <div className="bg-emerald-50/70 border border-emerald-200/80 rounded-xl p-3.5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
-          <div className="flex items-start gap-2.5">
-            <div className="p-2 rounded-lg bg-emerald-600 text-white shrink-0 mt-0.5 shadow-2xs">
-              <HardDrive className="w-4 h-4" />
-            </div>
+      {/* ========================================================================= */}
+      {/* SECTION 3: COLOR THEMES & APPEARANCE (تم‌های رنگی و ظاهر برنامه) */}
+      {/* ========================================================================= */}
+      {(activeTab === 'THEMES' || activeTab === 'ALL') && (
+        <div className="bg-white rounded-2xl border border-purple-100/90 p-5 shadow-xs space-y-5 animate-fade-in">
+          <div className="flex items-start justify-between flex-wrap gap-2">
             <div>
+              <h3 className="text-sm font-black text-gray-900 flex items-center gap-2">
+                <div className="w-6 h-6 rounded-lg bg-purple-100 text-purple-800 flex items-center justify-center">
+                  <Palette className="w-3.5 h-3.5" />
+                </div>
+                <span>بخش سوم: تم‌های رنگی و شخصی‌سازی ظاهر برنامه</span>
+              </h3>
+              <p className="text-xs text-gray-500 mt-0.5">
+                رنگ‌بندی کلی برنامه، حالت روز/شب و افکت‌های بصری باغبانی را مطابق سلیقه خود تنظیم کنید.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-purple-50 text-purple-900 border border-purple-200 flex items-center gap-1.5">
+                <span>{activeTheme.emoji}</span>
+                <span>تم فعلی: {activeTheme.name}</span>
+              </span>
+            </div>
+          </div>
+
+          {/* Interactive Themes Palette Grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 pt-1">
+            {THEME_PALETTES.map((theme) => {
+              const isSelected = selectedThemeId === theme.id;
+              return (
+                <div
+                  key={theme.id}
+                  onClick={() => handleApplyTheme(theme.id)}
+                  className={`p-3.5 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between gap-3 relative group ${
+                    isSelected
+                      ? `border-emerald-600 bg-gradient-to-b from-white to-emerald-50/40 ring-2 ${theme.activeRing} shadow-sm`
+                      : 'border-gray-200/80 bg-white hover:border-emerald-300 hover:shadow-2xs'
+                  }`}
+                >
+                  {/* Top Bar with Emoji and Title */}
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xl select-none">{theme.emoji}</span>
+                      <div>
+                        <h4 className="text-xs font-bold text-gray-900 flex items-center gap-1">
+                          <span>{theme.name}</span>
+                        </h4>
+                        <span className="text-[10px] text-gray-400 block line-clamp-1">
+                          {theme.subtitle}
+                        </span>
+                      </div>
+                    </div>
+
+                    {isSelected && (
+                      <span className="w-5 h-5 rounded-full bg-emerald-600 text-white flex items-center justify-center shrink-0">
+                        <Check className="w-3 h-3 stroke-[3]" />
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Color Swatches */}
+                  <div className="flex items-center gap-1.5">
+                    <div
+                      className="w-6 h-6 rounded-lg shadow-2xs border border-white"
+                      style={{ backgroundColor: theme.primaryHex }}
+                      title={`رنگ اصلی: ${theme.primaryHex}`}
+                    />
+                    <div
+                      className="w-6 h-6 rounded-lg shadow-2xs border border-white"
+                      style={{ backgroundColor: theme.accentHex }}
+                      title={`رنگ مکمل: ${theme.accentHex}`}
+                    />
+                    <div className="flex-1 text-[10px] text-gray-500 line-clamp-1 mr-1">
+                      {theme.description}
+                    </div>
+                  </div>
+
+                  {/* Active Indicator Button */}
+                  <button
+                    type="button"
+                    className={`w-full py-1.5 rounded-xl text-[11px] font-bold transition-colors cursor-pointer flex items-center justify-center gap-1 ${
+                      isSelected
+                        ? 'bg-emerald-600 text-white shadow-2xs'
+                        : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
+                    }`}
+                  >
+                    {isSelected ? (
+                      <>
+                        <Check className="w-3 h-3" />
+                        <span>تم فعال است</span>
+                      </>
+                    ) : (
+                      <span>انتخاب این تم</span>
+                    )}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Live Preview Card */}
+          <div className="bg-gray-50/80 rounded-2xl p-4 border border-gray-200 space-y-3">
+            <div className="flex items-center justify-between text-xs font-bold text-gray-700">
+              <span className="flex items-center gap-1.5">
+                <Eye className="w-4 h-4 text-purple-600" />
+                <span>پیش‌نمایش زنده تم انتخابی ({activeTheme.name})</span>
+              </span>
+              <span className="text-[10px] text-gray-400">نمونه عناصر برنامه</span>
+            </div>
+
+            <div className="p-3 bg-white rounded-xl border border-gray-200/80 shadow-2xs flex items-center justify-between flex-wrap gap-3">
+              <div className="flex items-center gap-3">
+                <div
+                  className="w-10 h-10 rounded-xl text-white flex items-center justify-center shadow-xs text-lg"
+                  style={{ backgroundColor: activeTheme.primaryHex }}
+                >
+                  {activeTheme.emoji}
+                </div>
+                <div>
+                  <h5 className="text-xs font-bold text-gray-900">باغچه اهداف و عادات سالانه</h5>
+                  <p className="text-[11px] text-gray-500">پیشرفت ۷۵٪ در فصل جاری</p>
+                </div>
+              </div>
+
               <div className="flex items-center gap-2">
-                <span className="font-bold text-emerald-950">سامانه ذخیره‌سازی سه‌لایه فعال است</span>
-                <span className="inline-flex items-center gap-1 text-[10px] text-emerald-800 bg-white px-2 py-0.5 rounded-full border border-emerald-300 font-medium">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                  همگام با دیسک و IndexedDB
+                <button
+                  type="button"
+                  style={{ backgroundColor: activeTheme.primaryHex }}
+                  className="px-3 py-1.5 text-white text-xs font-bold rounded-xl shadow-xs"
+                >
+                  دکمه اصلی
+                </button>
+                <span
+                  style={{ color: activeTheme.primaryHex, borderColor: `${activeTheme.primaryHex}40` }}
+                  className="px-2.5 py-1 text-xs font-bold rounded-xl border bg-gray-50"
+                >
+                  برچسب نمونه
                 </span>
               </div>
-              <p className="text-[11px] text-emerald-800/85 mt-1 leading-relaxed">
-                داده‌های شما بلافاصله در دیتابیس سرور، پایگاه داده مرورگر (IndexedDB) و حافظه محلی ذخیره می‌شوند. برای اطمینان مضاعف و امکان انتقال داده‌ها به دستگاه یا مرورگر دیگر، می‌توانید یک نسخه پشتیبان آفلاین با دکمه زیر دانلود کنید.
-              </p>
+            </div>
+          </div>
+
+          {/* Display & Accessibility Options */}
+          <div className="border-t border-gray-100 pt-4 space-y-3">
+            <h4 className="text-xs font-bold text-gray-800 flex items-center gap-1.5">
+              <Monitor className="w-3.5 h-3.5 text-gray-600" />
+              <span>تنظیمات حالت نمایش و دسترسی‌پذیری</span>
+            </h4>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {/* Dark Mode toggle */}
+              <div className="p-3 bg-gray-50 rounded-xl border border-gray-200/80 flex items-center justify-between gap-2">
+                <div>
+                  <span className="text-xs font-bold text-gray-800 block">حالت تیره (شب)</span>
+                  <span className="text-[10px] text-gray-500">کاهش نور صفحه در شب</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleToggleDarkMode(!isDarkMode)}
+                  className={`w-12 h-6 rounded-full transition-colors relative cursor-pointer ${
+                    isDarkMode ? 'bg-purple-600' : 'bg-gray-300'
+                  }`}
+                >
+                  <span
+                    className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow-xs transition-transform flex items-center justify-center text-[10px] ${
+                      isDarkMode ? 'left-1' : 'right-1'
+                    }`}
+                  >
+                    {isDarkMode ? '🌙' : '☀️'}
+                  </span>
+                </button>
+              </div>
+
+              {/* Plant Growth animations toggle */}
+              <div className="p-3 bg-gray-50 rounded-xl border border-gray-200/80 flex items-center justify-between gap-2">
+                <div>
+                  <span className="text-xs font-bold text-gray-800 block">انیمیشن رویش گیاهان</span>
+                  <span className="text-[10px] text-gray-500">جلوه‌های بصری شکوفایی</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleTogglePlantAnimations(!enablePlantAnimations)}
+                  className={`w-12 h-6 rounded-full transition-colors relative cursor-pointer ${
+                    enablePlantAnimations ? 'bg-emerald-600' : 'bg-gray-300'
+                  }`}
+                >
+                  <span
+                    className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow-xs transition-transform flex items-center justify-center text-[10px] ${
+                      enablePlantAnimations ? 'left-1' : 'right-1'
+                    }`}
+                  >
+                    🌱
+                  </span>
+                </button>
+              </div>
+
+              {/* Haptic feedback toggle */}
+              <div className="p-3 bg-gray-50 rounded-xl border border-gray-200/80 flex items-center justify-between gap-2">
+                <div>
+                  <span className="text-xs font-bold text-gray-800 block">ویبره و بازخورد لمسی</span>
+                  <span className="text-[10px] text-gray-500">لرزش ملایم هنگام تیک زدن</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleToggleHaptic(!enableHapticFeedback)}
+                  className={`w-12 h-6 rounded-full transition-colors relative cursor-pointer ${
+                    enableHapticFeedback ? 'bg-teal-600' : 'bg-gray-300'
+                  }`}
+                >
+                  <span
+                    className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow-xs transition-transform flex items-center justify-center text-[10px] ${
+                      enableHapticFeedback ? 'left-1' : 'right-1'
+                    }`}
+                  >
+                    📳
+                  </span>
+                </button>
+              </div>
             </div>
           </div>
         </div>
+      )}
 
-        {/* Export & Restore Control Cards Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 pt-1">
-          {/* Card 1: Export Backup */}
-          <div className="p-4 rounded-xl border border-emerald-200/90 bg-gradient-to-br from-emerald-50/60 to-white flex flex-col justify-between gap-3 shadow-2xs">
-            <div className="space-y-1.5">
-              <div className="flex items-center gap-2 text-emerald-900 font-bold text-xs sm:text-sm">
-                <div className="p-1.5 rounded-lg bg-emerald-600 text-white shadow-2xs">
-                  <Download className="w-4 h-4" />
-                </div>
-                <span>تهیه نسخه پشتیبان (Export)</span>
-              </div>
-              <p className="text-[11px] text-gray-600 leading-relaxed">
-                خروجی کامل از ساختار درختی اهداف، تسک‌ها، برنامه‌های تکرار، عادات و سوابق تیک‌ها به عنوان یک فایل متنی JSON در پوشه دانلودهای شما.
+      {/* ========================================================================= */}
+      {/* SECTION 4: CATEGORIES & BOTANICAL PLANTS (دسته‌بندی‌ها و گیاهان اختصاصی) */}
+      {/* ========================================================================= */}
+      {(activeTab === 'CATEGORIES' || activeTab === 'ALL') && (
+        <div className="bg-white rounded-2xl border border-emerald-100/80 p-5 shadow-xs space-y-4 animate-fade-in">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div>
+              <h3 className="text-sm font-bold text-emerald-950 flex items-center gap-2">
+                <Tag className="w-4 h-4 text-emerald-600" />
+                <span>بخش چهارم: دسته‌بندی‌های اهداف و گیاهان اختصاصی</span>
+              </h3>
+              <p className="text-xs text-gray-500 mt-0.5">
+                هر دسته‌بندی دارای رنگ و گیاه نمادین است که به زیرمجموعه‌ها، تسک‌ها و عادات ارث داده می‌شود.
               </p>
             </div>
 
-            <div className="flex items-center gap-2 pt-1 flex-wrap">
+            <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={handleExportData}
-                className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-98 text-white text-xs font-bold rounded-xl shadow-xs flex items-center gap-1.5 transition-all cursor-pointer"
+                onClick={openAddCategory}
+                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs flex items-center gap-1.5 transition-colors cursor-pointer"
               >
-                <Download className="w-3.5 h-3.5" />
-                <span>دانلود فایل پشتیبان (JSON)</span>
+                <Plus className="w-3.5 h-3.5" />
+                <span>دسته‌بندی جدید</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (window.confirm('آیا مایل به بازنشانی دسته‌بندی‌ها به مقادیر پیش‌فرض هستید؟')) {
+                    onResetCategories();
+                    showNotification('دسته‌بندی‌ها به حالت اولیه بازنشانی شدند.');
+                  }
+                }}
+                title="بازنشانی دسته‌های اولیه"
+                className="p-1.5 bg-gray-50 hover:bg-gray-100 text-gray-600 border border-gray-200 rounded-xl transition-colors cursor-pointer"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+
+          {/* Categories Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+            {categories.map((cat) => {
+              const linkedGoals = goals.filter(g => g.categoryId === cat.id);
+              const linkedTasks = tasks.filter(t => t.categoryId === cat.id);
+              const linkedHabits = habits.filter(h => h.categoryId === cat.id);
+              const plantObj = ALL_PLANT_TYPES.find(p => p.id === cat.plantType) || ALL_PLANT_TYPES[0];
+
+              return (
+                <div
+                  key={cat.id}
+                  className="rounded-xl border p-4 bg-white hover:border-emerald-300 transition-all flex flex-col justify-between gap-3 shadow-2xs group"
+                  style={{ borderRightWidth: '4px', borderRightColor: cat.colorHex }}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-center gap-2.5">
+                      <div
+                        className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 border"
+                        style={{
+                          backgroundColor: `${cat.colorHex}15`,
+                          borderColor: `${cat.colorHex}40`,
+                          color: cat.colorHex,
+                        }}
+                      >
+                        {renderIcon(cat.iconName, 'w-4 h-4')}
+                      </div>
+                      <div>
+                        <h4 className="text-xs sm:text-sm font-bold text-gray-900 flex items-center gap-1.5">
+                          <span>{cat.title}</span>
+                          <span
+                            className="w-2.5 h-2.5 rounded-full inline-block shrink-0"
+                            style={{ backgroundColor: cat.colorHex }}
+                            title={`کد رنگ: ${cat.colorHex}`}
+                          />
+                        </h4>
+                        <div className="flex items-center gap-2 mt-1 text-[11px] text-gray-400">
+                          <span>{toPersianDigits(linkedGoals.length)} هدف</span>
+                          <span>•</span>
+                          <span>{toPersianDigits(linkedTasks.length)} تسک</span>
+                          <span>•</span>
+                          <span>{toPersianDigits(linkedHabits.length)} عادت</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => openEditCategory(cat)}
+                        className="p-1.5 text-gray-400 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition-colors cursor-pointer"
+                        title="ویرایش دسته‌بندی و گیاه"
+                      >
+                        <Edit3 className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteCategoryClick(cat.id, cat.title)}
+                        className="p-1.5 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                        title="حذف دسته‌بندی"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Plant details card */}
+                  <div className="bg-emerald-50/50 rounded-lg p-2 flex items-center justify-between gap-2 border border-emerald-100/60">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <PlantIcon type={cat.plantType} size="sm" />
+                      <div className="min-w-0">
+                        <span className="text-[11px] font-bold text-emerald-950 block truncate">
+                          گیاه نمادین: {cat.plantType || 'بونسای'}
+                        </span>
+                        <span className="text-[10px] text-emerald-800/80 block truncate">
+                          {plantObj.description}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* SECTION 5: DATA MANAGEMENT & STORAGE (بخش مدیریت داده‌ها و پشتیبان‌گیری) */}
+      {/* ========================================================================= */}
+      {(activeTab === 'DATA' || activeTab === 'ALL') && (
+        <div className="bg-white rounded-2xl border border-blue-100/90 p-5 shadow-xs space-y-5 animate-fade-in">
+          <div className="flex items-start justify-between flex-wrap gap-2">
+            <div>
+              <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2">
+                <div className="w-6 h-6 rounded-lg bg-blue-100 text-blue-800 flex items-center justify-center">
+                  <Database className="w-3.5 h-3.5" />
+                </div>
+                <span>بخش پنجم: مدیریت داده‌ها، پایگاه داده و پشتیبان‌گیری</span>
+              </h3>
+              <p className="text-xs text-gray-500 mt-0.5">
+                تهیه نسخه پشتیبان شخصی به صورت فایل استاندارد JSON، کپی سریع، بازیابی داده‌ها و همگام‌سازی ذخیره‌سازی سه‌لایه.
+              </p>
+            </div>
+
+            {/* Current Entities Summary Badges */}
+            <div className="flex items-center gap-1.5 flex-wrap text-[11px]">
+              <span className="px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-200/80 font-semibold flex items-center gap-1">
+                <Target className="w-3 h-3 text-emerald-600" />
+                <span>{toPersianDigits(goals.length)} هدف</span>
+              </span>
+              <span className="px-2.5 py-1 rounded-lg bg-blue-50 text-blue-800 border border-blue-200/80 font-semibold flex items-center gap-1">
+                <CheckCircle2 className="w-3 h-3 text-blue-600" />
+                <span>{toPersianDigits(tasks.length)} تسک</span>
+              </span>
+              <span className="px-2.5 py-1 rounded-lg bg-teal-50 text-teal-800 border border-teal-200/80 font-semibold flex items-center gap-1">
+                <Sprout className="w-3 h-3 text-teal-600" />
+                <span>{toPersianDigits(habits.length)} عادت</span>
+              </span>
+              <span className="px-2.5 py-1 rounded-lg bg-purple-50 text-purple-800 border border-purple-200/80 font-semibold flex items-center gap-1">
+                <Tag className="w-3 h-3 text-purple-600" />
+                <span>{toPersianDigits(categories.length)} دسته‌بندی</span>
+              </span>
+            </div>
+          </div>
+
+          {/* Persistence Architecture Status Banner */}
+          <div className="bg-gradient-to-r from-blue-50/80 via-emerald-50/50 to-teal-50/60 border border-blue-200/80 rounded-xl p-3.5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
+            <div className="flex items-start gap-2.5">
+              <div className="p-2 rounded-lg bg-blue-700 text-white shrink-0 mt-0.5 shadow-2xs">
+                <HardDrive className="w-4 h-4" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="font-bold text-gray-900">سامانه ذخیره‌سازی سه‌لایه فعال است</span>
+                  <span className="inline-flex items-center gap-1 text-[10px] text-emerald-800 bg-white px-2 py-0.5 rounded-full border border-emerald-300 font-bold">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                    همگام با سرور، IndexedDB و LocalStorage
+                  </span>
+                </div>
+                <p className="text-[11px] text-gray-600 mt-1 leading-relaxed">
+                  تمامی تغییرات شما بلافاصله ذخیره می‌شوند. برای جلوگیری از پاک شدن در هنگام تعویض مرورگر یا گوشی، می‌توانید همیشه یک نسخه پشتیبان JSON دانلود کنید.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Export & Restore Control Cards Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 pt-1">
+            {/* Card 1: Export Backup */}
+            <div className="p-4 rounded-xl border border-emerald-200/90 bg-gradient-to-br from-emerald-50/60 to-white flex flex-col justify-between gap-3 shadow-2xs">
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-2 text-emerald-900 font-bold text-xs sm:text-sm">
+                  <div className="p-1.5 rounded-lg bg-emerald-600 text-white shadow-2xs">
+                    <Download className="w-4 h-4" />
+                  </div>
+                  <span>تهیه نسخه پشتیبان (Export)</span>
+                </div>
+                <p className="text-[11px] text-gray-600 leading-relaxed">
+                  خروجی کامل از ساختار درختی اهداف، تسک‌ها، برنامه‌های تکرار، عادات و سوابق تیک‌ها به عنوان یک فایل متنی JSON در پوشه دانلودهای شما.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2 pt-1 flex-wrap">
+                <button
+                  type="button"
+                  onClick={handleExportData}
+                  className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-98 text-white text-xs font-bold rounded-xl shadow-xs flex items-center gap-1.5 transition-all cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>دانلود فایل پشتیبان (JSON)</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleCopyJsonToClipboard}
+                  title="کپی مستقیم کد نسخه پشتیبان در حافظه موقت"
+                  className="px-3 py-2 bg-white hover:bg-emerald-50 text-emerald-800 border border-emerald-300 text-xs font-semibold rounded-xl flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs"
+                >
+                  {isCopyingJson ? (
+                    <>
+                      <Check className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>کپی شد!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>کپی کد JSON</span>
+                    </>
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setIsUpdateAndBackupModalOpen(true)}
+                  className="px-3 py-2 bg-emerald-100 hover:bg-emerald-200 text-emerald-900 border border-emerald-300 text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs"
+                  title="پشتیبان‌گیری و بارگذاری سریع فقط تسک‌ها و وضعیت انجام آن‌ها"
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700" />
+                  <span>پشتیبان ویژه تسک‌ها</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Card 2: Restore Backup */}
+            <div 
+              onDragOver={(e) => { e.preventDefault(); setIsDraggingFile(true); }}
+              onDragLeave={() => setIsDraggingFile(false)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setIsDraggingFile(false);
+                if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+                  handleFileSelect(e.dataTransfer.files[0]);
+                }
+              }}
+              className={`p-4 rounded-xl border flex flex-col justify-between gap-3 shadow-2xs transition-all ${
+                isDraggingFile 
+                  ? 'border-teal-500 bg-teal-100/50 scale-[1.01]' 
+                  : 'border-teal-200/90 bg-gradient-to-br from-teal-50/40 to-white'
+              }`}
+            >
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-2 text-teal-950 font-bold text-xs sm:text-sm">
+                  <div className="p-1.5 rounded-lg bg-teal-700 text-white shadow-2xs">
+                    <Upload className="w-4 h-4" />
+                  </div>
+                  <span>بازگردانی اطلاعات (Restore / Import)</span>
+                </div>
+                <p className="text-[11px] text-gray-600 leading-relaxed">
+                  فایل پشتیبان قبلی خود را بارگذاری کنید. پیش از اعمال، پیش‌نمایش محتوا به شما نشان داده می‌شود و می‌توانید نحوه ادغام یا جایگزینی را تعیین نمایید.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2 pt-1 flex-wrap">
+                <label className="px-3.5 py-2 bg-teal-700 hover:bg-teal-800 active:scale-98 text-white text-xs font-bold rounded-xl shadow-xs flex items-center gap-1.5 transition-all cursor-pointer">
+                  <FileUp className="w-3.5 h-3.5" />
+                  <span>انتخاب فایل پشتیبان (.json)</span>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".json,application/json"
+                    onChange={handleFileInputChange}
+                    className="hidden"
+                  />
+                </label>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRawJsonInput('');
+                    setIsTextPasteModalOpen(true);
+                  }}
+                  className="px-3 py-2 bg-white hover:bg-teal-50 text-teal-900 border border-teal-300 text-xs font-semibold rounded-xl flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs"
+                >
+                  <FileText className="w-3.5 h-3.5 text-teal-600" />
+                  <span>ورود متنی (Paste)</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* SECTION 6: MOBILE APP INSTALLATION & OFFLINE (نصب اپلیکیشن موبایل) */}
+      {/* ========================================================================= */}
+      {(activeTab === 'MOBILE' || activeTab === 'ALL') && (
+        <div className="bg-gradient-to-br from-emerald-50/90 via-white to-green-50/50 rounded-3xl border-2 border-emerald-200/90 p-5 shadow-sm space-y-5 animate-fade-in">
+          <div className="flex items-start justify-between flex-wrap gap-3">
+            <div className="flex items-center gap-3.5">
+              <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-emerald-700 to-green-600 text-white flex items-center justify-center shadow-md shrink-0 border border-emerald-400/40">
+                <Smartphone className="w-6 h-6 text-emerald-100" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h3 className="text-sm font-black text-emerald-950">
+                    بخش ششم: نصب اپلیکیشن جوانه روی گوشی (۱۰۰٪ مطابق با پیش‌نمایش)
+                  </h3>
+                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-600 text-white shadow-2xs">
+                    نسخه رسمی و کامل
+                  </span>
+                </div>
+                <p className="text-xs text-emerald-800/90 mt-0.5 font-medium">
+                  دارای تمامی بخش‌ها، صفحه تنظیمات، تقویم شمسی و آیکون رسمی جوانه با قابلیت کارکرد آفلاین
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                type="button"
+                onClick={() => {
+                  if (deferredPrompt && onInstallClick) {
+                    onInstallClick();
+                  } else {
+                    setIsMobileInstallModalOpen(true);
+                  }
+                }}
+                className="px-4 py-2.5 bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-700 hover:to-green-700 text-white text-xs font-black rounded-xl shadow-md hover:shadow-lg flex items-center gap-2 transition-all cursor-pointer active:scale-95"
+                title="نصب مستقیم جوانه روی صفحه گوشی موبایل"
+              >
+                <Sparkles className="w-4 h-4 text-emerald-200" />
+                <span>نصب فوری در گوشی</span>
               </button>
 
               <button
                 type="button"
-                onClick={handleCopyJsonToClipboard}
-                title="کپی مستقیم کد نسخه پشتیبان در حافظه موقت"
-                className="px-3 py-2 bg-white hover:bg-emerald-50 text-emerald-800 border border-emerald-300 text-xs font-semibold rounded-xl flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs"
+                onClick={() => setIsMobileInstallModalOpen(true)}
+                className="px-3.5 py-2.5 bg-white hover:bg-emerald-50 text-emerald-900 border border-emerald-300 text-xs font-bold rounded-xl shadow-2xs flex items-center gap-1.5 transition-all cursor-pointer"
+                title="اسکن بارکد QR یا مشاهده راهنمای نصب در کروم گوشی"
               >
-                {isCopyingJson ? (
-                  <>
-                    <Check className="w-3.5 h-3.5 text-emerald-600" />
-                    <span>کپی شد!</span>
-                  </>
-                ) : (
-                  <>
-                    <Copy className="w-3.5 h-3.5 text-emerald-600" />
-                    <span>کپی کد JSON</span>
-                  </>
-                )}
+                <QrCode className="w-4 h-4 text-emerald-700" />
+                <span>بارکد QR و راهنما</span>
               </button>
 
               <button
                 type="button"
                 onClick={() => setIsUpdateAndBackupModalOpen(true)}
-                className="px-3 py-2 bg-emerald-100 hover:bg-emerald-200 text-emerald-900 border border-emerald-300 text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs"
-                title="پشتیبان‌گیری و بارگذاری سریع فقط تسک‌ها و وضعیت انجام آن‌ها"
+                className="px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-bold rounded-xl border border-emerald-200 flex items-center gap-1.5 transition-all cursor-pointer"
+                title="بررسی وضعیت نسخه‌ها و پشتیبان‌گیری"
               >
-                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700" />
-                <span>پشتیبان ویژه تسک‌ها</span>
+                <ShieldCheck className="w-4 h-4 text-emerald-700" />
+                <span>لاگ نسخه (v{APP_VERSION_INFO.currentVersion})</span>
               </button>
             </div>
           </div>
 
-          {/* Card 2: Restore Backup */}
-          <div 
-            onDragOver={(e) => { e.preventDefault(); setIsDraggingFile(true); }}
-            onDragLeave={() => setIsDraggingFile(false)}
-            onDrop={(e) => {
-              e.preventDefault();
-              setIsDraggingFile(false);
-              if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-                handleFileSelect(e.dataTransfer.files[0]);
-              }
-            }}
-            className={`p-4 rounded-xl border flex flex-col justify-between gap-3 shadow-2xs transition-all ${
-              isDraggingFile 
-                ? 'border-emerald-500 bg-emerald-100/50 scale-[1.01]' 
-                : 'border-teal-200/90 bg-gradient-to-br from-teal-50/40 to-white'
-            }`}
-          >
-            <div className="space-y-1.5">
-              <div className="flex items-center gap-2 text-teal-950 font-bold text-xs sm:text-sm">
-                <div className="p-1.5 rounded-lg bg-teal-700 text-white shadow-2xs">
-                  <Upload className="w-4 h-4" />
-                </div>
-                <span>بازگردانی اطلاعات (Restore / Import)</span>
-              </div>
-              <p className="text-[11px] text-gray-600 leading-relaxed">
-                فایل پشتیبان قبلی خود را بارگذاری کنید. پیش از اعمال، پیش‌نمایش محتوا به شما نشان داده می‌شود و می‌توانید نحوه ادغام یا جایگزینی را تعیین نمایید.
+          {/* Feature comparison guarantee cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="p-3 bg-white/95 rounded-2xl border border-emerald-100 shadow-2xs space-y-1">
+              <span className="text-[11px] font-black text-emerald-900 flex items-center gap-1.5">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>لوگوی رسمی و باکیفیت جوانه</span>
+              </span>
+              <p className="text-[10px] text-gray-500 leading-relaxed">
+                با نصب مستقیم، آیکون زیبای جوانه سبز با کیفیت بالا روی صفحه اصلی گوشی شما قرار می‌گیرد.
               </p>
             </div>
 
-            <div className="flex items-center gap-2 pt-1 flex-wrap">
-              <label className="px-3.5 py-2 bg-teal-700 hover:bg-teal-800 active:scale-98 text-white text-xs font-bold rounded-xl shadow-xs flex items-center gap-1.5 transition-all cursor-pointer">
-                <FileUp className="w-3.5 h-3.5" />
-                <span>انتخاب فایل پشتیبان (.json)</span>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept=".json,application/json"
-                  onChange={handleFileInputChange}
-                  className="hidden"
-                />
-              </label>
+            <div className="p-3 bg-white/95 rounded-2xl border border-emerald-100 shadow-2xs space-y-1">
+              <span className="text-[11px] font-black text-emerald-900 flex items-center gap-1.5">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>دارای تمامی بخش‌ها و تنظیمات</span>
+              </span>
+              <p className="text-[10px] text-gray-500 leading-relaxed">
+                شامل صفحه تنظیمات کامل، تقویم شمسی رسمی ایران، باغبانی و مراحل رشد، تایمر و آلارم صوتی.
+              </p>
+            </div>
 
-              <button
-                type="button"
-                onClick={() => {
-                  setRawJsonInput('');
-                  setIsTextPasteModalOpen(true);
-                }}
-                className="px-3 py-2 bg-white hover:bg-teal-50 text-teal-900 border border-teal-300 text-xs font-semibold rounded-xl flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs"
-              >
-                <FileText className="w-3.5 h-3.5 text-teal-600" />
-                <span>ورود متنی (Paste)</span>
-              </button>
+            <div className="p-3 bg-white/95 rounded-2xl border border-emerald-100 shadow-2xs space-y-1">
+              <span className="text-[11px] font-black text-emerald-900 flex items-center gap-1.5">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>کارکرد کامل آفلاین</span>
+              </span>
+              <p className="text-[10px] text-gray-500 leading-relaxed">
+                تمامی داده‌ها روی حافظه امن گوشی شما ذخیره شده و پس از نصب، بدون نیاز به اینترنت کار می‌کند.
+              </p>
             </div>
           </div>
-        </div>
-      </div>
 
-      {/* Section 3: Extensible Settings Info & Calendar Philosophy */}
+          {/* Quick Instructions box */}
+          <div className="bg-emerald-100/60 rounded-2xl p-3.5 border border-emerald-200/80 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+            <div className="flex items-center gap-2.5">
+              <Globe className="w-4 h-4 text-emerald-700 shrink-0" />
+              <span className="text-emerald-950 font-bold text-[11px]">
+                راهنمای سریع: در کروم گوشی، منوی <strong>(⋮)</strong> را بزنید و <strong>«نصب برنامه»</strong> یا <strong>«افزودن به صفحه اصلی»</strong> را انتخاب کنید.
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsMobileInstallModalOpen(true)}
+              className="text-[11px] font-black text-emerald-800 hover:text-emerald-950 underline cursor-pointer shrink-0"
+            >
+              مشاهده راهنمای کامل تصویری ←
+            </button>
+          </div>
+
+          {/* Collapsible raw APK prototype section */}
+          <div className="border border-gray-200 bg-gray-50/70 rounded-2xl p-3.5 space-y-2.5">
+            <button
+              type="button"
+              onClick={() => setShowApkDetails(!showApkDetails)}
+              className="w-full flex items-center justify-between text-right cursor-pointer"
+            >
+              <span className="text-xs font-bold text-gray-700 flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                <span>توضیحات و دانلود فایل خام نصبی APK (نسخه آزمایشی / Prototype)</span>
+              </span>
+              {showApkDetails ? (
+                <ChevronUp className="w-4 h-4 text-gray-500" />
+              ) : (
+                <ChevronDown className="w-4 h-4 text-gray-500" />
+              )}
+            </button>
+
+            {showApkDetails && (
+              <div className="text-xs text-gray-700 space-y-3 pt-2 border-t border-gray-200 leading-relaxed">
+                <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-amber-900 space-y-1">
+                  <span className="font-extrabold text-[11px] block">
+                    نکته مهم درباره فایل javaneh.apk:
+                  </span>
+                  <p className="text-[10px] text-amber-800 leading-relaxed">
+                    فایل خام نصبی یک نسخه اولیه (پروتوتایپ) نیتیو بوده و امکانات پیشرفته پیش‌نمایش (مانند تب تنظیمات، تقویم و نمادهای گرافیکی کامل) در آن هنوز گنجانده نشده است. <strong>برای داشتن تجربه ۱۰۰٪ کامل و مشابه همین پیش‌نمایش، حتماً از روش «نصب مستقیم در گوشی (PWA)» در بالای همین بخش استفاده نمایید.</strong>
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2 flex-wrap">
+                  <a
+                    href="/javaneh.apk"
+                    download="javaneh.apk"
+                    className="px-3.5 py-2 bg-white hover:bg-gray-100 text-gray-800 border border-gray-300 text-xs font-bold rounded-xl shadow-2xs flex items-center gap-2 transition-all cursor-pointer"
+                    title="دانلود مستقیم فایل نصبی اندروید (javaneh.apk)"
+                  >
+                    <Download className="w-4 h-4 text-emerald-600" />
+                    <span>دانلود فایل خام javaneh.apk (۲۲.۵۸ مگابایت)</span>
+                  </a>
+
+                  <button
+                    type="button"
+                    onClick={() => setIsApkModalOpen(true)}
+                    className="px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-bold rounded-xl border border-emerald-200 flex items-center gap-1.5 transition-all cursor-pointer"
+                  >
+                    <Smartphone className="w-4 h-4 text-emerald-600" />
+                    <span>دانلود هوشمند با بررسی هش و سلامت فایل</span>
+                  </button>
+                </div>
+
+                {/* Troubleshooting guide toggle */}
+                <div className="border border-amber-200/80 bg-amber-50/60 rounded-xl p-3 space-y-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowTroubleshooting(!showTroubleshooting)}
+                    className="w-full flex items-center justify-between text-right cursor-pointer"
+                  >
+                    <span className="text-[11px] font-bold text-amber-900 flex items-center gap-1.5">
+                      <HelpCircle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                      <span>راهنمای رفع خطاهای احتمالی نصب فایل APK</span>
+                    </span>
+                    {showTroubleshooting ? (
+                      <ChevronUp className="w-3.5 h-3.5 text-amber-700" />
+                    ) : (
+                      <ChevronDown className="w-3.5 h-3.5 text-amber-700" />
+                    )}
+                  </button>
+
+                  {showTroubleshooting && (
+                    <div className="text-[10px] text-amber-950 space-y-2 pt-1 border-t border-amber-200/60 leading-relaxed">
+                      <p>
+                        <strong>۱. خطای Play Protect:</strong> روی «جزئیات بیشتر» و سپس «نصب به هر حال» بزنید.
+                      </p>
+                      <p>
+                        <strong>۲. خطای برنامه نصب نشد:</strong> ابتدا نسخه‌های قبلی نصب‌شده از جوانه را از گوشی لغو نصب (Uninstall) کنید.
+                      </p>
+                      <p>
+                        <strong>۳. خطای تجزیه بسته (Parsing Error):</strong> فایل‌های قبلی javaneh.apk را از پوشه Downloads حذف و مجدداً دانلود فرمایید.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Philosophy of Javaneh Card */}
       <div className="bg-white rounded-2xl border border-emerald-100/80 p-5 shadow-xs space-y-3">
         <h3 className="text-sm font-bold text-emerald-950 flex items-center gap-2">
           <Info className="w-4 h-4 text-emerald-600" />
@@ -1176,6 +1882,7 @@ export const SettingsScreen: React.FC<Props> = ({
           </div>
         </div>
       )}
+
       {/* Delete Category Confirmation Dialog */}
       {categoryToDelete && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4">
@@ -1222,7 +1929,6 @@ export const SettingsScreen: React.FC<Props> = ({
       {restoreModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl max-w-lg w-full shadow-2xl border border-emerald-100 text-right overflow-hidden animate-scale-up my-6">
-            {/* Header */}
             <div className="p-5 border-b border-gray-100 bg-gradient-to-r from-emerald-50/70 to-white flex items-center justify-between">
               <div className="flex items-center gap-2.5 text-emerald-950">
                 <div className="p-2 rounded-xl bg-emerald-600 text-white shadow-xs">
@@ -1243,7 +1949,6 @@ export const SettingsScreen: React.FC<Props> = ({
             </div>
 
             <div className="p-5 space-y-4 text-xs">
-              {/* File details card */}
               <div className="bg-gray-50 border border-gray-200/80 rounded-xl p-3.5 space-y-1.5">
                 <div className="flex items-center justify-between text-[11px] text-gray-600">
                   <span className="font-semibold text-gray-800">نام فایل / مبدا:</span>
@@ -1259,7 +1964,6 @@ export const SettingsScreen: React.FC<Props> = ({
                 </div>
               </div>
 
-              {/* Counts breakdown */}
               <div>
                 <span className="font-bold text-gray-900 block mb-2">رکوردهای شناسایی‌شده در این نسخه:</span>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
@@ -1352,7 +2056,6 @@ export const SettingsScreen: React.FC<Props> = ({
                 </span>
               </label>
 
-              {/* Action Buttons */}
               <div className="flex items-center justify-end gap-2 pt-3 border-t border-gray-100">
                 <button
                   type="button"
@@ -1406,7 +2109,7 @@ export const SettingsScreen: React.FC<Props> = ({
                 <textarea
                   value={rawJsonInput}
                   onChange={(e) => setRawJsonInput(e.target.value)}
-                  placeholder={`{\n  "appName": "جوانه (Javaneh)",\n  "version": "1.0.0",\n  "categories": [...],\n  "goals": [...],\n  "tasks": [...],\n  "habits": [...]\n}`}
+                  placeholder={`{\n  "appName": "جوانه (Javaneh)",\n  "version": "1.3.0",\n  "categories": [...],\n  "goals": [...],\n  "tasks": [...],\n  "habits": [...]\n}`}
                   rows={8}
                   dir="ltr"
                   className="w-full p-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-teal-500 focus:border-teal-500 font-mono text-xs text-gray-800 bg-gray-50/50"
@@ -1456,6 +2159,14 @@ export const SettingsScreen: React.FC<Props> = ({
         reminderSettings={reminderSettings}
         onImportTasksOnly={onImportTasksOnly}
         onOpenFullApkDownload={() => setIsApkModalOpen(true)}
+      />
+
+      {/* Mobile Install (PWA & QR Code) Modal */}
+      <MobileInstallModal
+        isOpen={isMobileInstallModalOpen}
+        onClose={() => setIsMobileInstallModalOpen(false)}
+        deferredPrompt={deferredPrompt}
+        onInstallClick={onInstallClick || (() => {})}
       />
     </div>
   );

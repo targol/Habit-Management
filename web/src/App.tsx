@@ -51,6 +51,7 @@ import { TimerModal } from './components/TimerModal';
 import { ReminderAlertModal } from './components/ReminderAlertModal';
 import { UpdateAndBackupModal } from './components/UpdateAndBackupModal';
 import { ApkIntegrityModal } from './components/ApkIntegrityModal';
+import { MobileInstallModal } from './components/MobileInstallModal';
 import { 
   Sprout, 
   CheckSquare, 
@@ -62,7 +63,8 @@ import {
   Sparkles,
   Settings,
   Calendar,
-  AlertCircle
+  AlertCircle,
+  Smartphone
 } from 'lucide-react';
 
 type NavTab = 'TODAY' | 'TASKS' | 'HABITS' | 'CALENDAR' | 'GOALS' | 'REPORTS' | 'SETTINGS';
@@ -519,9 +521,50 @@ export const App: React.FC = () => {
     minutes: 25,
   });
 
-  // Direct Tasks Backup and APK Modal State
+  // Direct Tasks Backup, Mobile Install and APK Modal State
   const [isTasksBackupModalOpen, setIsTasksBackupModalOpen] = useState(false);
   const [isApkDownloadModalOpen, setIsApkDownloadModalOpen] = useState(false);
+  const [isMobileInstallOpen, setIsMobileInstallOpen] = useState(false);
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [isStandalone, setIsStandalone] = useState(false);
+
+  useEffect(() => {
+    // Check if running in standalone mode (already installed as PWA)
+    const isPwa = window.matchMedia('(display-mode: standalone)').matches || 
+                  (window.navigator as any).standalone === true;
+    setIsStandalone(isPwa);
+
+    const handleBeforeInstall = (e: Event) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstall);
+    window.addEventListener('appinstalled', () => {
+      setDeferredPrompt(null);
+      setIsStandalone(true);
+    });
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstall);
+    };
+  }, []);
+
+  const handleInstallApp = async () => {
+    if (deferredPrompt) {
+      try {
+        await deferredPrompt.prompt();
+        const choice = await deferredPrompt.userChoice;
+        if (choice.outcome === 'accepted') {
+          setDeferredPrompt(null);
+        }
+      } catch (err) {
+        console.error('PWA install prompt error:', err);
+      }
+    } else {
+      setIsMobileInstallOpen(true);
+    }
+  };
 
   // --- Plant Growth State Calculation ---
   const todayTasks = tasks.filter(t => {
@@ -1486,11 +1529,11 @@ export const App: React.FC = () => {
   };
 
   return (
-    <div className="h-screen max-h-screen overflow-hidden bg-[#F8F9F5] text-[#1A2E1A] flex flex-col antialiased">
+    <div className="h-[100dvh] max-h-[100dvh] min-h-[100dvh] overflow-hidden bg-[#F8F9F5] text-[#1A2E1A] flex flex-col antialiased">
       {/* Top Navbar */}
       <header className="shrink-0 z-40 bg-white/95 backdrop-blur-md border-b border-emerald-100 shadow-xs">
-        <div className="max-w-4xl mx-auto px-4 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-3">
+        <div className="max-w-4xl mx-auto px-3 sm:px-4 h-16 flex items-center justify-between">
+          <div className="flex items-center gap-2.5 sm:gap-3">
             <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-emerald-600 to-green-500 text-white flex items-center justify-center shadow-xs">
               <Sprout className="w-5 h-5" />
             </div>
@@ -1506,7 +1549,7 @@ export const App: React.FC = () => {
               type="button"
               onClick={() => setCurrentTab('CALENDAR')}
               title="مشاهده تقویم شمسی و تعطیلات رسمی ایران"
-              className={`hidden sm:flex items-center gap-2 mr-3 px-2.5 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              className={`hidden md:flex items-center gap-2 mr-3 px-2.5 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                 currentTab === 'CALENDAR'
                   ? 'bg-emerald-600 text-white shadow-xs'
                   : 'bg-emerald-50/70 border border-emerald-200/70 text-emerald-950 hover:bg-emerald-100'
@@ -1517,13 +1560,13 @@ export const App: React.FC = () => {
             </button>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2">
             {/* Small mobile date chip */}
             <button
               type="button"
               onClick={() => setCurrentTab('CALENDAR')}
               title="مشاهده تقویم شمسی"
-              className={`sm:hidden flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-bold cursor-pointer transition-colors ${
+              className={`md:hidden flex items-center gap-1 px-2 py-1.5 rounded-lg text-[11px] font-bold cursor-pointer transition-colors ${
                 currentTab === 'CALENDAR'
                   ? 'bg-emerald-600 text-white'
                   : 'bg-emerald-50/70 border border-emerald-200/60 text-emerald-900'
@@ -1532,13 +1575,40 @@ export const App: React.FC = () => {
               <span>{toPersianDigits(today.day)} {PERSIAN_MONTHS[today.month - 1]}</span>
             </button>
 
+            {!isStandalone && (
+              <button
+                type="button"
+                onClick={handleInstallApp}
+                title="نصب جوانه بر روی گوشی موبایل (مشابه ۱۰۰٪ پیش‌نمایش)"
+                className="px-2.5 py-1.5 bg-gradient-to-r from-emerald-700 to-green-700 hover:from-emerald-800 hover:to-green-800 text-white text-xs font-black rounded-xl shadow-xs hover:shadow-md flex items-center gap-1.5 transition-all cursor-pointer active:scale-95"
+              >
+                <Smartphone className="w-3.5 h-3.5 text-emerald-200" />
+                <span className="hidden sm:inline">نصب روی گوشی</span>
+              </button>
+            )}
+
+            {/* Prominent Quick Settings Button in Top Header */}
+            <button
+              type="button"
+              onClick={() => setCurrentTab('SETTINGS')}
+              title="منوی جامع تنظیمات جوانه"
+              className={`px-2.5 py-1.5 rounded-xl border flex items-center gap-1.5 transition-all cursor-pointer ${
+                currentTab === 'SETTINGS'
+                  ? 'bg-emerald-700 text-white border-emerald-700 shadow-xs'
+                  : 'bg-emerald-50/80 hover:bg-emerald-100 text-emerald-900 border-emerald-200/80 hover:border-emerald-300'
+              }`}
+            >
+              <Settings className={`w-4 h-4 ${currentTab === 'SETTINGS' ? 'rotate-90 transition-transform' : 'text-emerald-700'}`} />
+              <span className="text-xs font-bold">تنظیمات</span>
+            </button>
+
             <button
               type="button"
               onClick={() => setIsAnnualWizardOpen(true)}
-              className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-bold rounded-xl border border-emerald-200 flex items-center gap-1.5 transition-colors cursor-pointer"
+              className="hidden sm:flex px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-bold rounded-xl border border-emerald-200 items-center gap-1.5 transition-colors cursor-pointer"
             >
               <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
-              <span className="hidden sm:inline">طراحی هدف سالانه</span>
+              <span>طراحی هدف سالانه</span>
             </button>
 
             <button
@@ -1548,17 +1618,17 @@ export const App: React.FC = () => {
                 setIsDuplicateTask(false);
                 setIsTaskModalOpen(true);
               }}
-              className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs flex items-center gap-1 transition-colors cursor-pointer"
+              className="px-2.5 sm:px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs flex items-center gap-1 transition-colors cursor-pointer"
             >
               <Plus className="w-4 h-4" />
-              <span>تسک سریع</span>
+              <span className="hidden xs:inline sm:inline">تسک سریع</span>
             </button>
           </div>
         </div>
       </header>
 
       {/* Main Content Area */}
-      <main className="flex-1 min-h-0 overflow-y-auto w-full">
+      <main className="flex-1 min-h-0 overflow-y-auto w-full pb-20 sm:pb-24">
         <div className="max-w-4xl w-full mx-auto px-4 py-5">
         {currentTab === 'TODAY' && (
           <TodayScreen
@@ -1568,6 +1638,7 @@ export const App: React.FC = () => {
             categories={categories}
             plantState={plantState}
             userProfile={userProfile}
+            onOpenSettings={() => setCurrentTab('SETTINGS')}
             onToggleTask={handleToggleTask}
             onToggleHabitToday={(id) => handleToggleHabitDate(id, todayStr)}
             onToggleHabitDate={handleToggleHabitDate}
@@ -1676,6 +1747,8 @@ export const App: React.FC = () => {
             habits={habits}
             userProfile={userProfile}
             reminderSettings={reminderSettings}
+            deferredPrompt={deferredPrompt}
+            onInstallClick={handleInstallApp}
             onSaveUserProfile={handleSaveUserProfile}
             onSaveReminderSettings={handleSaveReminderSettings}
             onSaveCategory={handleSaveCategory}
@@ -1689,83 +1762,97 @@ export const App: React.FC = () => {
       </main>
 
       {/* Bottom Navigation Bar */}
-      <nav className="shrink-0 z-40 bg-white/95 backdrop-blur-md border-t border-emerald-100/90 shadow-md">
-        <div className="max-w-md mx-auto px-3 h-16 flex items-center justify-around">
+      <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-emerald-100 shadow-[0_-4px_16px_rgba(0,0,0,0.06)] pb-[env(safe-area-inset-bottom,0px)]">
+        <div className="max-w-xl mx-auto px-1.5 h-16 flex items-center justify-around overflow-x-auto no-scrollbar">
           <button
             type="button"
             onClick={() => setCurrentTab('TODAY')}
-            className={`flex flex-col items-center gap-1 cursor-pointer transition-colors ${
+            className={`flex-1 py-1 flex flex-col items-center justify-center gap-0.5 min-w-0 cursor-pointer transition-all ${
               currentTab === 'TODAY' ? 'text-emerald-700 font-bold' : 'text-gray-400 hover:text-gray-600'
             }`}
           >
-            <Sprout className={`w-5 h-5 ${currentTab === 'TODAY' ? 'stroke-[2.5]' : ''}`} />
-            <span className="text-[10px]">باغچه</span>
+            <div className={`p-1 px-2 rounded-xl transition-colors ${currentTab === 'TODAY' ? 'bg-emerald-100 text-emerald-800' : ''}`}>
+              <Sprout className={`w-4.5 h-4.5 ${currentTab === 'TODAY' ? 'stroke-[2.5]' : ''}`} />
+            </div>
+            <span className="text-[10px] leading-tight">باغچه</span>
           </button>
 
           <button
             type="button"
             onClick={() => setCurrentTab('TASKS')}
-            className={`flex flex-col items-center gap-1 cursor-pointer transition-colors ${
+            className={`flex-1 py-1 flex flex-col items-center justify-center gap-0.5 min-w-0 cursor-pointer transition-all ${
               currentTab === 'TASKS' ? 'text-emerald-700 font-bold' : 'text-gray-400 hover:text-gray-600'
             }`}
           >
-            <CheckSquare className={`w-5 h-5 ${currentTab === 'TASKS' ? 'stroke-[2.5]' : ''}`} />
-            <span className="text-[10px]">تسک‌ها</span>
+            <div className={`p-1 px-2 rounded-xl transition-colors ${currentTab === 'TASKS' ? 'bg-emerald-100 text-emerald-800' : ''}`}>
+              <CheckSquare className={`w-4.5 h-4.5 ${currentTab === 'TASKS' ? 'stroke-[2.5]' : ''}`} />
+            </div>
+            <span className="text-[10px] leading-tight">تسک‌ها</span>
           </button>
 
           <button
             type="button"
             onClick={() => setCurrentTab('HABITS')}
-            className={`flex flex-col items-center gap-1 cursor-pointer transition-colors ${
+            className={`flex-1 py-1 flex flex-col items-center justify-center gap-0.5 min-w-0 cursor-pointer transition-all ${
               currentTab === 'HABITS' ? 'text-emerald-700 font-bold' : 'text-gray-400 hover:text-gray-600'
             }`}
           >
-            <Flame className={`w-5 h-5 ${currentTab === 'HABITS' ? 'stroke-[2.5]' : ''}`} />
-            <span className="text-[10px]">عادت‌ها</span>
+            <div className={`p-1 px-2 rounded-xl transition-colors ${currentTab === 'HABITS' ? 'bg-emerald-100 text-emerald-800' : ''}`}>
+              <Flame className={`w-4.5 h-4.5 ${currentTab === 'HABITS' ? 'stroke-[2.5]' : ''}`} />
+            </div>
+            <span className="text-[10px] leading-tight">عادت‌ها</span>
           </button>
 
           <button
             type="button"
             onClick={() => setCurrentTab('CALENDAR')}
-            className={`flex flex-col items-center gap-1 cursor-pointer transition-colors ${
+            className={`flex-1 py-1 flex flex-col items-center justify-center gap-0.5 min-w-0 cursor-pointer transition-all ${
               currentTab === 'CALENDAR' ? 'text-emerald-700 font-bold' : 'text-gray-400 hover:text-gray-600'
             }`}
           >
-            <Calendar className={`w-5 h-5 ${currentTab === 'CALENDAR' ? 'stroke-[2.5]' : ''}`} />
-            <span className="text-[10px]">تقویم</span>
+            <div className={`p-1 px-2 rounded-xl transition-colors ${currentTab === 'CALENDAR' ? 'bg-emerald-100 text-emerald-800' : ''}`}>
+              <Calendar className={`w-4.5 h-4.5 ${currentTab === 'CALENDAR' ? 'stroke-[2.5]' : ''}`} />
+            </div>
+            <span className="text-[10px] leading-tight">تقویم</span>
           </button>
 
           <button
             type="button"
             onClick={() => setCurrentTab('GOALS')}
-            className={`flex flex-col items-center gap-1 cursor-pointer transition-colors ${
+            className={`flex-1 py-1 flex flex-col items-center justify-center gap-0.5 min-w-0 cursor-pointer transition-all ${
               currentTab === 'GOALS' ? 'text-emerald-700 font-bold' : 'text-gray-400 hover:text-gray-600'
             }`}
           >
-            <Target className={`w-5 h-5 ${currentTab === 'GOALS' ? 'stroke-[2.5]' : ''}`} />
-            <span className="text-[10px]">اهداف</span>
+            <div className={`p-1 px-2 rounded-xl transition-colors ${currentTab === 'GOALS' ? 'bg-emerald-100 text-emerald-800' : ''}`}>
+              <Target className={`w-4.5 h-4.5 ${currentTab === 'GOALS' ? 'stroke-[2.5]' : ''}`} />
+            </div>
+            <span className="text-[10px] leading-tight">اهداف</span>
           </button>
 
           <button
             type="button"
             onClick={() => setCurrentTab('REPORTS')}
-            className={`flex flex-col items-center gap-1 cursor-pointer transition-colors ${
+            className={`flex-1 py-1 flex flex-col items-center justify-center gap-0.5 min-w-0 cursor-pointer transition-all ${
               currentTab === 'REPORTS' ? 'text-emerald-700 font-bold' : 'text-gray-400 hover:text-gray-600'
             }`}
           >
-            <BarChart3 className={`w-5 h-5 ${currentTab === 'REPORTS' ? 'stroke-[2.5]' : ''}`} />
-            <span className="text-[10px]">گزارش</span>
+            <div className={`p-1 px-2 rounded-xl transition-colors ${currentTab === 'REPORTS' ? 'bg-emerald-100 text-emerald-800' : ''}`}>
+              <BarChart3 className={`w-4.5 h-4.5 ${currentTab === 'REPORTS' ? 'stroke-[2.5]' : ''}`} />
+            </div>
+            <span className="text-[10px] leading-tight">گزارش</span>
           </button>
 
           <button
             type="button"
             onClick={() => setCurrentTab('SETTINGS')}
-            className={`flex flex-col items-center gap-1 cursor-pointer transition-colors ${
+            className={`flex-1 py-1 flex flex-col items-center justify-center gap-0.5 min-w-0 cursor-pointer transition-all ${
               currentTab === 'SETTINGS' ? 'text-emerald-700 font-bold' : 'text-gray-400 hover:text-gray-600'
             }`}
           >
-            <Settings className={`w-5 h-5 ${currentTab === 'SETTINGS' ? 'stroke-[2.5]' : ''}`} />
-            <span className="text-[10px]">تنظیمات</span>
+            <div className={`p-1 px-2 rounded-xl transition-colors ${currentTab === 'SETTINGS' ? 'bg-emerald-100 text-emerald-800' : ''}`}>
+              <Settings className={`w-4.5 h-4.5 ${currentTab === 'SETTINGS' ? 'stroke-[2.5]' : ''}`} />
+            </div>
+            <span className="text-[10px] leading-tight">تنظیمات</span>
           </button>
         </div>
       </nav>
@@ -1876,6 +1963,15 @@ export const App: React.FC = () => {
       <ApkIntegrityModal
         isOpen={isApkDownloadModalOpen}
         onClose={() => setIsApkDownloadModalOpen(false)}
+      />
+
+      {/* Mobile Install (PWA & QR Code) Modal */}
+      <MobileInstallModal
+        isOpen={isMobileInstallOpen}
+        onClose={() => setIsMobileInstallOpen(false)}
+        deferredPrompt={deferredPrompt}
+        onInstallClick={handleInstallApp}
+        onOpenSettings={() => setCurrentTab('SETTINGS')}
       />
     </div>
   );

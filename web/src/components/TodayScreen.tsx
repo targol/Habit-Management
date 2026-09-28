@@ -33,7 +33,8 @@ import {
   Edit3,
   Sun,
   Droplets,
-  Check
+  Check,
+  Settings
 } from 'lucide-react';
 import { PlantIcon } from './PlantIcon';
 import { EntityBadge, EntityIcon } from './EntityIcon';
@@ -47,6 +48,7 @@ interface Props {
   categories: Category[];
   plantState: PlantState;
   userProfile?: UserProfile;
+  onOpenSettings?: () => void;
   onToggleTask: (taskId: string) => void;
   onToggleHabitToday: (habitId: string) => void;
   onToggleHabitDate?: (habitId: string, dateStr: string) => void;
@@ -75,6 +77,7 @@ export const TodayScreen: React.FC<Props> = ({
   categories,
   plantState,
   userProfile,
+  onOpenSettings,
   onToggleTask,
   onToggleHabitToday,
   onToggleHabitDate,
@@ -285,6 +288,28 @@ export const TodayScreen: React.FC<Props> = ({
           <p className="text-[11px] text-rose-800 leading-relaxed">
             💡 <strong>توجه به روز تعطیل:</strong> امروز فرصت مناسبی برای استراحت، تجدید انرژی، یا پیگیری بدون دغدغه کارهای آرامش‌بخش است. پیش از شروع ساعت شنی تسک‌ها یا پروژه‌های جدی کاری، تعطیلی رسمی در نظر گرفته می‌شود.
           </p>
+        </div>
+      )}
+
+      {/* Quick Settings Shortcut Banner */}
+      {onOpenSettings && (
+        <div className="bg-gradient-to-r from-emerald-50 via-teal-50/50 to-green-50 border border-emerald-200/80 rounded-2xl px-4 py-2.5 flex items-center justify-between gap-3 shadow-2xs">
+          <div className="flex items-center gap-2.5">
+            <div className="w-7 h-7 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-2xs">
+              <Settings className="w-4 h-4" />
+            </div>
+            <div>
+              <span className="text-xs font-black text-emerald-950 block">تنظیمات و شخصی‌سازی جوانه</span>
+              <span className="text-[10px] text-emerald-700">پروفایل، زنگ هشدارها، تم‌های رنگی و پشتیبان‌گیری</span>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onOpenSettings}
+            className="px-3 py-1.5 bg-white hover:bg-emerald-100 text-emerald-900 border border-emerald-300 rounded-xl text-xs font-bold transition-all shadow-2xs cursor-pointer flex items-center gap-1 active:scale-95"
+          >
+            <span>ورود به تنظیمات</span>
+          </button>
         </div>
       )}
 
