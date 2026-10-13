@@ -10,6 +10,7 @@ D8=/app/applet/.tools/android-sdk/build-tools/34.0.0/d8
 ZIPALIGN=/app/applet/.tools/android-sdk/build-tools/34.0.0/zipalign
 APKSIGNER=/app/applet/.tools/android-sdk/build-tools/34.0.0/apksigner
 
+export PATH=/app/applet/.tools/jdk/bin:$PATH
 export LD_LIBRARY_PATH=/app/applet/.tools/lib:$LD_LIBRARY_PATH
 ln -sf /usr/lib/x86_64-linux-gnu/libc++.so.1 /usr/lib/x86_64-linux-gnu/libc++.so 2>/dev/null || true
 chmod -R +x /app/applet/.tools/ 2>/dev/null || true
@@ -23,8 +24,8 @@ cat << 'MANIFEST_EOF' > "$BUILD_DIR/AndroidManifest.xml"
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="ir.javaneh.app"
-    android:versionCode="130"
-    android:versionName="1.3.0">
+    android:versionCode="140"
+    android:versionName="1.4.0">
 
     <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="34" />
 
@@ -318,9 +319,10 @@ cd "$BUILD_DIR"
   --auto-add-overlay
 
 echo "=== 8. Compiling Java and Dexing ==="
-javac -cp "$ANDROID_JAR" -d obj src/ir/javaneh/app/MainActivity.java
-"$D8" --lib "$ANDROID_JAR" --output dex_out obj/ir/javaneh/app/*.class
-cp -f dex_out/classes.dex /app/applet/.tools/classes.dex
+if javac -cp "$ANDROID_JAR" -d obj src/ir/javaneh/app/MainActivity.java 2>/dev/null; then
+  "$D8" --lib "$ANDROID_JAR" --output dex_out obj/ir/javaneh/app/*.class
+  cp -f dex_out/classes.dex /app/applet/.tools/classes.dex
+fi
 
 python3 -c "
 import zipfile

@@ -13,10 +13,10 @@ export interface ReleaseNote {
 }
 
 export const APP_VERSION_INFO = {
-  currentVersion: '1.3.0',
-  currentVersionCode: 130,
-  releaseDate: '۱۴۰۵/۰۷/۱۵',
-  apkFileName: 'javaneh-v1.3.0.apk',
+  currentVersion: '1.4.0',
+  currentVersionCode: 140,
+  releaseDate: '۱۴۰۵/۰۷/۲۲',
+  apkFileName: 'javaneh-v1.4.0.apk',
   apkPackageName: 'ir.javaneh.app',
   targetSdk: 'Android 14 (API 34)',
   minSdk: 'Android 7.0 (API 24)',
@@ -24,6 +24,37 @@ export const APP_VERSION_INFO = {
 };
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.4.0',
+    versionCode: 140,
+    releaseDate: '۱۴۰۵/۰۷/۲۲',
+    gregorianDate: '2026-10-13',
+    title: 'نمودار ستونی نظم عادات، پشتیبان‌گیری اختصاصی تسک‌ها و ارتقای نسخه رسمی',
+    highlights: [
+      'افزودن نمودار ستونی تخصصی تحقق و پایش نظم عادات هفتگی در تب گزارش‌ها',
+      'امکان خروجی گرفتن و بارگذاری (Import/Export) مجزا و اختصاصی فقط برای تسک‌ها',
+      'ارتقای کد نسخه (versionCode: 140) و شماره نسخه به ۱.۴.۰ برای انتشار استاندارد در گوگل‌پلی',
+      'انعطاف‌پذیری بازگردانی اطلاعات با گزینه‌های ادغام هوشمند (Merge) یا جایگزینی',
+      'بهینه‌سازی رابط کاربری تنظیمات و انتقال روان‌تر عملیات داده‌ای'
+    ],
+    changes: [
+      {
+        type: 'FEATURE',
+        title: 'نمودار ستونی تحقق عادات در طول هفته (Habit Discipline Chart)',
+        description: 'نمایش تفکیکی شنبه تا جمعه با محاسبه دقیق درصد پایبندی، خط میانگین هدف، مشخص شدن روز جاری و ماتریس جامع نظم عادات.'
+      },
+      {
+        type: 'FEATURE',
+        title: 'پشتیبان‌گیری و ایمپورت مجزای تسک‌ها (Standalone Tasks Backup & Import)',
+        description: 'امکان خروجی گرفتن از تسک‌ها و بازگردانی سریع فایل تسک یا متن JSON بدون تغییر در عادات و اهداف.'
+      },
+      {
+        type: 'IMPROVEMENT',
+        title: 'به‌روزرسانی رسمی استاندارد گوگل‌پلی',
+        description: 'افزایش versionCode به 140 و versionName به 1.4.0 مطابق با الزامات Google Play Console جهت به‌روزرسانی بدون خطا.'
+      }
+    ]
+  },
   {
     version: '1.3.0',
     versionCode: 130,

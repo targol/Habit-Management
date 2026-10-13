@@ -55,9 +55,9 @@ const server = http.createServer((req, res) => {
         res.end(JSON.stringify({
           available: true,
           filename: 'javaneh.apk',
-          version: '1.3.0',
-          versionCode: 130,
-          releaseDate: '۱۴۰۵/۰۷/۱۵',
+          version: '1.4.0',
+          versionCode: 140,
+          releaseDate: '۱۴۰۵/۰۷/۲۲',
           packageName: 'com.javaneh.app',
           size: stat.size,
           formattedSize: (stat.size / (1024 * 1024)).toFixed(2) + ' MB',

@@ -50,7 +50,7 @@ function persistentStoragePlugin(): Plugin {
               res.setHeader('X-File-Size-Bytes', String(totalSize));
               res.setHeader('X-File-Size-Formatted', formattedSize);
               res.setHeader('X-Package-Name', 'ir.javaneh.app');
-              res.setHeader('X-File-Version', '1.3.0');
+              res.setHeader('X-File-Version', '1.4.0');
 
               if (req.method === 'OPTIONS') {
                 res.statusCode = 204;

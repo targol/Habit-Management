@@ -487,7 +487,7 @@ export const SettingsScreen: React.FC<Props> = ({
       const datePart = `${todayJ.year}-${String(todayJ.month).padStart(2, '0')}-${String(todayJ.day).padStart(2, '0')}`;
       const backup: AppBackupData = {
         appName: 'جوانه (Javaneh)',
-        version: '1.3.0',
+        version: APP_VERSION_INFO.currentVersion,
         exportDate: new Date().toISOString(),
         exportPersianDate: getCurrentPersianDateTimeString(),
         counts: {
@@ -526,7 +526,7 @@ export const SettingsScreen: React.FC<Props> = ({
     try {
       const backup: AppBackupData = {
         appName: 'جوانه (Javaneh)',
-        version: '1.3.0',
+        version: APP_VERSION_INFO.currentVersion,
         exportDate: new Date().toISOString(),
         exportPersianDate: getCurrentPersianDateTimeString(),
         counts: {
@@ -1939,7 +1939,7 @@ export const SettingsScreen: React.FC<Props> = ({
                 <textarea
                   value={rawJsonInput}
                   onChange={(e) => setRawJsonInput(e.target.value)}
-                  placeholder={`{\n  "appName": "جوانه (Javaneh)",\n  "version": "1.3.0",\n  "categories": [...],\n  "goals": [...],\n  "tasks": [...],\n  "habits": [...]\n}`}
+                  placeholder={`{\n  "appName": "جوانه (Javaneh)",\n  "version": "1.4.0",\n  "categories": [...],\n  "goals": [...],\n  "tasks": [...],\n  "habits": [...]\n}`}
                   rows={8}
                   dir="ltr"
                   className="w-full p-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-teal-500 focus:border-teal-500 font-mono text-xs text-gray-800 bg-gray-50/50"

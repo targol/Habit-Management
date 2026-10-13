@@ -17,8 +17,8 @@ android {
     applicationId = "com.javaneh.app"
     minSdk = 24
     targetSdk = 36
-    versionCode = 101
-    versionName = "1.0.1"
+    versionCode = 140
+    versionName = "1.4.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
