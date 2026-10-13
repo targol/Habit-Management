@@ -490,7 +490,7 @@ export const ReportsScreen: React.FC<Props> = ({ tasks, habits, goals, categorie
                 }`}
               >
                 <Flame className="w-4 h-4 text-amber-300" />
-                <span>نمودار تحقق و نظم عادات</span>
+                <span>نمودار ستونی نظم هفتگی (تسک‌ها و عادت‌ها)</span>
               </button>
               <button
                 type="button"
@@ -508,14 +508,14 @@ export const ReportsScreen: React.FC<Props> = ({ tasks, habits, goals, categorie
             
             <div className="text-[11px] text-gray-500 font-medium px-2 hidden sm:block">
               {weeklyReportView === 'HABITS_DISCIPLINE' 
-                ? 'نمودار ستونی درصد تحقق روزانه عادات در طول هفته جاری'
+                ? 'نمودار ستونی میزان تکمیل تسک‌ها و عادت‌ها به تفکیک هر روز هفته جاری'
                 : 'گزارش تفکیکی فعالیت‌های تسک و عادت‌ها'
               }
             </div>
           </div>
 
           {weeklyReportView === 'HABITS_DISCIPLINE' ? (
-            <HabitWeeklyDisciplineChart habits={habits} categories={categories} />
+            <HabitWeeklyDisciplineChart habits={habits} tasks={tasks} categories={categories} />
           ) : (
             <WeeklyProgressSummary 
               tasks={tasks} 
