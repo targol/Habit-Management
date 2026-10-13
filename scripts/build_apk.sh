@@ -10,10 +10,14 @@ D8=/app/applet/.tools/android-sdk/build-tools/34.0.0/d8
 ZIPALIGN=/app/applet/.tools/android-sdk/build-tools/34.0.0/zipalign
 APKSIGNER=/app/applet/.tools/android-sdk/build-tools/34.0.0/apksigner
 
-export PATH=/app/applet/.tools/jdk/bin:$PATH
+export PATH=/usr/bin:/app/applet/.tools/jdk/bin:$PATH
 export LD_LIBRARY_PATH=/app/applet/.tools/lib:$LD_LIBRARY_PATH
 ln -sf /usr/lib/x86_64-linux-gnu/libc++.so.1 /usr/lib/x86_64-linux-gnu/libc++.so 2>/dev/null || true
 chmod -R +x /app/applet/.tools/ 2>/dev/null || true
+
+# 0. Build latest web bundle first
+echo "=== Building fresh Web bundle with new charts and version 1.4.0 ==="
+npm --prefix /app/applet/web run build
 
 BUILD_DIR=/tmp/apk_builder
 rm -rf "$BUILD_DIR"
@@ -108,6 +112,7 @@ done
 mkdir -p "$BUILD_DIR/assets"
 cp -r /app/applet/web/dist/* "$BUILD_DIR/assets/"
 rm -f "$BUILD_DIR"/assets/*.apk
+rm -f "$BUILD_DIR"/assets/*.idsig
 
 # 6. Android MainActivity with local asset loader & hardware Back navigation
 cat << 'JAVA_EOF' > "$BUILD_DIR/src/ir/javaneh/app/MainActivity.java"
@@ -117,6 +122,7 @@ import android.app.Activity;
 import android.os.Bundle;
 import android.content.Intent;
 import android.net.Uri;
+import android.net.http.SslError;
 import android.view.KeyEvent;
 import android.webkit.ValueCallback;
 import android.webkit.WebSettings;
@@ -125,6 +131,7 @@ import android.webkit.WebViewClient;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
+import android.webkit.SslErrorHandler;
 import android.webkit.ConsoleMessage;
 import android.webkit.JavascriptInterface;
 import android.graphics.Color;
@@ -220,14 +227,26 @@ public class MainActivity extends Activity {
 
         webView.setWebViewClient(new WebViewClient() {
             @Override
+            public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError error) {
+                // Ensure local assets never get blocked by SSL verification on Android
+                handler.proceed();
+            }
+
+            @Override
+            public void onReceivedError(WebView view, int errorCode, String description, String failingUrl) {
+                Log.w("Javaneh", "WebView error: " + description + " [" + errorCode + "] for " + failingUrl);
+            }
+
+            @Override
             public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
-                String host = request.getUrl().getHost();
-                if (host != null && !"localhost".equalsIgnoreCase(host) && !"appassets.androidplatform.net".equalsIgnoreCase(host)) {
+                Uri reqUri = request.getUrl();
+                String host = reqUri != null ? reqUri.getHost() : null;
+                if (host != null && !"localhost".equalsIgnoreCase(host) && !"127.0.0.1".equalsIgnoreCase(host) && !"appassets.androidplatform.net".equalsIgnoreCase(host)) {
                     // Let external requests (e.g. Google fonts, APIs) pass through to Android networking
                     return super.shouldInterceptRequest(view, request);
                 }
 
-                String path = request.getUrl().getPath();
+                String path = reqUri != null ? reqUri.getPath() : null;
                 if (path == null || path.isEmpty() || path.equals("/")) {
                     path = "index.html";
                 } else if (path.startsWith("/")) {
@@ -241,9 +260,11 @@ public class MainActivity extends Activity {
                     else if (path.endsWith(".css")) mime = "text/css";
                     else if (path.endsWith(".svg")) mime = "image/svg+xml";
                     else if (path.endsWith(".png")) mime = "image/png";
+                    else if (path.endsWith(".jpg") || path.endsWith(".jpeg")) mime = "image/jpeg";
                     else if (path.endsWith(".json") || path.endsWith(".webmanifest")) mime = "application/json";
                     else if (path.endsWith(".woff2")) mime = "font/woff2";
                     else if (path.endsWith(".woff")) mime = "font/woff";
+                    else if (path.endsWith(".ttf")) mime = "font/ttf";
                     else if (path.endsWith(".ico")) mime = "image/x-icon";
 
                     Map<String, String> headers = new HashMap<>();
@@ -268,7 +289,8 @@ public class MainActivity extends Activity {
             }
         });
 
-        webView.loadUrl("https://localhost/index.html");
+        // Use standard local URL
+        webView.loadUrl("http://localhost/index.html");
 
         setContentView(webView);
     }
@@ -319,10 +341,9 @@ cd "$BUILD_DIR"
   --auto-add-overlay
 
 echo "=== 8. Compiling Java and Dexing ==="
-if javac -cp "$ANDROID_JAR" -d obj src/ir/javaneh/app/MainActivity.java 2>/dev/null; then
-  "$D8" --lib "$ANDROID_JAR" --output dex_out obj/ir/javaneh/app/*.class
-  cp -f dex_out/classes.dex /app/applet/.tools/classes.dex
-fi
+javac -cp "$ANDROID_JAR" -d obj src/ir/javaneh/app/MainActivity.java
+"$D8" --lib "$ANDROID_JAR" --output dex_out obj/ir/javaneh/app/*.class
+cp -f dex_out/classes.dex /app/applet/.tools/classes.dex
 
 python3 -c "
 import zipfile
