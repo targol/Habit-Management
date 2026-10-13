@@ -27,6 +27,7 @@ import {
 } from 'lucide-react';
 import { PlantIcon } from './PlantIcon';
 import { WeeklyProgressSummary } from './WeeklyProgressSummary';
+import { HabitWeeklyDisciplineChart } from './HabitWeeklyDisciplineChart';
 
 interface Props {
   tasks: AppTask[];
@@ -45,6 +46,7 @@ export const ReportsScreen: React.FC<Props> = ({ tasks, habits, goals, categorie
   const [timeframe, setTimeframe] = useState<Timeframe>('WEEK');
   const [goalFilter, setGoalFilter] = useState<'ALL' | 'ANNUAL' | 'INTERMEDIATE' | 'SEASONAL'>('ALL');
   const [selectedSeasonFilter, setSelectedSeasonFilter] = useState<number | 'ALL'>('ALL');
+  const [weeklyReportView, setWeeklyReportView] = useState<'HABITS_DISCIPLINE' | 'ALL_ACTIVITIES'>('HABITS_DISCIPLINE');
 
   // --- Calculate Days in Timeframe ---
   const currentSeasonIndex = Math.floor((today.month - 1) / 3);
@@ -473,12 +475,55 @@ export const ReportsScreen: React.FC<Props> = ({ tasks, habits, goals, categorie
 
       {/* Weekly Progress Summary Component */}
       {timeframe === 'WEEK' ? (
-        <WeeklyProgressSummary 
-          tasks={tasks} 
-          habits={habits} 
-          categories={categories} 
-          goals={goals} 
-        />
+        <div className="space-y-4">
+          {/* Sub-view switcher between Habit Discipline Bar Chart and Full Activity Summary */}
+          <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-2 rounded-2xl border border-emerald-100 shadow-2xs">
+            <div className="flex items-center gap-1.5 text-xs">
+              <button
+                type="button"
+                onClick={() => setWeeklyReportView('HABITS_DISCIPLINE')}
+                className={`px-3.5 py-2 rounded-xl font-bold flex items-center gap-2 transition-all cursor-pointer ${
+                  weeklyReportView === 'HABITS_DISCIPLINE'
+                    ? 'bg-emerald-600 text-white shadow-xs'
+                    : 'text-gray-600 hover:text-emerald-800 hover:bg-emerald-50/60'
+                }`}
+              >
+                <Flame className="w-4 h-4 text-amber-300" />
+                <span>نمودار تحقق و نظم عادات</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setWeeklyReportView('ALL_ACTIVITIES')}
+                className={`px-3.5 py-2 rounded-xl font-bold flex items-center gap-2 transition-all cursor-pointer ${
+                  weeklyReportView === 'ALL_ACTIVITIES'
+                    ? 'bg-emerald-600 text-white shadow-xs'
+                    : 'text-gray-600 hover:text-emerald-800 hover:bg-emerald-50/60'
+                }`}
+              >
+                <BarChart3 className="w-4 h-4 text-emerald-300" />
+                <span>خلاصه جامع پیشرفت هفتگی</span>
+              </button>
+            </div>
+            
+            <div className="text-[11px] text-gray-500 font-medium px-2 hidden sm:block">
+              {weeklyReportView === 'HABITS_DISCIPLINE' 
+                ? 'نمودار ستونی درصد تحقق روزانه عادات در طول هفته جاری'
+                : 'گزارش تفکیکی فعالیت‌های تسک و عادت‌ها'
+              }
+            </div>
+          </div>
+
+          {weeklyReportView === 'HABITS_DISCIPLINE' ? (
+            <HabitWeeklyDisciplineChart habits={habits} categories={categories} />
+          ) : (
+            <WeeklyProgressSummary 
+              tasks={tasks} 
+              habits={habits} 
+              categories={categories} 
+              goals={goals} 
+            />
+          )}
+        </div>
       ) : (
         <div className="bg-white rounded-2xl p-5 border border-emerald-100 shadow-xs">
           <div className="flex items-center justify-between mb-4">
@@ -784,14 +829,31 @@ export const ReportsScreen: React.FC<Props> = ({ tasks, habits, goals, categorie
 
       {/* Habit Consistency & Garden Mascot Ranking */}
       <div className="bg-white rounded-2xl p-5 border border-emerald-100 shadow-xs space-y-4">
-        <div>
-          <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2">
-            <Award className="w-4 h-4 text-emerald-600" />
-            <span>رتبه‌بندی پایبندی به عادات و شادابی گیاهان باغچه</span>
-          </h3>
-          <p className="text-[11px] text-gray-500 mt-0.5">
-            پیوستگی ثبت روزانه به تفکیک گیاهان نمادین شما در بازه {timeframe === 'WEEK' ? 'هفتگی' : timeframe === 'MONTH' ? 'ماهانه' : timeframe === 'SEASON' ? 'فصلی' : 'سالانه'}
-          </p>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-100 pb-3">
+          <div>
+            <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2">
+              <Award className="w-4 h-4 text-emerald-600" />
+              <span>رتبه‌بندی پایبندی به عادات و شادابی گیاهان باغچه</span>
+            </h3>
+            <p className="text-[11px] text-gray-500 mt-0.5">
+              پیوستگی ثبت روزانه به تفکیک گیاهان نمادین شما در بازه {timeframe === 'WEEK' ? 'هفتگی' : timeframe === 'MONTH' ? 'ماهانه' : timeframe === 'SEASON' ? 'فصلی' : 'سالانه'}
+            </p>
+          </div>
+
+          {timeframe !== 'WEEK' && (
+            <button
+              type="button"
+              onClick={() => {
+                setTimeframe('WEEK');
+                setWeeklyReportView('HABITS_DISCIPLINE');
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
+              className="text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-3 py-1.5 rounded-xl border border-emerald-200 transition-colors flex items-center gap-1.5 cursor-pointer self-start sm:self-auto"
+            >
+              <Flame className="w-3.5 h-3.5 text-amber-500" />
+              <span>مشاهده نمودار ستونی هفته جاری</span>
+            </button>
+          )}
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
