@@ -28,6 +28,7 @@ import {
 import { PlantIcon } from './PlantIcon';
 import { WeeklyProgressSummary } from './WeeklyProgressSummary';
 import { HabitWeeklyDisciplineChart } from './HabitWeeklyDisciplineChart';
+import { HabitMonthCategoryPieChart } from './HabitMonthCategoryPieChart';
 
 interface Props {
   tasks: AppTask[];
@@ -592,6 +593,9 @@ export const ReportsScreen: React.FC<Props> = ({ tasks, habits, goals, categorie
           </div>
         </div>
       )}
+
+      {/* Monthly Habit Category Distribution Pie Chart (نمودار دایره‌ای توزیع عادات بر اساس دسته‌بندی در ماه جاری) */}
+      <HabitMonthCategoryPieChart habits={habits} categories={categories} />
 
       {/* Goal Achievement & Progress Report (درصد رسیده به اهداف) */}
       <div className="bg-white rounded-2xl p-5 border border-emerald-100 shadow-xs space-y-4">
