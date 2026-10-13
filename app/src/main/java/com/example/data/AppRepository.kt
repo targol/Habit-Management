@@ -398,7 +398,103 @@ class AppRepository(private val context: Context) {
         }
         root.put("habits", habitsArr)
 
+        val goalsArr = JSONArray()
+        for (g in _goals.value) {
+            val obj = JSONObject()
+            obj.put("id", g.id)
+            obj.put("title", g.title)
+            obj.put("description", g.description)
+            obj.put("year", g.year)
+            obj.put("period", g.period.name)
+            obj.put("colorHex", g.colorHex)
+            goalsArr.put(obj)
+        }
+        root.put("goals", goalsArr)
+
         return root.toString(2)
+    }
+
+    fun importAllDataFromJson(jsonStr: String, replace: Boolean = false): Pair<Boolean, String> {
+        if (jsonStr.isBlank()) {
+            return Pair(false, "متن پشتیبان خالی است. اطلاعات فعلی شما بدون تغییر حفظ گردیدند.")
+        }
+        try {
+            val rootObj = try {
+                JSONObject(jsonStr.trim())
+            } catch (e: Exception) {
+                val arr = JSONArray(jsonStr.trim())
+                val wrapper = JSONObject()
+                wrapper.put("tasks", arr)
+                wrapper
+            }
+
+            val dataObj = if (rootObj.has("data") && !rootObj.isNull("data") && rootObj.optJSONObject("data") != null) {
+                rootObj.getJSONObject("data")
+            } else {
+                rootObj
+            }
+
+            val tasksArr = dataObj.optJSONArray("tasks")
+            val habitsArr = dataObj.optJSONArray("habits")
+            val goalsArr = dataObj.optJSONArray("goals")
+
+            var validTasksCount = 0
+            val importedTasks = mutableListOf<AppTask>()
+            if (tasksArr != null) {
+                for (i in 0 until tasksArr.length()) {
+                    val obj = tasksArr.optJSONObject(i) ?: continue
+                    val id = obj.optString("id", "")
+                    val title = obj.optString("title", "")
+                    if (id.isNotBlank() && title.isNotBlank()) {
+                        val repeatDays = mutableListOf<Int>()
+                        val repeatArr = obj.optJSONArray("repeatDaysOfWeek")
+                        if (repeatArr != null) {
+                            for (j in 0 until repeatArr.length()) {
+                                repeatDays.add(repeatArr.optInt(j))
+                            }
+                        }
+                        importedTasks.add(
+                            AppTask(
+                                id = id,
+                                title = title,
+                                notes = obj.optString("notes", ""),
+                                categoryId = obj.optString("categoryId", "cat_personal"),
+                                goalId = if (obj.has("goalId") && !obj.isNull("goalId")) obj.getString("goalId") else null,
+                                dueDate = obj.optString("dueDate", ""),
+                                time = if (obj.has("time") && !obj.isNull("time")) obj.getString("time") else null,
+                                isImportant = obj.optBoolean("isImportant", false),
+                                isArchived = obj.optBoolean("isArchived", false),
+                                isCompleted = obj.optBoolean("isCompleted", false),
+                                repeatDaysOfWeek = repeatDays
+                            )
+                        )
+                        validTasksCount++
+                    }
+                }
+            }
+
+            val hasValidData = validTasksCount > 0 || (goalsArr != null && goalsArr.length() > 0) || (habitsArr != null && habitsArr.length() > 0)
+            if (!hasValidData) {
+                return Pair(false, "هیچ داده معتبری در فایل یا متن یافت نشد. جهت حفظ امنیت، اطلاعات فعلی شما دست‌نخورده باقی ماندند.")
+            }
+
+            if (importedTasks.isNotEmpty()) {
+                if (replace) {
+                    _tasks.value = importedTasks
+                } else {
+                    val currentMap = _tasks.value.associateBy { it.id }.toMutableMap()
+                    for (t in importedTasks) {
+                        currentMap[t.id] = t
+                    }
+                    _tasks.value = currentMap.values.toList()
+                }
+                saveTasks()
+            }
+
+            return Pair(true, "اعتبارسنجی تایید شد: تعداد $validTasksCount تسک با موفقیت در دستگاه اعمال شدند ✓")
+        } catch (e: Exception) {
+            return Pair(false, "خطای ساختاری در داده‌های پشتیبان. داده‌های فعلی شما بدون تغییر حفظ گردیدند: ${e.localizedMessage ?: "فرمت نامعتبر"}")
+        }
     }
 
     // --- Goal Operations ---
@@ -459,14 +555,7 @@ class AppRepository(private val context: Context) {
         return ((completedItems.toDouble() / totalItems) * 100).toInt().coerceIn(0, 100)
     }
 
-    // --- Categories Operations ---
-
-    fun addCategory(category: TaskCategory) {
-        val current = _categories.value.toMutableList()
-        current.add(category)
-        _categories.value = current
-        saveCategories()
-    }
+    // --- Categories Operations (defined above in settings) ---
 
     // --- Today & Stats Calculations ---
 

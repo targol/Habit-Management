@@ -297,15 +297,22 @@ export function triggerServerSync(data: AppDataPayload, delayMs: number = 600): 
   }, delayMs);
 }
 
-// Fetch from server API
+// Fetch from server API with fast timeout for resilient real-world hydration
 export async function fetchServerData(): Promise<AppDataPayload | null> {
   try {
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    const timeoutId = controller ? setTimeout(() => controller.abort(), 1500) : null;
+
     const userId = getOrCreateUserId();
     const res = await fetch(`/api/data?userId=${encodeURIComponent(userId)}`, {
+      signal: controller ? controller.signal : undefined,
       headers: {
         'X-User-Id': userId,
       },
     });
+
+    if (timeoutId) clearTimeout(timeoutId);
+
     if (res.ok) {
       const data = await res.json();
       if (data && typeof data === 'object') {
@@ -313,6 +320,7 @@ export async function fetchServerData(): Promise<AppDataPayload | null> {
       }
     }
   } catch (e) {
+    // Offline or server not available - gracefully proceed with local storage
     console.info('Server storage API not accessible or offline, using local storage.');
   }
   return null;
@@ -352,4 +360,120 @@ export function getPreUpdateBackup(): { timestamp: number; data: AppDataPayload 
   } catch {}
   return null;
 }
+
+export interface UpgradeCheckResult {
+  isUpgrade: boolean;
+  isFirstInstall: boolean;
+  fromVersion?: string;
+  fromVersionCode?: number;
+  toVersion: string;
+  toVersionCode: number;
+  backupCreated: boolean;
+}
+
+export interface VersionArchiveItem {
+  version: string;
+  versionCode: number;
+  timestamp: number;
+  backupData: AppDataPayload;
+}
+
+// Automatically runs on app launch: guards all data across Google Play upgrades
+export function checkAndPerformVersionUpgradeMigration(
+  currentData: AppDataPayload,
+  currentVersion: string,
+  currentVersionCode: number
+): UpgradeCheckResult {
+  if (typeof window === 'undefined') {
+    return {
+      isUpgrade: false,
+      isFirstInstall: false,
+      toVersion: currentVersion,
+      toVersionCode: currentVersionCode,
+      backupCreated: false,
+    };
+  }
+
+  try {
+    const storedVersion = localStorage.getItem(STORAGE_KEYS.APP_VERSION);
+    const storedCodeRaw = localStorage.getItem('javaneh_version_code');
+    const storedVersionCode = storedCodeRaw ? parseInt(storedCodeRaw, 10) : null;
+
+    // First ever run
+    if (!storedVersion && !storedVersionCode) {
+      localStorage.setItem(STORAGE_KEYS.APP_VERSION, currentVersion);
+      localStorage.setItem('javaneh_version_code', String(currentVersionCode));
+      saveLocalSnapshot(currentData);
+      return {
+        isUpgrade: false,
+        isFirstInstall: true,
+        toVersion: currentVersion,
+        toVersionCode: currentVersionCode,
+        backupCreated: true,
+      };
+    }
+
+    // Detected an app upgrade (e.g. from Google Play)
+    if (storedVersion !== currentVersion || (storedVersionCode !== null && storedVersionCode < currentVersionCode)) {
+      const prevVer = storedVersion || '1.0.0';
+      const prevCode = storedVersionCode || 100;
+
+      // 1. Immutable safety snapshot of the previous state
+      savePreUpdateBackup(currentData);
+      saveLocalSnapshot(currentData);
+
+      // 2. Save version archive into upgrade history
+      try {
+        const historyRaw = localStorage.getItem('javaneh_upgrade_history');
+        let history: VersionArchiveItem[] = historyRaw ? JSON.parse(historyRaw) : [];
+        history.unshift({
+          version: prevVer,
+          versionCode: prevCode,
+          timestamp: Date.now(),
+          backupData: currentData,
+        });
+        // Keep last 5 version archives
+        history = history.slice(0, 5);
+        localStorage.setItem('javaneh_upgrade_history', JSON.stringify(history));
+      } catch (err) {
+        console.warn('Upgrade history archive notice:', err);
+      }
+
+      // 3. Update version registers
+      localStorage.setItem(STORAGE_KEYS.APP_VERSION, currentVersion);
+      localStorage.setItem('javaneh_version_code', String(currentVersionCode));
+      localStorage.setItem('javaneh_last_upgrade_time', String(Date.now()));
+
+      return {
+        isUpgrade: true,
+        isFirstInstall: false,
+        fromVersion: prevVer,
+        fromVersionCode: prevCode,
+        toVersion: currentVersion,
+        toVersionCode: currentVersionCode,
+        backupCreated: true,
+      };
+    }
+  } catch (e) {
+    console.warn('Version upgrade migration check warning:', e);
+  }
+
+  return {
+    isUpgrade: false,
+    isFirstInstall: false,
+    toVersion: currentVersion,
+    toVersionCode: currentVersionCode,
+    backupCreated: false,
+  };
+}
+
+export function getVersionUpgradeHistory(): VersionArchiveItem[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = localStorage.getItem('javaneh_upgrade_history');
+    if (raw) return JSON.parse(raw);
+  } catch {}
+  return [];
+}
+
 

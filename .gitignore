@@ -16,3 +16,13 @@
 local.properties
 .env
 debug.keystore
+node_modules/
+web/node_modules/
+dist/
+web/dist/
+.build-outputs/
+.tools/
+.aistudio/
+*.apk
+*.idsig
+debug.keystore.base64

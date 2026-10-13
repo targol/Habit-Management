@@ -104,7 +104,8 @@ export const SeasonGardenCard: React.FC<Props> = ({
 
         <div className="flex-1 min-w-0 space-y-1.5">
           <div className="flex items-center justify-between text-[11px]">
-            <span className="text-gray-600 font-medium">گیاه نمادین: <strong>{summary.focalPlant}</strong></span>
+            <span className="text-gray-600 font-medium hidden sm:inline">گیاه نمادین: <strong>{summary.focalPlant}</strong></span>
+            <span className="text-gray-600 font-medium sm:hidden">پیشرفت فصل:</span>
             <span className="text-emerald-700 font-extrabold">{toPersianDigits(summary.overallProgressPercent)}٪</span>
           </div>
 

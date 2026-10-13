@@ -10,6 +10,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -380,7 +381,7 @@ fun TaskListItem(
                 modifier = Modifier.size(28.dp)
             ) {
                 Icon(
-                    imageVector = if (task.isImportant) Icons.Default.Star else Icons.Outlined.StarBorder,
+                    imageVector = if (task.isImportant) Icons.Default.Star else Icons.Outlined.Star,
                     contentDescription = "ستاره",
                     tint = if (task.isImportant) Color(0xFFFFA000) else Color(0xFFB0BEC5),
                     modifier = Modifier.size(18.dp)
@@ -522,7 +523,7 @@ fun AddTaskDialog(
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(
-                                imageVector = if (isImportant) Icons.Default.Star else Icons.Outlined.StarBorder,
+                                imageVector = if (isImportant) Icons.Default.Star else Icons.Outlined.Star,
                                 contentDescription = null,
                                 tint = if (isImportant) Color(0xFFFFA000) else Color(0xFF757575)
                             )

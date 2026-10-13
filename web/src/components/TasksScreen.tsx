@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { AppTask, Category, Goal } from '../types';
 import { 
   getTodayJalali, 
@@ -104,9 +104,26 @@ export const TasksScreen: React.FC<Props> = ({
 
   const [activeTab, setActiveTab] = useState<FilterTab>('TODAY');
   const [selectedCatId, setSelectedCatId] = useState<string | null>(null);
+  const [selectedTaskYear, setSelectedTaskYear] = useState<number | 'ALL'>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
   const [taskToTransfer, setTaskToTransfer] = useState<AppTask | null>(null);
   const [focusHistoryTask, setFocusHistoryTask] = useState<AppTask | null>(null);
+
+  // Extract all distinct years from tasks + current year for comprehensive historical viewing
+  const taskYears = useMemo(() => {
+    const setYears = new Set<number>();
+    setYears.add(today.year);
+    tasks.forEach(t => {
+      const dates = [t.dueDate, t.startDate, t.completedAt, t.createdAt].filter(Boolean);
+      dates.forEach(d => {
+        const parsed = parseJalaliString(d as string);
+        if (parsed && parsed.year) {
+          setYears.add(parsed.year);
+        }
+      });
+    });
+    return Array.from(setYears).sort((a, b) => a - b);
+  }, [tasks, today.year]);
 
   const getCategory = (catId: string) => categories.find(c => c.id === catId);
   const getGoal = (goalId?: string | null) => goals.find(g => g.id === goalId);
@@ -227,6 +244,15 @@ export const TasksScreen: React.FC<Props> = ({
       // Category
       if (selectedCatId && t.categoryId !== selectedCatId) {
         return false;
+      }
+
+      // Year filter (allows viewing tasks from past years)
+      if (selectedTaskYear !== 'ALL') {
+        const tDate = t.dueDate || t.startDate || t.completedAt || t.createdAt;
+        const parsed = tDate ? parseJalaliString(tDate) : null;
+        if (parsed && parsed.year !== selectedTaskYear) {
+          return false;
+        }
       }
 
       const isOverdue = Boolean(t.dueDate && isOverdueJalaliDate(t.dueDate, todayStr) && !t.isCompleted);
@@ -482,6 +508,47 @@ export const TasksScreen: React.FC<Props> = ({
             );
           })}
         </div>
+
+        {/* Year Filter Pills for viewing past & current years */}
+        {taskYears.length > 1 && (
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs no-scrollbar pt-2 border-t border-gray-100">
+            <span className="text-[11px] font-bold text-gray-400 shrink-0 ml-1">سال تسک:</span>
+            <button
+              type="button"
+              onClick={() => setSelectedTaskYear('ALL')}
+              className={`px-2.5 py-1 rounded-lg font-bold transition-colors cursor-pointer shrink-0 ${
+                selectedTaskYear === 'ALL'
+                  ? 'bg-emerald-800 text-white shadow-2xs'
+                  : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'
+              }`}
+            >
+              همه سال‌ها
+            </button>
+            {taskYears.map(y => {
+              const isSel = selectedTaskYear === y;
+              const isCurrent = y === today.year;
+              const isPast = y < today.year;
+              return (
+                <button
+                  key={y}
+                  type="button"
+                  onClick={() => setSelectedTaskYear(isSel ? 'ALL' : y)}
+                  className={`px-2.5 py-1 rounded-lg font-semibold transition-colors cursor-pointer shrink-0 border ${
+                    isSel
+                      ? 'bg-emerald-700 text-white border-emerald-800 shadow-2xs font-bold'
+                      : isCurrent
+                      ? 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
+                      : isPast
+                      ? 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'
+                      : 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100'
+                  }`}
+                >
+                  {toPersianDigits(y)} {isCurrent ? '(امسال)' : isPast ? '(آرشیو گذشته)' : ''}
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Overview Banner on ALL tab */}
@@ -718,8 +785,7 @@ export const TasksScreen: React.FC<Props> = ({
                       )}
                       
                       {/* Meta badges */}
-                      <div className="flex flex-wrap items-center gap-2 mt-2.5 text-[11px]">
-                        <EntityBadge type="TASK" size="xs" />
+                      <div className="flex flex-wrap items-center gap-1.5 mt-2 text-[11px]">
 
                         {isArchived && (
                           <span className="px-2 py-0.5 rounded-md font-medium text-[10px] bg-amber-100 text-amber-900 border border-amber-200 flex items-center gap-1">
@@ -775,7 +841,7 @@ export const TasksScreen: React.FC<Props> = ({
                             );
                           })()
                         ) : (
-                          <span className="text-gray-600 bg-gray-50 border border-dashed border-gray-300 px-2 py-0.5 rounded-md text-[10px]" title="بدون تاریخ موعد معین - مهلت پیش‌فرض: پایان سال">
+                          <span className="hidden sm:inline-flex text-gray-500 bg-gray-50 border border-dashed border-gray-300 px-2 py-0.5 rounded-md text-[10px]" title="بدون تاریخ موعد معین - مهلت پیش‌فرض: پایان سال">
                             مهلت: پایان سال {toPersianDigits(today.year)}
                           </span>
                         )}

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Goal, GoalPeriod, GoalStatus, GoalHistoryEntry, Category } from '../types';
 import { 
   getTodayJalali, 
@@ -61,8 +61,16 @@ export const GoalModal: React.FC<Props> = ({
   const [plantType, setPlantType] = useState<string>('بونسای');
   const [isInheritedFromParent, setIsInheritedFromParent] = useState(false);
 
-  // Available year options: current year and next 10 years + 2 past years
-  const standardYears = Array.from({ length: 13 }, (_, i) => today.year - 2 + i);
+  // Allowed selectable years: strictly current year and at most 1 year ahead
+  // If editing an existing historical goal, its past year is retained for viewing/updating
+  const selectableYears = useMemo(() => {
+    const list = [today.year, today.year + 1];
+    if (isEdit && goal?.year && !list.includes(goal.year)) {
+      list.push(goal.year);
+      list.sort((a, b) => a - b);
+    }
+    return list;
+  }, [isEdit, goal?.year, today.year]);
 
   // Find parent goal if parentId exists
   const parentGoal = existingGoals.find(g => g.id === parentId);
@@ -193,8 +201,16 @@ export const GoalModal: React.FC<Props> = ({
       ? (parseInt(customYearInput, 10) || today.year)
       : year;
 
-    // Check if user is trying to create a NEW goal for an already ended period
+    // Check if user is trying to create a NEW goal for an invalid period
     if (!isEdit) {
+      if (effectiveYear < today.year) {
+        setTitleError(`امکان تعریف هدف جدید برای سال گذشته (${toPersianDigits(effectiveYear)}) وجود ندارد. اطلاعات سال‌های قبل جهت مشاهده و آرشیو نگهداری می‌شوند.`);
+        return;
+      }
+      if (effectiveYear > today.year + 1) {
+        setTitleError(`تعریف هدف حداکثر تا یک سال بعد (${toPersianDigits(today.year + 1)}) امکان‌پذیر است.`);
+        return;
+      }
       if (period === 'ANNUAL' && isYearPast(effectiveYear, today)) {
         setTitleError(`امکان تعریف هدف جدید برای سال گذشته (${toPersianDigits(effectiveYear)}) وجود ندارد.`);
         return;
@@ -582,89 +598,61 @@ export const GoalModal: React.FC<Props> = ({
             </div>
           </div>
 
-          {/* Year Selection (برای همان سال یا سال‌های بعد) */}
+          {/* Year Selection (برای سال جاری یا حداکثر یک سال بعد) */}
           <div className="bg-emerald-50/50 p-3 rounded-xl border border-emerald-200/80 space-y-2">
             <div className="flex items-center justify-between">
               <label className="font-bold text-emerald-950 flex items-center gap-1.5">
                 <Calendar className="w-4 h-4 text-emerald-700" />
-                <span>تعیین سال هدف (امسال یا سال‌های آینده)</span>
+                <span>تعیین سال هدف</span>
               </label>
-              <button
-                type="button"
-                onClick={() => setIsCustomYear(!isCustomYear)}
-                className="text-[11px] text-emerald-700 font-bold hover:underline"
-              >
-                {isCustomYear ? 'انتخاب از لیست سال‌ها' : 'ورود سال دلخواه...'}
-              </button>
+              <span className="text-[10px] text-emerald-800 bg-emerald-100 font-bold px-2 py-0.5 rounded-md border border-emerald-200">
+                امسال یا سال آینده
+              </span>
             </div>
 
-            {!isCustomYear ? (
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <select
-                    value={year}
-                    onChange={(e) => setYear(parseInt(e.target.value, 10))}
-                    className="w-full px-3 py-2 rounded-xl border border-emerald-200 text-xs bg-white font-semibold"
-                  >
-                    {standardYears.map((y) => {
-                      const isCurrentYear = y === today.year;
-                      const isFuture = y > today.year;
-                      const diff = y - today.year;
-                      const label = isCurrentYear
-                        ? `سال ${toPersianDigits(y)} (سال جاری)`
-                        : isFuture
-                        ? `سال ${toPersianDigits(y)} (${toPersianDigits(diff)} سال بعد)`
-                        : `سال ${toPersianDigits(y)}`;
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <select
+                  value={year}
+                  onChange={(e) => setYear(parseInt(e.target.value, 10))}
+                  className="w-full px-3 py-2 rounded-xl border border-emerald-200 text-xs bg-white font-semibold"
+                >
+                  {selectableYears.map((y) => {
+                    const isCurrentYear = y === today.year;
+                    const isNextYear = y === today.year + 1;
+                    const isPast = y < today.year;
+                    const label = isCurrentYear
+                      ? `سال ${toPersianDigits(y)} (سال جاری)`
+                      : isNextYear
+                      ? `سال ${toPersianDigits(y)} (سال آینده)`
+                      : isPast
+                      ? `سال ${toPersianDigits(y)} (آرشیو سال گذشته)`
+                      : `سال ${toPersianDigits(y)}`;
 
-                      return (
-                        <option key={y} value={y}>
-                          {label}
-                        </option>
-                      );
-                    })}
-                  </select>
-                </div>
-
-                <div>
-                  <input
-                    type="text"
-                    placeholder={todayStr}
-                    value={startDate}
-                    onChange={(e) => setStartDate(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl border border-emerald-200 text-xs bg-white"
-                    title="تاریخ فعال‌سازی"
-                  />
-                </div>
+                    return (
+                      <option key={y} value={y} disabled={!isEdit && isPast}>
+                        {label}
+                      </option>
+                    );
+                  })}
+                </select>
               </div>
-            ) : (
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <input
-                    type="number"
-                    min={1380}
-                    max={1499}
-                    value={customYearInput}
-                    onChange={(e) => setCustomYearInput(e.target.value)}
-                    placeholder="مثلاً: ۱۴۰۶ یا ۱۴۱۰"
-                    className="w-full px-3 py-2 rounded-xl border border-emerald-300 text-xs bg-white font-bold"
-                  />
-                  <span className="text-[10px] text-emerald-800 mt-0.5 block">
-                    تعیین آزادانه هر سال خورشیدی در آینده
-                  </span>
-                </div>
 
-                <div>
-                  <input
-                    type="text"
-                    placeholder={todayStr}
-                    value={startDate}
-                    onChange={(e) => setStartDate(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl border border-emerald-200 text-xs bg-white"
-                    title="تاریخ شروع"
-                  />
-                </div>
+              <div>
+                <input
+                  type="text"
+                  placeholder={todayStr}
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-emerald-200 text-xs bg-white"
+                  title="تاریخ فعال‌سازی"
+                />
               </div>
-            )}
+            </div>
+
+            <p className="text-[10px] text-gray-500 leading-relaxed">
+              تعریف هدف تنها برای سال جاری ({toPersianDigits(today.year)}) یا حداکثر یک سال بعد ({toPersianDigits(today.year + 1)}) امکان‌پذیر است. سال‌های گذشته برای مشاهده و گزارش‌گیری در دسترس هستند.
+            </p>
           </div>
 
           {/* Sub-period: Seasonal with Distinct Seasonal Colors */}

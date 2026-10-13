@@ -247,12 +247,6 @@ fun HabitDetailCard(
                                 fontWeight = FontWeight.Medium
                             )
                         }
-
-                        Text(
-                            text = habit.plantType.title,
-                            fontSize = 10.sp,
-                            color = Color(0xFF689F38)
-                        )
                     }
                 }
 

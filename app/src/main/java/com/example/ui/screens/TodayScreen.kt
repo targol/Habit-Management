@@ -552,12 +552,6 @@ fun GardenOfBloomingFlowersCard(
                                     color = Color(0xFF1B5E20),
                                     maxLines = 1
                                 )
-                                Text(
-                                    text = item.flowerName,
-                                    fontSize = 10.sp,
-                                    color = Color(0xFF388E3C),
-                                    fontWeight = FontWeight.Medium
-                                )
                                 Surface(
                                     shape = RoundedCornerShape(6.dp),
                                     color = Color(0xFF2E7D32).copy(alpha = 0.12f)
@@ -657,13 +651,6 @@ fun HabitTodayCard(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text(
-                        text = "گل: $flowerName",
-                        fontSize = 11.sp,
-                        color = if (isDone) Color(0xFF388E3C) else Color(0xFF757575),
-                        fontWeight = FontWeight.Medium
-                    )
-
                     // Streak tag
                     if (streak > 0) {
                         Text(
@@ -915,15 +902,6 @@ fun TaskTodayCard(
                             text = categoryTitle,
                             fontSize = 10.sp,
                             color = categoryColor,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
-
-                    if (task.isCompleted) {
-                        Text(
-                            text = "گل: $flowerName",
-                            fontSize = 10.sp,
-                            color = Color(0xFF388E3C),
                             fontWeight = FontWeight.Medium
                         )
                     }

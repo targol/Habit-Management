@@ -1,5 +1,4 @@
 import { Category, Goal, AppTask, Habit } from '../types';
-import { getTodayJalali, jalaliToFormattedString, addDaysJalali } from '../calendar/jalali';
 
 export const INITIAL_CATEGORIES: Category[] = [
   { id: 'cat-work', title: 'کاری و تحصیلی', colorHex: '#10B981', iconName: 'Briefcase', plantType: 'بونسای' },

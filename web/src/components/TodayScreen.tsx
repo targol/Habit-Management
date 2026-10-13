@@ -37,7 +37,7 @@ import {
   Settings
 } from 'lucide-react';
 import { PlantIcon } from './PlantIcon';
-import { EntityBadge, EntityIcon } from './EntityIcon';
+
 import { Hourglass, History } from 'lucide-react';
 import { FocusHistoryModal } from './FocusHistoryModal';
 
@@ -403,13 +403,7 @@ export const TodayScreen: React.FC<Props> = ({
                             )}
                             <span>{t.title}</span>
                           </p>
-                          <div className="flex flex-wrap items-center gap-2 mt-1 text-[11px] text-gray-500">
-                            <EntityBadge type="TASK" size="xs" />
-                            {t.isImportant && (
-                              <span className="px-1.5 py-0.2 rounded-md font-bold text-[10px] bg-amber-50 text-amber-800 border border-amber-200/80">
-                                مهم
-                              </span>
-                            )}
+                          <div className="flex flex-wrap items-center gap-1.5 mt-1 text-[11px] text-gray-500">
                             {t.reminderEnabled && (
                               <span className="px-1.5 py-0.2 rounded-md font-medium text-[10px] bg-emerald-50 text-emerald-800 border border-emerald-200/80 flex items-center gap-1">
                                 <Bell className="w-2.5 h-2.5 text-emerald-600" />
@@ -430,14 +424,10 @@ export const TodayScreen: React.FC<Props> = ({
                                 <span>انجام: {toPersianDigits(t.time)}</span>
                               </span>
                             )}
-                            {t.dueDate ? (
+                            {t.dueDate && (
                               <span className="flex items-center gap-1 text-[10px] text-gray-600 bg-gray-100 px-1.5 py-0.5 rounded-md" title="مهلت اتمام">
                                 <Calendar className="w-2.5 h-2.5 text-gray-500" />
-                                <span>مهلت: {toPersianDigits(t.dueDate)}{t.deadlineTime ? ` (${toPersianDigits(t.deadlineTime)})` : ''}</span>
-                              </span>
-                            ) : (
-                              <span className="flex items-center gap-1 text-[10px] text-gray-500 bg-gray-50 border border-dashed border-gray-200 px-1.5 py-0.5 rounded-md" title="بدون موعد مشخص - مهلت پیش‌فرض: پایان سال">
-                                <span>مهلت: پایان سال {toPersianDigits(today.year)}</span>
+                                <span>موعد: {toPersianDigits(t.dueDate)}{t.deadlineTime ? ` (${toPersianDigits(t.deadlineTime)})` : ''}</span>
                               </span>
                             )}
                             {t.notes && (
@@ -654,9 +644,7 @@ export const TodayScreen: React.FC<Props> = ({
                           <p className={`text-xs font-bold truncate ${isDoneToday ? 'line-through text-gray-500' : 'text-gray-900'}`}>
                             {h.title}
                           </p>
-                          <div className="flex flex-wrap items-center gap-2 mt-0.5 text-[11px] text-gray-500">
-                            <EntityBadge type="HABIT" size="xs" />
-                            <span className="text-emerald-700 font-medium">{h.plantType}</span>
+                          <div className="flex flex-wrap items-center gap-1.5 mt-0.5 text-[11px] text-gray-500">
                             {h.timerMinutes > 0 && (
                               <span className="flex items-center gap-0.5 text-gray-400">
                                 <Clock className="w-3 h-3" />
@@ -927,8 +915,7 @@ export const TodayScreen: React.FC<Props> = ({
                           <p className={`text-xs font-bold truncate ${t.isCompleted ? 'line-through text-gray-500' : 'text-gray-900'}`}>
                             {t.title}
                           </p>
-                          <div className="flex flex-wrap items-center gap-2 mt-1 text-[11px] text-gray-500">
-                            <EntityBadge type="TASK" size="xs" />
+                          <div className="flex flex-wrap items-center gap-1.5 mt-1 text-[11px] text-gray-500">
                             {cat && (
                               <span
                                 className="px-1.5 py-0.2 rounded-md font-medium text-[10px]"

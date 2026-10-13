@@ -370,10 +370,13 @@ export const GoalsScreen: React.FC<Props> = ({
     return direct;
   };
 
-  // Available unique years in goals
+  // Available unique years in goals + past viewing years (e.g. today.year - 2, - 1) + next year
   const availableYears = useMemo(() => {
     const setYears = new Set(cleanGoals.map(g => g.year || today.year));
-    if (!setYears.has(today.year)) setYears.add(today.year);
+    setYears.add(today.year - 2);
+    setYears.add(today.year - 1);
+    setYears.add(today.year);
+    setYears.add(today.year + 1);
     return Array.from(setYears).sort((a, b) => a - b);
   }, [cleanGoals, today.year]);
 
@@ -611,6 +614,8 @@ export const GoalsScreen: React.FC<Props> = ({
             {availableYears.map((y) => {
               const isSelected = selectedYearFilter === y;
               const isCurrentYear = y === today.year;
+              const isPastYear = y < today.year;
+              const isNextYear = y === today.year + 1;
               return (
                 <button
                   key={y}
@@ -620,11 +625,13 @@ export const GoalsScreen: React.FC<Props> = ({
                     isSelected
                       ? 'bg-emerald-700 text-white border-emerald-800 shadow-xs font-bold'
                       : isCurrentYear
-                      ? 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
-                      : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
+                      ? 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100 font-bold'
+                      : isPastYear
+                      ? 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'
+                      : 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100'
                   }`}
                 >
-                  {toPersianDigits(y)} {isCurrentYear && '(امسال)'}
+                  {toPersianDigits(y)} {isCurrentYear ? '(امسال)' : isPastYear ? '(آرشیو)' : isNextYear ? '(سال بعد)' : ''}
                 </button>
               );
             })}

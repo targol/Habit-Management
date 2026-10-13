@@ -1,10 +1,10 @@
 {
-  "id": "/",
+  "id": "./",
   "name": "جوانه - مدیریت عادات، تسک‌ها و اهداف",
   "short_name": "جوانه",
   "description": "اپلیکیشن سبک و شیک مدیریت وظایف، عادات و اهداف سالانه با تقویم شمسی و تعطیلات ایران",
-  "start_url": "/",
-  "scope": "/",
+  "start_url": "./index.html",
+  "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#FAF9F6",
@@ -13,25 +13,25 @@
   "lang": "fa-IR",
   "icons": [
     {
-      "src": "/pwa-192x192.png",
+      "src": "./pwa-192x192.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/pwa-512x512.png",
+      "src": "./pwa-512x512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/pwa-maskable-512x512.png",
+      "src": "./pwa-maskable-512x512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"
     },
     {
-      "src": "/icon.svg",
+      "src": "./icon.svg",
       "sizes": "512x512",
       "type": "image/svg+xml",
       "purpose": "any"

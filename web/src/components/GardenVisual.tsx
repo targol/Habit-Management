@@ -748,9 +748,6 @@ export const GardenVisual: React.FC<Props> = ({
                       <span>شکوفا</span>
                     </span>
                   </div>
-                  <span className="text-[8px] text-gray-400 mt-0.5 truncate w-full">
-                    {flower.plantType}
-                  </span>
                 </div>
               ))}
             </div>

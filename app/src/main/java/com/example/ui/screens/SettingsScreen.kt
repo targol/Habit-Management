@@ -51,6 +51,10 @@ fun SettingsScreen(
     var showAddCategoryDialog by remember { mutableStateOf(false) }
     var showResetDialog by remember { mutableStateOf(false) }
     var showBackupDialog by remember { mutableStateOf(false) }
+    var showImportDialog by remember { mutableStateOf(false) }
+    var importJsonInput by remember { mutableStateOf("") }
+    var importReplaceMode by remember { mutableStateOf(false) }
+    var importStatusMessage by remember { mutableStateOf<String?>(null) }
     var showApkIntegrityDialog by remember { mutableStateOf(false) }
     var showWidgetGuideDialog by remember { mutableStateOf(false) }
     var backupJsonText by remember { mutableStateOf("") }
@@ -531,19 +535,31 @@ fun SettingsScreen(
                                 modifier = Modifier.weight(1f)
                             ) {
                                 Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("پشتیبان‌گیری JSON")
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("پشتیبان‌گیری")
                             }
 
                             Button(
-                                onClick = { showResetDialog = true },
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF5350)),
+                                onClick = {
+                                    importJsonInput = ""
+                                    importStatusMessage = null
+                                    showImportDialog = true
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32)),
                                 shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.weight(1f)
+                                modifier = Modifier.weight(1.1f)
+                            ) {
+                                Icon(Icons.Default.Upload, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("انتقال به گوشی")
+                            }
+
+                            OutlinedButton(
+                                onClick = { showResetDialog = true },
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFEF5350)),
+                                shape = RoundedCornerShape(12.dp)
                             ) {
                                 Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("بازنشانی داده‌ها")
                             }
                         }
 
@@ -728,8 +744,133 @@ fun SettingsScreen(
                 }
             }
         }
+    }
 
-        // Dialog for APK Integrity & Resumable Download
+    // Import / Transfer Data Dialog
+    if (showImportDialog) {
+        Dialog(onDismissRequest = { showImportDialog = false }) {
+            Surface(
+                shape = RoundedCornerShape(20.dp),
+                color = Color.White,
+                modifier = Modifier.fillMaxWidth().padding(8.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        text = "انتقال و بارگذاری اطلاعات در گوشی 📲",
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF1B5E20)
+                    )
+
+                    Text(
+                        text = "کد نسخه پشتیبان (JSON) را در کادر زیر پیست کرده یا از کلیپ‌بورد بخوانید:",
+                        fontSize = 12.sp,
+                        color = Color(0xFF616161)
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                val clip = clipboard.primaryClip
+                                if (clip != null && clip.itemCount > 0) {
+                                    val text = clip.getItemAt(0).text?.toString() ?: ""
+                                    if (text.isNotBlank()) {
+                                        importJsonInput = text
+                                        Toast.makeText(context, "کد از کلیپ‌بورد پیست شد ✓", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        Toast.makeText(context, "کلیپ‌بورد خالی است", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            },
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Icon(Icons.Default.ContentPaste, contentDescription = null, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("پیست خودکار از حافظه", fontSize = 11.sp)
+                        }
+                    }
+
+                    OutlinedTextField(
+                        value = importJsonInput,
+                        onValueChange = { importJsonInput = it },
+                        placeholder = { Text("کد پشتیبان JSON را اینجا پیست کنید...", fontSize = 11.sp) },
+                        modifier = Modifier.fillMaxWidth().height(160.dp),
+                        shape = RoundedCornerShape(12.dp)
+                    )
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.clickable { importReplaceMode = !importReplaceMode }
+                    ) {
+                        Checkbox(
+                            checked = importReplaceMode,
+                            onCheckedChange = { importReplaceMode = it }
+                        )
+                        Text(
+                            text = if (importReplaceMode) "جایگزینی کامل (حذف قبلی‌ها)" else "ترکیب و ادغام با داده‌های فعلی (پیشنهادی)",
+                            fontSize = 12.sp,
+                            fontWeight = if (importReplaceMode) FontWeight.Bold else FontWeight.Normal,
+                            color = if (importReplaceMode) Color(0xFFD32F2F) else Color(0xFF2E7D32)
+                        )
+                    }
+
+                    if (importStatusMessage != null) {
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = Color(0xFFF1F8E9),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = importStatusMessage ?: "",
+                                fontSize = 11.sp,
+                                color = Color(0xFF1B5E20),
+                                modifier = Modifier.padding(10.dp)
+                            )
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        TextButton(onClick = { showImportDialog = false }) {
+                            Text("بستن")
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Button(
+                            onClick = {
+                                if (importJsonInput.isBlank()) {
+                                    Toast.makeText(context, "لطفاً ابتدا کد JSON را وارد کنید", Toast.LENGTH_SHORT).show()
+                                    return@Button
+                                }
+                                val result = repository.importAllDataFromJson(importJsonInput, importReplaceMode)
+                                importStatusMessage = result.second
+                                if (result.first) {
+                                    Toast.makeText(context, "اطلاعات با موفقیت اعمال شد ✓", Toast.LENGTH_LONG).show()
+                                } else {
+                                    Toast.makeText(context, result.second, Toast.LENGTH_LONG).show()
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32)),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("اعتبارسنجی و اعمال")
+                        }
+                    }
+                }
+            }
+        }
+    }
         if (showApkIntegrityDialog) {
             Dialog(onDismissRequest = { showApkIntegrityDialog = false }) {
                 Card(
@@ -862,5 +1003,4 @@ fun SettingsScreen(
                 }
             }
         }
-    }
 }

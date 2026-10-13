@@ -62,15 +62,22 @@ let globalAudioCtx: AudioContext | null = null;
 let currentActiveAudio: HTMLAudioElement | null = null;
 let currentSynthStopFns: Array<() => void> = [];
 
-function getAudioContext(): AudioContext {
-  if (!globalAudioCtx || globalAudioCtx.state === 'closed') {
-    const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-    globalAudioCtx = new AudioContextClass();
+function getAudioContext(): AudioContext | null {
+  if (typeof window === 'undefined') return null;
+  const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  if (!AudioContextClass) return null;
+  try {
+    if (!globalAudioCtx || globalAudioCtx.state === 'closed') {
+      globalAudioCtx = new AudioContextClass();
+    }
+    if (globalAudioCtx && globalAudioCtx.state === 'suspended') {
+      globalAudioCtx.resume().catch(() => {});
+    }
+    return globalAudioCtx;
+  } catch (err) {
+    console.warn('AudioContext initialization deferred until user interaction:', err);
+    return null;
   }
-  if (globalAudioCtx.state === 'suspended') {
-    globalAudioCtx.resume().catch(() => {});
-  }
-  return globalAudioCtx;
 }
 
 export function stopAllAlarmSounds(): void {
@@ -99,6 +106,7 @@ export function stopAllAlarmSounds(): void {
 function playSynthPattern(pattern: string, volume = 0.8): () => void {
   try {
     const ctx = getAudioContext();
+    if (!ctx) return () => {};
     const now = ctx.currentTime;
     const masterGain = ctx.createGain();
     const clampedVol = Math.max(0.05, Math.min(1.0, volume));

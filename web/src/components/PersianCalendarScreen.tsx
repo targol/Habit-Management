@@ -28,7 +28,7 @@ import {
   Sparkles,
   Hourglass
 } from 'lucide-react';
-import { EntityBadge } from './EntityIcon';
+
 
 interface Props {
   tasks: AppTask[];
@@ -453,8 +453,7 @@ export const PersianCalendarScreen: React.FC<Props> = ({
                         <p className={`text-xs font-bold truncate ${t.isCompleted ? 'line-through text-gray-500' : 'text-gray-900'}`}>
                           {t.title}
                         </p>
-                        <div className="flex flex-wrap items-center gap-2 mt-1 text-[10px] text-gray-500">
-                          <EntityBadge type="TASK" size="xs" />
+                        <div className="flex flex-wrap items-center gap-1.5 mt-1 text-[10px] text-gray-500">
                           {cat && (
                             <span
                               className="px-1.5 py-0.2 rounded-md font-medium text-[10px]"

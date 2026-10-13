@@ -11,6 +11,9 @@ data class JalaliDate(
     val monthName: String
         get() = PersianCalendarHelper.PERSIAN_MONTH_NAMES.getOrElse(month - 1) { "" }
 
+    val dayName: String
+        get() = PersianCalendarHelper.WEEKDAY_NAMES.getOrElse(PersianCalendarHelper.getDayOfWeek(this)) { "" }
+
     val seasonName: String
         get() = when (month) {
             in 1..3 -> "بهار"

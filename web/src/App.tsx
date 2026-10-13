@@ -20,8 +20,10 @@ import {
   recoverAllLocalData,
   DEFAULT_USER_PROFILE,
   DEFAULT_REMINDER_SETTINGS,
-  STORAGE_KEYS
+  STORAGE_KEYS,
+  checkAndPerformVersionUpgradeMigration,
 } from './services/storageService';
+import { APP_VERSION_INFO } from './version';
 import { 
   getTodayJalali, 
   jalaliToFormattedString, 
@@ -50,8 +52,7 @@ import { GoalDetailHistoryModal } from './components/GoalDetailHistoryModal';
 import { TimerModal } from './components/TimerModal';
 import { ReminderAlertModal } from './components/ReminderAlertModal';
 import { UpdateAndBackupModal } from './components/UpdateAndBackupModal';
-import { ApkIntegrityModal } from './components/ApkIntegrityModal';
-import { MobileInstallModal } from './components/MobileInstallModal';
+import { ApkDownloadConfirmModal } from './components/ApkDownloadConfirmModal';
 import { 
   Sprout, 
   CheckSquare, 
@@ -64,7 +65,9 @@ import {
   Settings,
   Calendar,
   AlertCircle,
-  Smartphone
+  Smartphone,
+  Download,
+  Database
 } from 'lucide-react';
 
 type NavTab = 'TODAY' | 'TASKS' | 'HABITS' | 'CALENDAR' | 'GOALS' | 'REPORTS' | 'SETTINGS';
@@ -140,6 +143,7 @@ export const App: React.FC = () => {
 
   const [activeReminderTask, setActiveReminderTask] = useState<AppTask | null>(null);
   const [activeReminderHolidayNotice, setActiveReminderHolidayNotice] = useState<string | null>(null);
+  const [upgradeNotice, setUpgradeNotice] = useState<string | null>(null);
 
   const [isStorageReady, setIsStorageReady] = useState(false);
   const isInitialMount = useRef(true);
@@ -148,16 +152,20 @@ export const App: React.FC = () => {
   useEffect(() => {
     async function hydrateFromDurableStore() {
       try {
-        // 1. Fetch from server storage
-        const serverData = await fetchServerData();
+        // 1 & 2. Parallel non-blocking hydration from Server API and IndexedDB
+        const [serverData, idbResults] = await Promise.all([
+          fetchServerData().catch(() => null),
+          Promise.all([
+            loadFromIndexedDB<Goal[]>('goals').catch(() => null),
+            loadFromIndexedDB<AppTask[]>('tasks').catch(() => null),
+            loadFromIndexedDB<Habit[]>('habits').catch(() => null),
+            loadFromIndexedDB<Category[]>('categories').catch(() => null),
+            loadFromIndexedDB<UserProfile>('userProfile').catch(() => null),
+            loadFromIndexedDB<ReminderSettings>('reminderSettings').catch(() => null),
+          ]).catch(() => [null, null, null, null, null, null] as const),
+        ]);
 
-        // 2. Fetch from IndexedDB
-        const idbGoals = await loadFromIndexedDB<Goal[]>('goals');
-        const idbTasks = await loadFromIndexedDB<AppTask[]>('tasks');
-        const idbHabits = await loadFromIndexedDB<Habit[]>('habits');
-        const idbCats = await loadFromIndexedDB<Category[]>('categories');
-        const idbProfile = await loadFromIndexedDB<UserProfile>('userProfile');
-        const idbReminders = await loadFromIndexedDB<ReminderSettings>('reminderSettings');
+        const [idbGoals, idbTasks, idbHabits, idbCats, idbProfile, idbReminders] = idbResults;
 
         // 3. Fetch from LocalStorage primary & snapshots
         const lsCats = loadFromLocalStorage<Category[]>('javaneh_categories', []);
@@ -257,12 +265,15 @@ export const App: React.FC = () => {
         saveToLocalStorage(STORAGE_KEYS.PROFILE, finalProfile);
         saveToLocalStorage(STORAGE_KEYS.REMINDERS, finalReminders);
 
-        await saveToIndexedDB('categories', mergedCategories);
-        await saveToIndexedDB('goals', mergedGoals);
-        await saveToIndexedDB('tasks', mergedTasks);
-        await saveToIndexedDB('habits', mergedHabits);
-        await saveToIndexedDB('userProfile', finalProfile);
-        await saveToIndexedDB('reminderSettings', finalReminders);
+        // 6b. Concurrent write-back to IndexedDB (non-blocking)
+        Promise.all([
+          saveToIndexedDB('categories', mergedCategories),
+          saveToIndexedDB('goals', mergedGoals),
+          saveToIndexedDB('tasks', mergedTasks),
+          saveToIndexedDB('habits', mergedHabits),
+          saveToIndexedDB('userProfile', finalProfile),
+          saveToIndexedDB('reminderSettings', finalReminders),
+        ]).catch(() => {});
 
         saveLocalSnapshot({
           categories: mergedCategories,
@@ -281,6 +292,16 @@ export const App: React.FC = () => {
           reminderSettings: finalReminders,
         };
         triggerServerSync(currentData, 300);
+
+        // 8. Automated Google Play & App Version Upgrade Guard (Zero Data Loss Guarantee)
+        const upgradeResult = checkAndPerformVersionUpgradeMigration(
+          currentData,
+          APP_VERSION_INFO.currentVersion,
+          APP_VERSION_INFO.currentVersionCode
+        );
+        if (upgradeResult.isUpgrade) {
+          setUpgradeNotice(`جوانه با موفقیت به نسخه ${APP_VERSION_INFO.currentVersion} به‌روزرسانی شد. تمام تسک‌ها، اهداف و اطلاعات شما بدون تغییر حفظ شدند.`);
+        }
       } catch (err) {
         console.warn('Storage hydration notice:', err);
       } finally {
@@ -330,57 +351,61 @@ export const App: React.FC = () => {
     if (!reminderSettings.enabled) return;
 
     const checkReminders = () => {
-      const now = new Date();
-      const currentHHMM = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-      const currentDayOfWeek = getDayOfWeek(today);
-      const holidayInfo = isDateHoliday(today);
+      try {
+        const now = new Date();
+        const currentHHMM = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+        const currentDayOfWeek = getDayOfWeek(today);
+        const holidayInfo = isDateHoliday(today);
 
-      // Find tasks that are due and not yet notified recently
-      for (const task of tasks) {
-        if (task.isCompleted) continue;
+        // Find tasks that are due and not yet notified recently
+        for (const task of tasks) {
+          if (task.isCompleted) continue;
 
-        // 1. Check proactive advance reminder for tasks scheduled on holidays
-        if (reminderSettings.notifyBeforeHolidayTasks && holidayInfo.isHoliday) {
-          const leadMinutes = reminderSettings.holidayLeadMinutes || 15;
-          if (isTaskHolidayAdvanceReminderDue(task, todayStr, currentHHMM, currentDayOfWeek, holidayInfo.isHoliday, leadMinutes)) {
-            const holidayTitle = holidayInfo.title || 'تعطیل رسمی';
-            triggerReminderAlarm(
-              task,
-              reminderSettings,
-              () => {
-                setActiveReminderHolidayNotice(holidayTitle);
-                setActiveReminderTask(task);
-              },
-              holidayTitle
-            );
+          // 1. Check proactive advance reminder for tasks scheduled on holidays
+          if (reminderSettings.notifyBeforeHolidayTasks && holidayInfo.isHoliday) {
+            const leadMinutes = reminderSettings.holidayLeadMinutes || 15;
+            if (isTaskHolidayAdvanceReminderDue(task, todayStr, currentHHMM, currentDayOfWeek, holidayInfo.isHoliday, leadMinutes)) {
+              const holidayTitle = holidayInfo.title || 'تعطیل رسمی';
+              triggerReminderAlarm(
+                task,
+                reminderSettings,
+                () => {
+                  setActiveReminderHolidayNotice(holidayTitle);
+                  setActiveReminderTask(task);
+                },
+                holidayTitle
+              );
 
-            const slotKey = `holiday-advance-${todayStr} ${currentHHMM}`;
-            setTasks(prev => prev.map(t => t.id === task.id ? { ...t, lastNotifiedAt: slotKey } : t));
-            setActiveReminderHolidayNotice(holidayTitle);
-            setActiveReminderTask(task);
-            break;
+              const slotKey = `holiday-advance-${todayStr} ${currentHHMM}`;
+              setTasks(prev => prev.map(t => t.id === task.id ? { ...t, lastNotifiedAt: slotKey } : t));
+              setActiveReminderHolidayNotice(holidayTitle);
+              setActiveReminderTask(task);
+              break;
+            }
           }
-        }
 
-        // 2. Standard due-time reminder check
-        if (!task.reminderEnabled && !task.isImportant) continue;
+          // 2. Standard due-time reminder check
+          if (!task.reminderEnabled && !task.isImportant) continue;
 
-        if (isTaskReminderDue(task, todayStr, currentHHMM, currentDayOfWeek)) {
-          // Trigger reminder notification and audio alarm
-          triggerReminderAlarm(task, reminderSettings, () => {
+          if (isTaskReminderDue(task, todayStr, currentHHMM, currentDayOfWeek)) {
+            // Trigger reminder notification and audio alarm
+            triggerReminderAlarm(task, reminderSettings, () => {
+              setActiveReminderHolidayNotice(null);
+              setActiveReminderTask(task);
+            });
+
+            // Mark task as notified right now to prevent repeated ringing in the same minute
+            const slotKey = `${todayStr} ${currentHHMM}`;
+            setTasks(prev => prev.map(t => t.id === task.id ? { ...t, lastNotifiedAt: slotKey } : t));
+
+            // Set active reminder task for the on-screen alert modal
             setActiveReminderHolidayNotice(null);
             setActiveReminderTask(task);
-          });
-
-          // Mark task as notified right now to prevent repeated ringing in the same minute
-          const slotKey = `${todayStr} ${currentHHMM}`;
-          setTasks(prev => prev.map(t => t.id === task.id ? { ...t, lastNotifiedAt: slotKey } : t));
-
-          // Set active reminder task for the on-screen alert modal
-          setActiveReminderHolidayNotice(null);
-          setActiveReminderTask(task);
-          break; // Ring one at a time
+            break; // Ring one at a time
+          }
         }
+      } catch (err) {
+        console.warn('Reminder check cycle notice:', err);
       }
     };
 
@@ -521,10 +546,11 @@ export const App: React.FC = () => {
     minutes: 25,
   });
 
-  // Direct Tasks Backup, Mobile Install and APK Modal State
+  // Direct Full Backup, Mobile Transfer and APK Modal State
   const [isTasksBackupModalOpen, setIsTasksBackupModalOpen] = useState(false);
+  const [backupModalInitialTab, setBackupModalInitialTab] = useState<'FULL_TRANSFER' | 'TASKS_BACKUP' | 'UPDATE_SAFETY' | 'RELEASE_NOTES'>('FULL_TRANSFER');
   const [isApkDownloadModalOpen, setIsApkDownloadModalOpen] = useState(false);
-  const [isMobileInstallOpen, setIsMobileInstallOpen] = useState(false);
+  const [isApkConfirmModalOpen, setIsApkConfirmModalOpen] = useState(false);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [isStandalone, setIsStandalone] = useState(false);
 
@@ -562,7 +588,7 @@ export const App: React.FC = () => {
         console.error('PWA install prompt error:', err);
       }
     } else {
-      setIsMobileInstallOpen(true);
+      setIsApkConfirmModalOpen(true);
     }
   };
 
@@ -1305,6 +1331,29 @@ export const App: React.FC = () => {
     },
     mode: 'REPLACE' | 'MERGE' = 'REPLACE'
   ) => {
+    // 0. Safety Guard: Never allow an empty or corrupt payload to wipe existing data
+    const hasAnyEntities = 
+      (Array.isArray(data.categories) && data.categories.length > 0) ||
+      (Array.isArray(data.goals) && data.goals.length > 0) ||
+      (Array.isArray(data.tasks) && data.tasks.length > 0) ||
+      (Array.isArray(data.habits) && data.habits.length > 0) ||
+      Boolean(data.userProfile);
+
+    if (!hasAnyEntities) {
+      console.warn('[Safety] Blocked import of empty or corrupt data payload to preserve current data.');
+      return;
+    }
+
+    // Always record an emergency backup snapshot of the exact current state before any modification
+    saveLocalSnapshot({
+      categories,
+      goals,
+      tasks,
+      habits,
+      userProfile,
+      reminderSettings,
+    });
+
     let nextCategories = categories;
     let nextGoals = goals;
     let nextTasks = tasks;
@@ -1534,14 +1583,19 @@ export const App: React.FC = () => {
       <header className="shrink-0 z-40 bg-white/95 backdrop-blur-md border-b border-emerald-100 shadow-xs">
         <div className="max-w-4xl mx-auto px-3 sm:px-4 h-16 flex items-center justify-between">
           <div className="flex items-center gap-2.5 sm:gap-3">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-emerald-600 to-green-500 text-white flex items-center justify-center shadow-xs">
-              <Sprout className="w-5 h-5" />
-            </div>
-            <div>
-              <h1 className="text-base font-extrabold text-emerald-950 tracking-tight">
-                جوانه
-              </h1>
-              <p className="text-[10px] text-gray-400">تسک‌ها، عادات و اهداف سالانه</p>
+            <div 
+              onClick={() => setCurrentTab('TODAY')}
+              className="flex items-center gap-2.5 sm:gap-3 cursor-pointer group"
+            >
+              <div className="w-9 h-9 rounded-xl overflow-hidden shadow-xs border border-emerald-300/60 bg-emerald-800 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                <img src="/icon.svg" alt="جوانه" className="w-full h-full object-cover" />
+              </div>
+              <div>
+                <h1 className="text-base font-extrabold text-emerald-950 tracking-tight group-hover:text-emerald-800 transition-colors">
+                  جوانه
+                </h1>
+                <p className="text-[10px] text-gray-400">تسک‌ها، عادات و اهداف سالانه</p>
+              </div>
             </div>
 
             {/* Main Header Persian Date (Clickable to switch to Persian Calendar) */}
@@ -1575,31 +1629,29 @@ export const App: React.FC = () => {
               <span>{toPersianDigits(today.day)} {PERSIAN_MONTHS[today.month - 1]}</span>
             </button>
 
-            {!isStandalone && (
-              <button
-                type="button"
-                onClick={handleInstallApp}
-                title="نصب جوانه بر روی گوشی موبایل (مشابه ۱۰۰٪ پیش‌نمایش)"
-                className="px-2.5 py-1.5 bg-gradient-to-r from-emerald-700 to-green-700 hover:from-emerald-800 hover:to-green-800 text-white text-xs font-black rounded-xl shadow-xs hover:shadow-md flex items-center gap-1.5 transition-all cursor-pointer active:scale-95"
-              >
-                <Smartphone className="w-3.5 h-3.5 text-emerald-200" />
-                <span className="hidden sm:inline">نصب روی گوشی</span>
-              </button>
-            )}
-
-            {/* Prominent Quick Settings Button in Top Header */}
             <button
               type="button"
-              onClick={() => setCurrentTab('SETTINGS')}
-              title="منوی جامع تنظیمات جوانه"
-              className={`px-2.5 py-1.5 rounded-xl border flex items-center gap-1.5 transition-all cursor-pointer ${
-                currentTab === 'SETTINGS'
-                  ? 'bg-emerald-700 text-white border-emerald-700 shadow-xs'
-                  : 'bg-emerald-50/80 hover:bg-emerald-100 text-emerald-900 border-emerald-200/80 hover:border-emerald-300'
-              }`}
+              onClick={() => setIsApkConfirmModalOpen(true)}
+              title="دانلود فایل نصبی APK جوانه برای اندروید (نسخه کامل و سبک)"
+              className="hidden sm:flex px-2.5 py-1.5 bg-gradient-to-r from-emerald-700 to-green-700 hover:from-emerald-800 hover:to-green-800 text-white text-xs font-black rounded-xl shadow-xs hover:shadow-md items-center gap-1.5 transition-all cursor-pointer active:scale-95"
             >
-              <Settings className={`w-4 h-4 ${currentTab === 'SETTINGS' ? 'rotate-90 transition-transform' : 'text-emerald-700'}`} />
-              <span className="text-xs font-bold">تنظیمات</span>
+              <Download className="w-3.5 h-3.5 text-emerald-200" />
+              <span>دانلود APK</span>
+              <span className="hidden md:inline-block px-1.5 py-0.5 bg-white/20 rounded-md text-[10px] font-bold">۵۳۵KB</span>
+            </button>
+
+            {/* Direct Data Backup & Mobile Transfer Button */}
+            <button
+              type="button"
+              onClick={() => {
+                setBackupModalInitialTab('FULL_TRANSFER');
+                setIsTasksBackupModalOpen(true);
+              }}
+              title="پشتیبان‌گیری از داده‌ها و انتقال به گوشی (دانلود یا آپلود)"
+              className="hidden sm:flex px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-200/90 hover:border-emerald-300 rounded-xl text-xs font-black shadow-2xs items-center gap-1.5 transition-all cursor-pointer active:scale-95"
+            >
+              <Database className="w-3.5 h-3.5 text-emerald-700" />
+              <span>پشتیبان و انتقال</span>
             </button>
 
             <button
@@ -1666,7 +1718,10 @@ export const App: React.FC = () => {
             onArchiveTask={handleArchiveTask}
             onRestoreTask={handleRestoreTask}
             onClearArchivedTasks={handleClearArchivedTasks}
-            onOpenTasksBackup={() => setIsTasksBackupModalOpen(true)}
+            onOpenTasksBackup={() => {
+              setBackupModalInitialTab('TASKS_BACKUP');
+              setIsTasksBackupModalOpen(true);
+            }}
           />
         )}
 
@@ -1944,11 +1999,11 @@ export const App: React.FC = () => {
         onSnooze={handleSnoozeReminder}
       />
 
-      {/* Direct Tasks Backup & Restore Modal */}
+      {/* Direct Full Data Backup, Transfer & Restore Modal */}
       <UpdateAndBackupModal
         isOpen={isTasksBackupModalOpen}
         onClose={() => setIsTasksBackupModalOpen(false)}
-        initialTab="TASKS_BACKUP"
+        initialTab={backupModalInitialTab}
         tasks={tasks}
         goals={goals}
         habits={habits}
@@ -1956,23 +2011,32 @@ export const App: React.FC = () => {
         userProfile={userProfile}
         reminderSettings={reminderSettings}
         onImportTasksOnly={handleImportTasksOnly}
-        onOpenFullApkDownload={() => setIsApkDownloadModalOpen(true)}
+        onImportAllData={handleImportAllData}
+        onOpenFullApkDownload={() => setIsApkConfirmModalOpen(true)}
       />
 
-      {/* Direct APK Download Modal */}
-      <ApkIntegrityModal
-        isOpen={isApkDownloadModalOpen}
-        onClose={() => setIsApkDownloadModalOpen(false)}
+      {/* Direct APK Download Modal with HEAD inspection */}
+      <ApkDownloadConfirmModal
+        isOpen={isApkConfirmModalOpen}
+        onClose={() => setIsApkConfirmModalOpen(false)}
       />
 
-      {/* Mobile Install (PWA & QR Code) Modal */}
-      <MobileInstallModal
-        isOpen={isMobileInstallOpen}
-        onClose={() => setIsMobileInstallOpen(false)}
-        deferredPrompt={deferredPrompt}
-        onInstallClick={handleInstallApp}
-        onOpenSettings={() => setCurrentTab('SETTINGS')}
-      />
+      {/* Google Play / In-App Upgrade Notification Toast */}
+      {upgradeNotice && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 max-w-md w-11/12 bg-emerald-900/95 text-white text-xs font-bold px-4 py-3 rounded-2xl shadow-xl border border-emerald-500/50 flex items-center justify-between gap-3 animate-fade-in">
+          <div className="flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-emerald-300 shrink-0" />
+            <span>{upgradeNotice}</span>
+          </div>
+          <button 
+            type="button" 
+            onClick={() => setUpgradeNotice(null)}
+            className="p-1 hover:bg-white/20 rounded-lg text-emerald-200 cursor-pointer"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
     </div>
   );
 };

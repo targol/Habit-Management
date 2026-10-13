@@ -41,6 +41,17 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(event.request.url);
 
+  // CRITICAL: NEVER intercept APK downloads, large binaries, or API endpoints. Let browser handle them directly!
+  if (
+    url.pathname.endsWith('.apk') ||
+    url.pathname.includes('javaneh.apk') ||
+    url.pathname.startsWith('/api/') ||
+    url.searchParams.has('download') ||
+    event.request.headers.has('range')
+  ) {
+    return; // Pass through directly to network/browser
+  }
+
   // For same-origin resources, try network first so preview is always live
   if (url.origin === location.origin) {
     event.respondWith(

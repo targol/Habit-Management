@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   X, 
   ShieldCheck, 
@@ -9,18 +9,52 @@ import {
   CheckCircle2, 
   FileCheck, 
   Sparkles, 
-  Smartphone,
-  HardDrive,
-  Info,
-  Clock,
-  ArrowRight,
-  FileText,
-  RotateCcw
+  Smartphone, 
+  HardDrive, 
+  Info, 
+  Clock, 
+  ArrowRight, 
+  ArrowLeftRight, 
+  FileText, 
+  RotateCcw,
+  Copy,
+  Check,
+  Share2
 } from 'lucide-react';
 import { AppTask, Goal, Habit, Category, UserProfile, ReminderSettings } from '../types';
-import { APP_VERSION_INFO, RELEASE_HISTORY, ReleaseNote } from '../version';
+import { APP_VERSION_INFO, RELEASE_HISTORY } from '../version';
+import { savePreUpdateBackup, saveLocalSnapshot, getOrCreateUserId } from '../services/storageService';
+import { validateAndSanitizeBackupJson, ValidationEntityCounts } from '../services/backupValidationService';
 import { toPersianDigits, getTodayJalali, getCurrentPersianDateTimeString } from '../calendar/jalali';
-import { savePreUpdateBackup, getOrCreateUserId } from '../services/storageService';
+
+export interface FullBackupPayload {
+  appName: string;
+  dataType?: string;
+  version: string;
+  exportDate: string;
+  exportPersianDate: string;
+  userId?: string;
+  counts?: {
+    categories: number;
+    goals: number;
+    tasks: number;
+    habits: number;
+  };
+  categories?: Category[];
+  goals?: Goal[];
+  tasks?: AppTask[];
+  habits?: Habit[];
+  userProfile?: UserProfile;
+  reminderSettings?: ReminderSettings;
+  data?: {
+    categories?: Category[];
+    goals?: Goal[];
+    tasks?: AppTask[];
+    habits?: Habit[];
+    userProfile?: UserProfile;
+    reminderSettings?: ReminderSettings;
+  };
+}
 
 interface Props {
   isOpen: boolean;
@@ -31,8 +65,16 @@ interface Props {
   categories: Category[];
   userProfile?: UserProfile;
   reminderSettings?: ReminderSettings;
-  initialTab?: 'UPDATE_SAFETY' | 'TASKS_BACKUP' | 'RELEASE_NOTES';
+  initialTab?: 'FULL_TRANSFER' | 'UPDATE_SAFETY' | 'TASKS_BACKUP' | 'RELEASE_NOTES';
   onImportTasksOnly?: (tasks: AppTask[], mode: 'REPLACE' | 'MERGE') => void;
+  onImportAllData?: (data: {
+    categories?: Category[];
+    goals?: Goal[];
+    tasks?: AppTask[];
+    habits?: Habit[];
+    userProfile?: UserProfile;
+    reminderSettings?: ReminderSettings;
+  }, mode: 'REPLACE' | 'MERGE') => void;
   onOpenFullApkDownload?: () => void;
 }
 
@@ -45,23 +87,37 @@ export const UpdateAndBackupModal: React.FC<Props> = ({
   categories,
   userProfile,
   reminderSettings,
-  initialTab = 'UPDATE_SAFETY',
+  initialTab = 'FULL_TRANSFER',
   onImportTasksOnly,
+  onImportAllData,
   onOpenFullApkDownload,
 }) => {
-  const [activeTab, setActiveTab] = useState<'UPDATE_SAFETY' | 'TASKS_BACKUP' | 'RELEASE_NOTES'>(initialTab);
+  const [activeTab, setActiveTab] = useState<'FULL_TRANSFER' | 'UPDATE_SAFETY' | 'TASKS_BACKUP' | 'RELEASE_NOTES'>(initialTab);
 
   // Sync tab if initialTab changes when opening
-  React.useEffect(() => {
+  useEffect(() => {
     if (isOpen) {
       setActiveTab(initialTab);
     }
   }, [isOpen, initialTab]);
-  const [storagePermissionGranted, setStoragePermissionGranted] = useState<boolean | null>(null);
-  const [showPermissionWarning, setShowPermissionWarning] = useState<boolean>(false);
-  const [isBackingUp, setIsBackingUp] = useState<boolean>(false);
+
+  const [isCopiedJson, setIsCopiedJson] = useState(false);
   const [backupSuccessMessage, setBackupSuccessMessage] = useState<string | null>(null);
-  const [proceedAfterWarning, setProceedAfterWarning] = useState<boolean>(false);
+
+  const fullFileInputRef = useRef<HTMLInputElement>(null);
+  const taskFileInputRef = useRef<HTMLInputElement>(null);
+
+  // Full transfer import state
+  const [fullImportFile, setFullImportFile] = useState<File | null>(null);
+  const [fullImportData, setFullImportData] = useState<FullBackupPayload | null>(null);
+  const [fullImportMode, setFullImportMode] = useState<'REPLACE' | 'MERGE'>('MERGE');
+  const [fullImportError, setFullImportError] = useState<string | null>(null);
+  const [fullImportSuccess, setFullImportSuccess] = useState<string | null>(null);
+  const [validationWarnings, setValidationWarnings] = useState<string[]>([]);
+  const [validationCounts, setValidationCounts] = useState<ValidationEntityCounts | null>(null);
+  const [validationDate, setValidationDate] = useState<string | null>(null);
+  const [pastedJsonInput, setPastedJsonInput] = useState('');
+  const [showPasteBox, setShowPasteBox] = useState(false);
 
   // Task-only import state
   const [taskImportFile, setTaskImportFile] = useState<File | null>(null);
@@ -69,12 +125,250 @@ export const UpdateAndBackupModal: React.FC<Props> = ({
   const [taskImportMode, setTaskImportMode] = useState<'REPLACE' | 'MERGE'>('MERGE');
   const [taskImportError, setTaskImportError] = useState<string | null>(null);
   const [taskImportSuccess, setTaskImportSuccess] = useState<string | null>(null);
+  const [isCopiedTaskJson, setIsCopiedTaskJson] = useState(false);
+  const [showTaskPasteBox, setShowTaskPasteBox] = useState(false);
+  const [pastedTaskJsonInput, setPastedTaskJsonInput] = useState('');
+
+  // Safety tab state
+  const [storagePermissionGranted, setStoragePermissionGranted] = useState<boolean | null>(null);
+  const [showPermissionWarning, setShowPermissionWarning] = useState<boolean>(false);
+  const [isBackingUp, setIsBackingUp] = useState<boolean>(false);
+  const [proceedAfterWarning, setProceedAfterWarning] = useState<boolean>(false);
 
   if (!isOpen) return null;
 
   const userId = getOrCreateUserId();
 
-  // 1. Task-only Fast Export
+  // Create full backup JSON object
+  const buildFullBackupPayload = (): FullBackupPayload => {
+    return {
+      appName: 'جوانه (Javaneh)',
+      dataType: 'FULL_DATA_BACKUP',
+      version: APP_VERSION_INFO.currentVersion,
+      exportDate: new Date().toISOString(),
+      exportPersianDate: getCurrentPersianDateTimeString(),
+      userId,
+      counts: {
+        categories: categories.length,
+        goals: goals.length,
+        tasks: tasks.length,
+        habits: habits.length,
+      },
+      categories,
+      goals,
+      tasks,
+      habits,
+      userProfile,
+      reminderSettings,
+    };
+  };
+
+  // 1. Export & Download Full Backup (supports AndroidBridge and Web)
+  const handleExportFullBackup = () => {
+    try {
+      const todayJ = getTodayJalali();
+      const datePart = `${todayJ.year}-${String(todayJ.month).padStart(2, '0')}-${String(todayJ.day).padStart(2, '0')}`;
+      const payload = buildFullBackupPayload();
+      const jsonString = JSON.stringify(payload, null, 2);
+      const filename = `javaneh-full-backup-${datePart}.json`;
+
+      // A. If running in Android native WebView bridge
+      const androidBridge = (window as any).AndroidBridge;
+      if (androidBridge && typeof androidBridge.saveFile === 'function') {
+        androidBridge.saveFile(filename, jsonString, 'application/json');
+        setBackupSuccessMessage('پنجره اشتراک‌گذاری و ذخیره فایل پشتیبان در دستگاه باز شد.');
+        setTimeout(() => setBackupSuccessMessage(null), 5000);
+        return;
+      }
+
+      // B. Standard Blob URL download
+      const blob = new Blob([jsonString], { type: 'application/json;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+
+      setBackupSuccessMessage('فایل پشتیبان کامل با موفقیت دانلود شد.');
+      setTimeout(() => setBackupSuccessMessage(null), 5000);
+    } catch (e) {
+      console.error(e);
+      alert('خطا در تهیه نسخه پشتیبان.');
+    }
+  };
+
+  // 1b. Direct Native Share (Files, Google Drive, WhatsApp, Telegram, etc.)
+  const handleShareFullBackup = async () => {
+    try {
+      const todayJ = getTodayJalali();
+      const datePart = `${todayJ.year}-${String(todayJ.month).padStart(2, '0')}-${String(todayJ.day).padStart(2, '0')}`;
+      const payload = buildFullBackupPayload();
+      const jsonString = JSON.stringify(payload, null, 2);
+      const filename = `javaneh-full-backup-${datePart}.json`;
+
+      // A. If AndroidBridge present
+      const androidBridge = (window as any).AndroidBridge;
+      if (androidBridge && typeof androidBridge.saveFile === 'function') {
+        androidBridge.saveFile(filename, jsonString, 'application/json');
+        return;
+      }
+
+      // B. Mobile Web Share API with File
+      if (typeof navigator !== 'undefined' && navigator.share && typeof File !== 'undefined') {
+        try {
+          const file = new File([jsonString], filename, { type: 'application/json;charset=utf-8' });
+          if (navigator.canShare && navigator.canShare({ files: [file] })) {
+            await navigator.share({
+              files: [file],
+              title: 'پشتیبان کامل جوانه',
+              text: 'فایل پشتیبان کامل داده‌های اپلیکیشن جوانه',
+            });
+            setBackupSuccessMessage('فایل پشتیبان با موفقیت به اشتراک گذاشته یا ذخیره شد.');
+            setTimeout(() => setBackupSuccessMessage(null), 5000);
+            return;
+          }
+        } catch (shareErr: any) {
+          if (shareErr.name === 'AbortError') return;
+        }
+      }
+
+      // Fallback: Copy to clipboard
+      await handleCopyFullBackupToClipboard();
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  // 2. Copy Full Backup JSON directly to Clipboard
+  const handleCopyFullBackupToClipboard = async () => {
+    try {
+      const payload = buildFullBackupPayload();
+      const jsonString = JSON.stringify(payload, null, 2);
+      await navigator.clipboard.writeText(jsonString);
+      setIsCopiedJson(true);
+      setBackupSuccessMessage('متن کامل نسخه پشتیبان (کد انتقال) کپی شد! می‌توانید آن را در ایتا، بله، تلگرام یا پیامک برای خود بفرستید و در گوشی پیست کنید.');
+      setTimeout(() => setIsCopiedJson(false), 3000);
+      setTimeout(() => setBackupSuccessMessage(null), 6000);
+    } catch (err) {
+      alert('خطا در کپی متن به کلیپ‌بورد.');
+    }
+  };
+
+  // 2b. Auto-paste from Clipboard
+  const handlePasteFromClipboard = async () => {
+    try {
+      if (navigator.clipboard && navigator.clipboard.readText) {
+        const text = await navigator.clipboard.readText();
+        if (text && text.trim().length > 0) {
+          setPastedJsonInput(text);
+          parseFullBackupString(text.trim(), 'حافظه موقت');
+          return;
+        }
+      }
+      alert('متنی در کلیپ‌بورد یافت نشد. لطفاً کد را به صورت دستی در کادر پیست نمایید.');
+    } catch (err) {
+      alert('دسترسی به کلیپ‌بورد مقدور نیست. لطفاً متن را دستی در کادر پیست نمایید.');
+    }
+  };
+
+  // 3. Deep Validate & Parse Full Backup content (from file or text)
+  const parseFullBackupString = (content: string, sourceName = 'فایل پشتیبان') => {
+    setFullImportError(null);
+    setFullImportSuccess(null);
+    setValidationWarnings([]);
+
+    const validationResult = validateAndSanitizeBackupJson(content);
+
+    if (!validationResult.isValid || !validationResult.data) {
+      setFullImportError(validationResult.fatalError || 'خطای ساختاری در فایل JSON پشتیبان. جهت محافظت از اطلاعات فعلی شما، از اعمال آن جلوگیری شد.');
+      setFullImportData(null);
+      setValidationCounts(null);
+      setValidationDate(null);
+      return;
+    }
+
+    setFullImportData({
+      appName: validationResult.appName || 'جوانه',
+      version: APP_VERSION_INFO.currentVersion,
+      exportDate: new Date().toISOString(),
+      exportPersianDate: validationResult.exportDateString || '',
+      counts: {
+        categories: validationResult.counts.categories,
+        goals: validationResult.counts.goals,
+        tasks: validationResult.counts.tasks,
+        habits: validationResult.counts.habits,
+      },
+      ...validationResult.data,
+    });
+    setValidationWarnings(validationResult.warnings);
+    setValidationCounts(validationResult.counts);
+    setValidationDate(validationResult.exportDateString || 'معتبر');
+    setPastedJsonInput('');
+    setShowPasteBox(false);
+  };
+
+  // 4. File input for Full Restore
+  const handleFullFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setFullImportFile(file);
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const text = event.target?.result as string;
+      parseFullBackupString(text, file.name);
+    };
+    reader.onerror = () => {
+      setFullImportError('خطا در خواندن فایل از حافظه دستگاه.');
+    };
+    reader.readAsText(file, 'UTF-8');
+    e.target.value = '';
+  };
+
+  // 5. Confirm Full Restore Execution with Auto Emergency Snapshot
+  const handleConfirmFullImport = () => {
+    if (!fullImportData || !onImportAllData) {
+      alert('خطا: داده‌های معتبری برای بازیابی وجود ندارد.');
+      return;
+    }
+
+    // Safety Guarantee: Always create an emergency snapshot of CURRENT state before applying any import!
+    saveLocalSnapshot({
+      categories,
+      goals,
+      tasks,
+      habits,
+      userProfile,
+      reminderSettings,
+    });
+
+    onImportAllData(
+      {
+        categories: fullImportData.categories,
+        goals: fullImportData.goals,
+        tasks: fullImportData.tasks,
+        habits: fullImportData.habits,
+        userProfile: fullImportData.userProfile,
+        reminderSettings: fullImportData.reminderSettings,
+      },
+      fullImportMode
+    );
+
+    const modeText = fullImportMode === 'REPLACE' ? 'جایگزینی کامل' : 'ترکیب و ادغام';
+    setFullImportSuccess(`اعتبارسنجی تایید شد و اطلاعات با موفقیت به شیوه «${modeText}» بازیابی شدند. همچنین یک نسخه پشتیبان از داده‌های قبلی شما در حافظه پشتیبان نگهداری شد.`);
+    setFullImportData(null);
+    setFullImportFile(null);
+    setValidationWarnings([]);
+    setValidationCounts(null);
+    setTimeout(() => {
+      setFullImportSuccess(null);
+      onClose();
+    }, 2800);
+  };
+
+  // 6. Task-only Fast Export
   const handleExportTasksOnly = () => {
     try {
       const todayJ = getTodayJalali();
@@ -101,7 +395,7 @@ export const UpdateAndBackupModal: React.FC<Props> = ({
       a.click();
       document.body.removeChild(a);
       setTimeout(() => URL.revokeObjectURL(url), 2000);
-      setBackupSuccessMessage(`فایل نسخه پشتیبان تسک‌ها (${toPersianDigits(tasks.length)} تسک) با موفقیت روی دستگاه ذخیره شد.`);
+      setBackupSuccessMessage(`فایل نسخه پشتیبان تسک‌ها (${toPersianDigits(tasks.length)} تسک) ذخیره شد.`);
       setTimeout(() => setBackupSuccessMessage(null), 4000);
     } catch (e) {
       console.error(e);
@@ -109,44 +403,95 @@ export const UpdateAndBackupModal: React.FC<Props> = ({
     }
   };
 
-  // 2. Task-only file input selection
+  // 6b. Copy Tasks-only JSON to clipboard
+  const handleCopyTasksJsonToClipboard = async () => {
+    try {
+      const payload = {
+        appName: 'جوانه (Javaneh)',
+        dataType: 'TASKS_ONLY_BACKUP',
+        version: APP_VERSION_INFO.currentVersion,
+        exportDate: new Date().toISOString(),
+        exportPersianDate: getCurrentPersianDateTimeString(),
+        userId,
+        totalTasks: tasks.length,
+        completedTasks: tasks.filter(t => t.isCompleted).length,
+        tasks,
+      };
+      const jsonString = JSON.stringify(payload, null, 2);
+      await navigator.clipboard.writeText(jsonString);
+      setIsCopiedTaskJson(true);
+      setBackupSuccessMessage(`کد JSON تسک‌ها (${toPersianDigits(tasks.length)} تسک) در حافظه کپی شد.`);
+      setTimeout(() => setIsCopiedTaskJson(false), 3000);
+      setTimeout(() => setBackupSuccessMessage(null), 5000);
+    } catch (err) {
+      alert('خطا در کپی متن به کلیپ‌بورد.');
+    }
+  };
+
+  // 6c. Parse Tasks JSON from String (File or Paste)
+  const parseTasksJsonString = (text: string, sourceName = 'فایل تسک‌ها') => {
+    setTaskImportError(null);
+    setTaskImportSuccess(null);
+    try {
+      const parsed = JSON.parse(text);
+      let rawList: any[] = [];
+      if (Array.isArray(parsed.tasks)) {
+        rawList = parsed.tasks;
+      } else if (Array.isArray(parsed)) {
+        rawList = parsed;
+      } else if (Array.isArray(parsed?.data?.tasks)) {
+        rawList = parsed.data.tasks;
+      }
+
+      if (rawList.length === 0) {
+        setTaskImportError('هیچ تسک معتبری در این فایل یا متن یافت نشد.');
+        setTaskImportData(null);
+        return;
+      }
+
+      const sanitizedTasks: AppTask[] = rawList
+        .filter(t => t && typeof t === 'object' && typeof t.title === 'string' && t.title.trim().length > 0)
+        .map((t, idx) => ({
+          ...t,
+          id: String(t.id || `task_import_${Date.now()}_${idx}`),
+          title: String(t.title).trim(),
+          isCompleted: Boolean(t.isCompleted),
+          repeatDaysOfWeek: Array.isArray(t.repeatDaysOfWeek) ? t.repeatDaysOfWeek : [],
+        }));
+
+      if (sanitizedTasks.length === 0) {
+        setTaskImportError('عناوین تسک‌ها در ساختار JSON معتبر نیست.');
+        setTaskImportData(null);
+        return;
+      }
+
+      setTaskImportData(sanitizedTasks);
+      setShowTaskPasteBox(false);
+      setPastedTaskJsonInput('');
+    } catch (err) {
+      setTaskImportError('متن یا فایل واردشده دارای ساختار معتبر JSON نیست.');
+      setTaskImportData(null);
+    }
+  };
+
+  // 7. Task-only file input selection
   const handleTaskFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setTaskImportFile(file);
-    setTaskImportError(null);
-    setTaskImportSuccess(null);
-
     const reader = new FileReader();
     reader.onload = (event) => {
-      try {
-        const text = event.target?.result as string;
-        const parsed = JSON.parse(text);
-        const importedTasksList: AppTask[] = Array.isArray(parsed.tasks) 
-          ? parsed.tasks 
-          : Array.isArray(parsed) 
-            ? parsed 
-            : Array.isArray(parsed?.data?.tasks) 
-              ? parsed.data.tasks 
-              : [];
-
-        if (importedTasksList.length === 0) {
-          setTaskImportError('هیچ تسک معتبری در این فایل یافت نشد.');
-          setTaskImportData(null);
-          return;
-        }
-
-        setTaskImportData(importedTasksList);
-      } catch (err) {
-        setTaskImportError('فایل انتخاب‌شده یک فایل معتبر JSON نیست.');
-        setTaskImportData(null);
-      }
+      const text = event.target?.result as string;
+      parseTasksJsonString(text, file.name);
+    };
+    reader.onerror = () => {
+      setTaskImportError('خطا در خواندن فایل از حافظه دستگاه.');
     };
     reader.readAsText(file, 'UTF-8');
     e.target.value = '';
   };
 
-  // 3. Confirm Task-only restore
+  // 8. Confirm Task-only restore
   const handleConfirmTaskImport = () => {
     if (!taskImportData || !onImportTasksOnly) return;
     onImportTasksOnly(taskImportData, taskImportMode);
@@ -156,99 +501,25 @@ export const UpdateAndBackupModal: React.FC<Props> = ({
     setTimeout(() => setTaskImportSuccess(null), 4000);
   };
 
-  // 4. Pre-Update Safe Flow: Prompt for storage/download permission
-  const handleRequestStorageAndBackup = async (skipPermission = false) => {
-    setIsBackingUp(true);
-    // Take immediate local emergency snapshot
-    savePreUpdateBackup({
-      categories,
-      goals,
-      tasks,
-      habits,
-      userProfile,
-      reminderSettings,
-    });
-
-    if (skipPermission) {
-      // User explicitly declined storage access, warn them
-      setStoragePermissionGranted(false);
-      setShowPermissionWarning(true);
-      setIsBackingUp(false);
-      return;
-    }
-
-    try {
-      // Attempt physical file export to verify user filesystem storage capability
-      const todayJ = getTodayJalali();
-      const datePart = `${todayJ.year}-${String(todayJ.month).padStart(2, '0')}-${String(todayJ.day).padStart(2, '0')}`;
-      const fullBackupPayload = {
-        appName: 'جوانه (Javaneh) - نسخه اضطراری قبل از آپدیت',
-        version: APP_VERSION_INFO.currentVersion,
-        exportDate: new Date().toISOString(),
-        exportPersianDate: getCurrentPersianDateTimeString(),
-        userId,
-        counts: {
-          categories: categories.length,
-          goals: goals.length,
-          tasks: tasks.length,
-          habits: habits.length,
-        },
-        categories,
-        goals,
-        tasks,
-        habits,
-        userProfile,
-        reminderSettings,
-      };
-
-      const jsonString = JSON.stringify(fullBackupPayload, null, 2);
-      const blob = new Blob([jsonString], { type: 'application/json;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `javaneh-auto-backup-before-update-${datePart}.json`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(url), 2000);
-
-      setStoragePermissionGranted(true);
-      setShowPermissionWarning(false);
-      setBackupSuccessMessage('نسخه پشتیبان اضطراری با موفقیت در پوشه بارگیری‌های شما ذخیره شد. اکنون با خیال راحت می‌توانید برنامه را به‌روزرسانی کنید.');
-    } catch (e) {
-      console.warn('Filesystem access failed or blocked:', e);
-      setStoragePermissionGranted(false);
-      setShowPermissionWarning(true);
-    } finally {
-      setIsBackingUp(false);
-    }
-  };
-
-  const handleProceedToUpdate = () => {
-    if (onOpenFullApkDownload) {
-      onOpenFullApkDownload();
-      onClose();
-    }
-  };
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 overflow-y-auto">
-      <div className="bg-white rounded-3xl max-w-2xl w-full shadow-2xl border border-emerald-100 text-right overflow-hidden my-6 animate-scale-up flex flex-col max-h-[90vh]">
+    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto animate-fade-in" dir="rtl">
+      <div className="bg-white rounded-3xl shadow-2xl border border-gray-100 max-w-2xl w-full overflow-hidden flex flex-col max-h-[92vh]">
+        
         {/* Header */}
-        <div className="p-5 border-b border-gray-100 bg-gradient-to-l from-emerald-900 via-emerald-800 to-teal-900 text-white flex items-center justify-between shrink-0">
+        <div className="bg-gradient-to-r from-emerald-800 via-emerald-700 to-teal-800 p-4 sm:p-5 text-white flex items-center justify-between shrink-0">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-white/10 backdrop-blur-xs flex items-center justify-center border border-white/20">
-              <ShieldCheck className="w-5 h-5 text-emerald-300" />
+            <div className="p-2.5 bg-white/10 rounded-2xl backdrop-blur-md border border-white/20">
+              <ArrowLeftRight className="w-5 h-5 text-emerald-200" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
-                <h3 className="font-extrabold text-base text-white">به‌روزرسانی ایمن و نسخه گوگل‌پلی</h3>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/30 text-emerald-200 border border-emerald-400/40">
-                  نسخه {APP_VERSION_INFO.currentVersion}
+              <h3 className="font-extrabold text-base flex items-center gap-2">
+                <span>پشتیبان‌گیری و انتقال داده‌ها به گوشی</span>
+                <span className="text-[10px] bg-emerald-500/40 text-emerald-100 px-2 py-0.5 rounded-full border border-white/20">
+                  انتقال به موبایل
                 </span>
-              </div>
-              <p className="text-[11px] text-emerald-100/80 mt-0.5">
-                جداسازی اطلاعات شخصی کاربران، محافظت از دیتابیس و بکاپ‌گیری خودکار
+              </h3>
+              <p className="text-[11px] text-emerald-100/90 mt-0.5">
+                تهیه خروجی کامل، ارسال به گوشی و بارگذاری روان اطلاعات در تمام دستگاه‌ها
               </p>
             </div>
           </div>
@@ -262,53 +533,632 @@ export const UpdateAndBackupModal: React.FC<Props> = ({
         </div>
 
         {/* Tab Controls */}
-        <div className="flex border-b border-gray-200 bg-gray-50/70 p-1.5 gap-1 shrink-0 text-xs font-bold">
+        <div className="flex border-b border-gray-200 bg-gray-50/70 p-1.5 gap-1 shrink-0 text-xs font-bold overflow-x-auto no-scrollbar">
           <button
             type="button"
-            onClick={() => setActiveTab('UPDATE_SAFETY')}
-            className={`flex-1 py-2 px-3 rounded-xl transition-all cursor-pointer flex items-center justify-center gap-2 ${
-              activeTab === 'UPDATE_SAFETY'
+            onClick={() => setActiveTab('FULL_TRANSFER')}
+            className={`flex-1 py-2 px-3 rounded-xl transition-all cursor-pointer flex items-center justify-center gap-2 whitespace-nowrap ${
+              activeTab === 'FULL_TRANSFER'
                 ? 'bg-white text-emerald-800 shadow-2xs font-extrabold'
                 : 'text-gray-500 hover:text-gray-900 hover:bg-gray-100'
             }`}
           >
             <Smartphone className="w-4 h-4 text-emerald-600" />
-            <span>به‌روزرسانی امن و محافظت داده‌ها</span>
+            <span>پشتیبان و انتقال کامل</span>
           </button>
 
           <button
             type="button"
             onClick={() => setActiveTab('TASKS_BACKUP')}
-            className={`flex-1 py-2 px-3 rounded-xl transition-all cursor-pointer flex items-center justify-center gap-2 ${
+            className={`py-2 px-3 rounded-xl transition-all cursor-pointer flex items-center justify-center gap-2 whitespace-nowrap ${
               activeTab === 'TASKS_BACKUP'
                 ? 'bg-white text-emerald-800 shadow-2xs font-extrabold'
                 : 'text-gray-500 hover:text-gray-900 hover:bg-gray-100'
             }`}
           >
             <Database className="w-4 h-4 text-teal-600" />
-            <span>بکاپ و بارگذاری تسک‌ها</span>
+            <span>بکاپ تسک‌ها</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('UPDATE_SAFETY')}
+            className={`py-2 px-3 rounded-xl transition-all cursor-pointer flex items-center justify-center gap-2 whitespace-nowrap ${
+              activeTab === 'UPDATE_SAFETY'
+                ? 'bg-white text-emerald-800 shadow-2xs font-extrabold'
+                : 'text-gray-500 hover:text-gray-900 hover:bg-gray-100'
+            }`}
+          >
+            <ShieldCheck className="w-4 h-4 text-emerald-600" />
+            <span>امنیت و آپدیت APK</span>
           </button>
 
           <button
             type="button"
             onClick={() => setActiveTab('RELEASE_NOTES')}
-            className={`flex-1 py-2 px-3 rounded-xl transition-all cursor-pointer flex items-center justify-center gap-2 ${
+            className={`py-2 px-3 rounded-xl transition-all cursor-pointer flex items-center justify-center gap-2 whitespace-nowrap ${
               activeTab === 'RELEASE_NOTES'
                 ? 'bg-white text-emerald-800 shadow-2xs font-extrabold'
                 : 'text-gray-500 hover:text-gray-900 hover:bg-gray-100'
             }`}
           >
             <FileText className="w-4 h-4 text-amber-600" />
-            <span>لاگ تغییرات و نسخه‌ها (Changelog)</span>
+            <span>تغییرات نسخه‌ها</span>
           </button>
         </div>
 
+        {/* Global Feedback Banner */}
+        {backupSuccessMessage && (
+          <div className="mx-5 mt-4 p-3 bg-emerald-50 border border-emerald-200 text-emerald-900 rounded-2xl text-xs font-bold flex items-center gap-2 shadow-2xs animate-fade-in">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span>{backupSuccessMessage}</span>
+          </div>
+        )}
+
         {/* Content Body */}
-        <div className="p-5 overflow-y-auto space-y-4 flex-1">
-          {/* TAB 1: UPDATE SAFETY & GOOGLE PLAY ARCHITECTURE */}
+        <div className="p-4 sm:p-5 overflow-y-auto space-y-4 flex-1">
+          
+          {/* TAB 1: FULL DATA BACKUP & MOBILE TRANSFER */}
+          {activeTab === 'FULL_TRANSFER' && (
+            <div className="space-y-4">
+              
+              {/* Quick Step-by-Step Mobile Transfer Banner */}
+              <div className="bg-gradient-to-br from-emerald-50 via-teal-50/50 to-white border border-emerald-200 rounded-2xl p-4 space-y-3">
+                <div className="flex items-center gap-2 text-emerald-950 font-black text-xs">
+                  <Smartphone className="w-4 h-4 text-emerald-700" />
+                  <span>راهنمای انتقال سریع اطلاعات از این سیستم به گوشی:</span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-[11px] text-gray-700">
+                  <div className="bg-white/90 p-2.5 rounded-xl border border-emerald-100 space-y-1">
+                    <strong className="text-emerald-900 block font-bold">۱. تهیه فایل یا کد:</strong>
+                    <p className="text-gray-600 text-[10px] leading-relaxed">
+                      روی دکمه «دانلود فایل پشتیبان» کلیک کرده یا «کپی کد انتقال» را بزنید.
+                    </p>
+                  </div>
+                  <div className="bg-white/90 p-2.5 rounded-xl border border-emerald-100 space-y-1">
+                    <strong className="text-emerald-900 block font-bold">۲. ارسال به گوشی:</strong>
+                    <p className="text-gray-600 text-[10px] leading-relaxed">
+                      فایل یا متن کپی‌شده را در پیام‌رسان (ایتا، بله، تلگرام، واتساپ یا ایمیل) برای خود بفرستید.
+                    </p>
+                  </div>
+                  <div className="bg-white/90 p-2.5 rounded-xl border border-emerald-100 space-y-1">
+                    <strong className="text-emerald-900 block font-bold">۳. بارگذاری در گوشی:</strong>
+                    <p className="text-gray-600 text-[10px] leading-relaxed">
+                      در گوشی، در همین صفحه دکمه «آپلود فایل» یا «پیست کد» را بزنید و تایید کنید!
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Data Summary Stats */}
+              <div className="bg-gray-50/80 rounded-2xl p-3 border border-gray-200 flex flex-wrap items-center justify-around gap-2 text-center text-xs">
+                <div>
+                  <div className="text-[10px] text-gray-500 font-medium">اهداف سالانه و فصلی</div>
+                  <div className="text-sm font-black text-emerald-900">{toPersianDigits(goals.length)}</div>
+                </div>
+                <div className="w-px h-7 bg-gray-200"></div>
+                <div>
+                  <div className="text-[10px] text-gray-500 font-medium">وظایف و تسک‌ها</div>
+                  <div className="text-sm font-black text-emerald-900">{toPersianDigits(tasks.length)}</div>
+                </div>
+                <div className="w-px h-7 bg-gray-200"></div>
+                <div>
+                  <div className="text-[10px] text-gray-500 font-medium">عادت‌های روزانه</div>
+                  <div className="text-sm font-black text-emerald-900">{toPersianDigits(habits.length)}</div>
+                </div>
+                <div className="w-px h-7 bg-gray-200"></div>
+                <div>
+                  <div className="text-[10px] text-gray-500 font-medium">دسته‌بندی‌ها</div>
+                  <div className="text-sm font-black text-emerald-900">{toPersianDigits(categories.length)}</div>
+                </div>
+              </div>
+
+              {/* Section A: EXPORT & BACKUP */}
+              <div className="border border-emerald-200 bg-white rounded-2xl p-4 space-y-3 shadow-2xs">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="p-1.5 bg-emerald-100 text-emerald-800 rounded-lg">
+                      <Download className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-xs text-gray-900">خروجی گرفتن از اطلاعات فعلی</h4>
+                      <p className="text-[10px] text-gray-500">دانلود فایل یا کپی متن جهت ارسال به گوشی یا نگهداری امن</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={handleExportFullBackup}
+                    className="p-3 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all shadow-xs cursor-pointer active:scale-95"
+                  >
+                    <Download className="w-4 h-4" />
+                    <span>دانلود فایل پشتیبان (.json)</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleShareFullBackup}
+                    title="اشتراک‌گذاری مستقیم فایل یا ذخیره در گوگل‌درایو و پیام‌رسان‌ها"
+                    className="p-3 bg-teal-700 hover:bg-teal-800 text-white rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all shadow-xs cursor-pointer active:scale-95"
+                  >
+                    <Share2 className="w-4 h-4" />
+                    <span>اشتراک‌گذاری مستقیم (Share)</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleCopyFullBackupToClipboard}
+                    className="p-3 bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-300 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer active:scale-95"
+                  >
+                    {isCopiedJson ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4 text-emerald-700" />}
+                    <span>{isCopiedJson ? 'کد انتقال کپی شد!' : 'کپی کد متنی (JSON)'}</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Section B: IMPORT & UPLOAD */}
+              <div className="border border-teal-200 bg-teal-50/30 rounded-2xl p-4 space-y-3 shadow-2xs">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="p-1.5 bg-teal-100 text-teal-800 rounded-lg">
+                      <Upload className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-xs text-gray-900">آپلود و بازیابی اطلاعات (در این دستگاه یا گوشی)</h4>
+                      <p className="text-[10px] text-gray-500">انتخاب فایل پشتیبان از حافظه یا پیست کردن کد انتقال</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <label
+                    htmlFor="full-backup-file-input"
+                    className="px-4 py-2.5 bg-teal-700 hover:bg-teal-800 text-white rounded-xl text-xs font-bold flex items-center gap-2 cursor-pointer shadow-xs transition-all active:scale-95 select-none"
+                  >
+                    <Upload className="w-4 h-4" />
+                    <span>انتخاب و آپلود فایل پشتیبان (.json)</span>
+                    <input
+                      id="full-backup-file-input"
+                      ref={fullFileInputRef}
+                      type="file"
+                      accept=".json,application/json,text/plain,*/*"
+                      onChange={handleFullFileSelect}
+                      className="sr-only"
+                    />
+                  </label>
+
+                  <button
+                    type="button"
+                    onClick={handlePasteFromClipboard}
+                    title="خواندن مستقیم کد کپی‌شده از حافظه کلیپ‌بورد گوشی"
+                    className="px-3.5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-xs transition-all active:scale-95"
+                  >
+                    <Copy className="w-3.5 h-3.5" />
+                    <span>پیست خودکار از حافظه</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowPasteBox(!showPasteBox)}
+                    className="px-3.5 py-2.5 bg-white border border-teal-300 hover:bg-teal-50 text-teal-900 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-colors"
+                  >
+                    <FileText className="w-3.5 h-3.5 text-teal-700" />
+                    <span>{showPasteBox ? 'بستن کادر دستی' : 'وارد کردن دستی کد'}</span>
+                  </button>
+                </div>
+
+                {/* Paste Code Box */}
+                {showPasteBox && (
+                  <div className="p-3 bg-white rounded-xl border border-teal-200 space-y-2 animate-fade-in">
+                    <div className="flex items-center justify-between">
+                      <label className="text-[11px] font-bold text-gray-700 block">
+                        متن کد پشتیبان (JSON) را اینجا پیست (Paste) کنید:
+                      </label>
+                      <button
+                        type="button"
+                        onClick={handlePasteFromClipboard}
+                        className="text-[11px] text-teal-700 hover:text-teal-900 font-bold underline cursor-pointer"
+                      >
+                        پیست از کلیپ‌بورد
+                      </button>
+                    </div>
+                    <textarea
+                      rows={4}
+                      value={pastedJsonInput}
+                      onChange={(e) => setPastedJsonInput(e.target.value)}
+                      placeholder='{"appName": "جوانه (Javaneh)", "data": ...}'
+                      className="w-full p-2.5 rounded-lg border border-gray-200 text-xs font-mono text-left dir-ltr bg-gray-50 focus:bg-white focus:border-teal-500 outline-hidden"
+                    />
+                    <div className="flex justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!pastedJsonInput.trim()) {
+                            alert('لطفاً ابتدا متن را در کادر پیست کنید.');
+                            return;
+                          }
+                          parseFullBackupString(pastedJsonInput.trim(), 'متن کپی شده');
+                        }}
+                        className="px-4 py-1.5 bg-teal-700 hover:bg-teal-800 text-white font-bold text-xs rounded-lg cursor-pointer"
+                      >
+                        اعتبارسنجی و لود اطلاعات
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Error feedback with explicit data protection guarantee */}
+                {fullImportError && (
+                  <div className="p-3.5 bg-rose-50 border-2 border-rose-300 text-rose-900 rounded-2xl text-xs space-y-2 animate-fade-in shadow-xs">
+                    <div className="flex items-center gap-2 font-bold text-rose-800">
+                      <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                      <span>رد اعتبارسنجی فایل: خطای ساختاری در داده‌ها</span>
+                    </div>
+                    <p className="text-rose-700 leading-relaxed font-medium">
+                      {fullImportError}
+                    </p>
+                    <div className="pt-1.5 border-t border-rose-200/80 flex items-center gap-1.5 text-[11px] text-emerald-800 font-bold">
+                      <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <span>محافظت کامل داده‌ها: جهت جلوگیری از پاک شدن اطلاعات، فایل اعمال نشد و داده‌های فعلی شما کاملاً دست‌نخورده حفظ گردیدند.</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Success feedback */}
+                {fullImportSuccess && (
+                  <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-900 rounded-xl text-xs font-bold flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>{fullImportSuccess}</span>
+                  </div>
+                )}
+
+                {/* Full Import Preview & Confirmation */}
+                {fullImportData && (
+                  <div className="bg-white p-4 rounded-2xl border-2 border-teal-400 space-y-3.5 shadow-sm animate-fade-in">
+                    <div className="flex items-center justify-between pb-2 border-b border-gray-100">
+                      <div className="flex items-center gap-2">
+                        <FileCheck className="w-4.5 h-4.5 text-teal-600" />
+                        <span className="font-extrabold text-xs text-gray-900">اطلاعات آماده بازیابی:</span>
+                      </div>
+                      <span className="text-[10px] text-gray-500 font-mono">
+                        تاریخ تهیه: {toPersianDigits(fullImportData.exportPersianDate || 'معتبر')}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center text-xs">
+                      <div className="bg-teal-50/70 p-2 rounded-xl">
+                        <span className="text-[10px] text-teal-800 block">اهداف</span>
+                        <strong className="text-teal-950 font-black">{toPersianDigits(fullImportData.goals?.length || 0)}</strong>
+                      </div>
+                      <div className="bg-teal-50/70 p-2 rounded-xl">
+                        <span className="text-[10px] text-teal-800 block">تسک‌ها</span>
+                        <strong className="text-teal-950 font-black">{toPersianDigits(fullImportData.tasks?.length || 0)}</strong>
+                      </div>
+                      <div className="bg-teal-50/70 p-2 rounded-xl">
+                        <span className="text-[10px] text-teal-800 block">عادت‌ها</span>
+                        <strong className="text-teal-950 font-black">{toPersianDigits(fullImportData.habits?.length || 0)}</strong>
+                      </div>
+                      <div className="bg-teal-50/70 p-2 rounded-xl">
+                        <span className="text-[10px] text-teal-800 block">دسته‌ها</span>
+                        <strong className="text-teal-950 font-black">{toPersianDigits(fullImportData.categories?.length || 0)}</strong>
+                      </div>
+                    </div>
+
+                    {/* Mode Selection */}
+                    <div className="p-3 bg-gray-50 rounded-xl border border-gray-200 space-y-2 text-xs">
+                      <span className="font-bold text-gray-800 block text-[11px]">شیوه اعمال اطلاعات روی دستگاه فعلی:</span>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <label className={`p-2.5 rounded-lg border flex items-start gap-2 cursor-pointer transition-all ${
+                          fullImportMode === 'MERGE' ? 'bg-teal-50/80 border-teal-500 text-teal-950 font-bold' : 'bg-white border-gray-200 text-gray-700'
+                        }`}>
+                          <input
+                            type="radio"
+                            name="fullImportMode"
+                            checked={fullImportMode === 'MERGE'}
+                            onChange={() => setFullImportMode('MERGE')}
+                            className="mt-0.5 text-teal-600 focus:ring-teal-500"
+                          />
+                          <div>
+                            <span className="block text-xs">ترکیب و ادغام (پیشنهادی)</span>
+                            <span className="text-[10px] text-gray-500 font-normal">داده‌های جدید اضافه شده و اطلاعات قبلی گوشی حذف نمی‌شوند.</span>
+                          </div>
+                        </label>
+
+                        <label className={`p-2.5 rounded-lg border flex items-start gap-2 cursor-pointer transition-all ${
+                          fullImportMode === 'REPLACE' ? 'bg-amber-50 border-amber-500 text-amber-950 font-bold' : 'bg-white border-gray-200 text-gray-700'
+                        }`}>
+                          <input
+                            type="radio"
+                            name="fullImportMode"
+                            checked={fullImportMode === 'REPLACE'}
+                            onChange={() => setFullImportMode('REPLACE')}
+                            className="mt-0.5 text-amber-600 focus:ring-amber-500"
+                          />
+                          <div>
+                            <span className="block text-xs">جایگزینی کامل (دقیق)</span>
+                            <span className="text-[10px] text-gray-500 font-normal">تمام داده‌های فعلی گوشی پاک شده و دقیقاً با این فایل جایگزین می‌شوند.</span>
+                          </div>
+                        </label>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-end gap-2 pt-1 border-t border-gray-100">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setFullImportData(null);
+                          setFullImportFile(null);
+                        }}
+                        className="px-4 py-2 text-xs text-gray-600 hover:bg-gray-100 rounded-xl cursor-pointer"
+                      >
+                        انصراف
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleConfirmFullImport}
+                        className="px-5 py-2 bg-gradient-to-r from-teal-700 to-emerald-700 hover:from-teal-800 hover:to-emerald-800 text-white font-extrabold text-xs rounded-xl shadow-xs cursor-pointer active:scale-95"
+                      >
+                        تایید و اعمال بازیابی در دستگاه
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* TAB 2: TASKS ONLY BACKUP */}
+          {activeTab === 'TASKS_BACKUP' && (
+            <div className="space-y-4">
+              <div className="bg-teal-50/60 border border-teal-200 rounded-2xl p-4 space-y-1">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-black text-teal-950 flex items-center gap-2">
+                    <Database className="w-4 h-4 text-teal-700" />
+                    <span>پشتیبان‌گیری سریع ویژه تسک‌ها و وظایف</span>
+                  </h4>
+                  <span className="text-[10px] font-bold bg-teal-200/70 text-teal-900 px-2 py-0.5 rounded-full">
+                    مجموع: {toPersianDigits(tasks.length)} تسک
+                  </span>
+                </div>
+                <p className="text-[11px] text-teal-900/80 leading-relaxed">
+                  می‌توانید تنها از فهرست وظایف خود خروجی JSON بگیرید یا تسک‌های یک نسخه دیگر را بازگردانی و ادغام نمایید.
+                </p>
+              </div>
+
+              {/* Tasks Export */}
+              <div className="border border-gray-200 rounded-2xl p-4 bg-white space-y-2">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                  <div>
+                    <h5 className="font-bold text-xs text-gray-900 flex items-center gap-1.5">
+                      <Download className="w-3.5 h-3.5 text-teal-700" />
+                      <span>خروجی فایل یا کد JSON تسک‌ها</span>
+                    </h5>
+                    <p className="text-[11px] text-gray-500 mt-0.5">
+                      حاوی تمام {toPersianDigits(tasks.length)} تسک جاری، تکرارشونده و بایگانی شده (بدون عادات یا اهداف)
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={handleExportTasksOnly}
+                      className="px-3.5 py-1.5 bg-teal-700 hover:bg-teal-800 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span>دانلود فایل تسک‌ها</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleCopyTasksJsonToClipboard}
+                      className="px-3 py-1.5 bg-white border border-teal-300 hover:bg-teal-50 text-teal-900 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
+                      title="کپی مستقیم ساختار JSON تسک‌ها"
+                    >
+                      {isCopiedTaskJson ? (
+                        <>
+                          <Check className="w-3.5 h-3.5 text-emerald-600" />
+                          <span>کپی شد!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-3.5 h-3.5 text-teal-700" />
+                          <span>کپی کد تسک‌ها</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Tasks Import */}
+              <div className="border border-gray-200 rounded-2xl p-4 bg-white space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                  <div>
+                    <h5 className="font-bold text-xs text-gray-900 flex items-center gap-1.5">
+                      <Upload className="w-3.5 h-3.5 text-teal-700" />
+                      <span>ورود و بازگردانی مجزای تسک‌ها (مستقل)</span>
+                    </h5>
+                    <p className="text-[11px] text-gray-500 mt-0.5">
+                      فایل یا کد تسک‌ها را انتخاب کنید؛ سایر بخش‌ها (عادت‌ها، اهداف و دسته‌ها) کاملاً دست‌نخورده می‌مانند.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <label
+                      htmlFor="task-backup-file-input"
+                      className="px-3.5 py-1.5 bg-white border border-teal-300 hover:bg-teal-50 text-teal-900 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-2xs select-none"
+                    >
+                      <Upload className="w-3.5 h-3.5 text-teal-700" />
+                      <span>انتخاب فایل تسک‌ها</span>
+                      <input
+                        id="task-backup-file-input"
+                        type="file"
+                        accept=".json,application/json,text/plain,*/*"
+                        onChange={handleTaskFileSelect}
+                        className="sr-only"
+                      />
+                    </label>
+
+                    <button
+                      type="button"
+                      onClick={() => setShowTaskPasteBox(!showTaskPasteBox)}
+                      className="px-3 py-1.5 bg-teal-50 hover:bg-teal-100 text-teal-950 border border-teal-200 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                    >
+                      <FileText className="w-3.5 h-3.5 text-teal-700" />
+                      <span>{showTaskPasteBox ? 'بستن کادر پیست' : 'پیست دستی متن'}</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Paste Area for Tasks */}
+                {showTaskPasteBox && (
+                  <div className="bg-teal-50/40 p-3 rounded-xl border border-teal-200 space-y-2 animate-fade-in">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-bold text-teal-950">کد JSON تسک‌ها را اینجا بچسبانید (Paste):</span>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          try {
+                            if (navigator.clipboard && navigator.clipboard.readText) {
+                              const text = await navigator.clipboard.readText();
+                              if (text && text.trim().length > 0) {
+                                setPastedTaskJsonInput(text);
+                                parseTasksJsonString(text.trim(), 'حافظه موقت');
+                              }
+                            }
+                          } catch (err) {
+                            alert('دسترسی مستقیم مقدور نیست؛ دستی پیست کنید.');
+                          }
+                        }}
+                        className="text-[11px] text-teal-700 hover:underline flex items-center gap-1 font-bold cursor-pointer"
+                      >
+                        <Copy className="w-3 h-3" />
+                        <span>چسباندن خودکار از کلیپ‌بورد</span>
+                      </button>
+                    </div>
+                    <textarea
+                      value={pastedTaskJsonInput}
+                      onChange={(e) => setPastedTaskJsonInput(e.target.value)}
+                      placeholder='مثال: [ {"id": "t1", "title": "خرید کتاب", "isCompleted": false} ] یا ساختار خروجی برنامه...'
+                      className="w-full h-24 p-2.5 text-xs font-mono bg-white border border-teal-300 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-teal-500 text-gray-800 resize-y"
+                      dir="ltr"
+                    />
+                    <div className="flex justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowTaskPasteBox(false);
+                          setPastedTaskJsonInput('');
+                        }}
+                        className="px-3 py-1 text-xs text-gray-600 hover:bg-gray-100 rounded-lg cursor-pointer"
+                      >
+                        انصراف
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!pastedTaskJsonInput.trim()) {
+                            alert('لطفاً متن JSON را در کادر وارد کنید.');
+                            return;
+                          }
+                          parseTasksJsonString(pastedTaskJsonInput.trim(), 'متن دستی');
+                        }}
+                        className="px-4 py-1 bg-teal-700 hover:bg-teal-800 text-white font-bold text-xs rounded-lg shadow-xs cursor-pointer"
+                      >
+                        بررسی و بارگذاری تسک‌ها
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {taskImportError && (
+                  <div className="p-2.5 bg-rose-50 border border-rose-200 text-rose-800 rounded-xl text-xs font-medium flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                    <span>{taskImportError}</span>
+                  </div>
+                )}
+
+                {taskImportSuccess && (
+                  <div className="p-2.5 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-xs font-bold flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>{taskImportSuccess}</span>
+                  </div>
+                )}
+
+                {taskImportData && (
+                  <div className="bg-gradient-to-br from-teal-50/70 to-emerald-50/50 p-3.5 rounded-2xl border border-teal-300 space-y-3 animate-fade-in">
+                    <div className="flex items-center justify-between text-xs flex-wrap gap-2">
+                      <div className="flex items-center gap-2">
+                        <span className="font-extrabold text-teal-950">
+                          تعداد تسک‌های آماده بازیابی: {toPersianDigits(taskImportData.length)} تسک
+                        </span>
+                        <span className="text-[10px] bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-md font-bold">
+                          فقط تسک‌ها (عادات و اهداف محفوظند)
+                        </span>
+                      </div>
+                      <span className="text-[10px] text-gray-500 font-mono">{taskImportFile?.name || 'ورودی متنی'}</span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                      <label className={`p-2.5 rounded-xl border flex items-start gap-2 cursor-pointer transition-all ${
+                        taskImportMode === 'MERGE' ? 'bg-white border-teal-500 text-teal-950 font-bold shadow-2xs' : 'bg-white/60 border-gray-200 text-gray-700'
+                      }`}>
+                        <input
+                          type="radio"
+                          name="importMode"
+                          checked={taskImportMode === 'MERGE'}
+                          onChange={() => setTaskImportMode('MERGE')}
+                          className="mt-0.5 text-teal-600 focus:ring-teal-500"
+                        />
+                        <div>
+                          <span className="block text-xs">ترکیب و ادغام (پیشنهادی)</span>
+                          <span className="text-[10px] text-gray-500 font-normal">تسک‌های جدید افزوده شده و تسک‌های قبلی شما حذف نمی‌شوند.</span>
+                        </div>
+                      </label>
+                      <label className={`p-2.5 rounded-xl border flex items-start gap-2 cursor-pointer transition-all ${
+                        taskImportMode === 'REPLACE' ? 'bg-amber-50 border-amber-500 text-amber-950 font-bold shadow-2xs' : 'bg-white/60 border-gray-200 text-gray-700'
+                      }`}>
+                        <input
+                          type="radio"
+                          name="importMode"
+                          checked={taskImportMode === 'REPLACE'}
+                          onChange={() => setTaskImportMode('REPLACE')}
+                          className="mt-0.5 text-amber-600 focus:ring-amber-500"
+                        />
+                        <div>
+                          <span className="block text-xs">جایگزینی کامل لیست تسک‌ها</span>
+                          <span className="text-[10px] text-gray-500 font-normal">فقط تسک‌ها جایگزین می‌شوند؛ عادات و اهداف اصلاً پاک نمی‌شوند.</span>
+                        </div>
+                      </label>
+                    </div>
+
+                    <div className="flex items-center justify-end gap-2 pt-2 border-t border-teal-200">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setTaskImportData(null);
+                          setTaskImportFile(null);
+                        }}
+                        className="px-3.5 py-1.5 text-xs text-gray-600 hover:bg-white rounded-xl cursor-pointer"
+                      >
+                        انصراف
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleConfirmTaskImport}
+                        className="px-4 py-1.5 bg-teal-700 hover:bg-teal-800 text-white font-extrabold text-xs rounded-xl shadow-xs cursor-pointer active:scale-95"
+                      >
+                        تایید و اعمال روی تسک‌ها
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* TAB 3: UPDATE SAFETY & GOOGLE PLAY ARCHITECTURE */}
           {activeTab === 'UPDATE_SAFETY' && (
             <div className="space-y-4">
-              {/* Architecture Guarantee Card */}
               <div className="bg-gradient-to-br from-emerald-50 via-white to-teal-50 border border-emerald-200/90 rounded-2xl p-4 space-y-3">
                 <div className="flex items-start gap-3">
                   <div className="p-2 bg-emerald-600 text-white rounded-xl shadow-xs mt-0.5">
@@ -319,7 +1169,7 @@ export const UpdateAndBackupModal: React.FC<Props> = ({
                       معماری امن Google Play: اطلاعات شخصی هر فرد ۱۰۰٪ مجزا و ماندگار است
                     </h4>
                     <p className="text-[11px] text-emerald-900/90 leading-relaxed">
-                      هنگامی که این اپلیکیشن روی گوگل‌پلی یا از طریق فایل APK برای کاربران مختلف منتشر شود:
+                      هنگامی که این اپلیکیشن روی گوگل‌پلی یا از طریق فایل APK برای کاربران مختلف منتشر شود، داده‌ها در فضای ایزوله دستگاه باقی می‌مانند.
                     </p>
                   </div>
                 </div>
@@ -331,7 +1181,7 @@ export const UpdateAndBackupModal: React.FC<Props> = ({
                       <span>ایزولاسیون کامل دیتابیس گوشی:</span>
                     </span>
                     <p className="text-[10px] text-gray-600 leading-relaxed">
-                      داده‌های هر کاربر فقط در حافظه خصوصی و رمزگذاری‌شده برنامه او (App Sandbox) ذخیره می‌شود و هیچ کاربری به اطلاعات دیگران دسترسی ندارد.
+                      داده‌های هر کاربر فقط در حافظه خصوصی و رمزگذاری‌شده برنامه او (App Sandbox) ذخیره می‌شود.
                     </p>
                   </div>
 
@@ -341,246 +1191,29 @@ export const UpdateAndBackupModal: React.FC<Props> = ({
                       <span>عدم حذف اطلاعات هنگام آپگرید:</span>
                     </span>
                     <p className="text-[10px] text-gray-600 leading-relaxed">
-                      با نصب نسخه‌های جدیدتر، دیتابیس بدون هیچ تغییری حفظ شده و فقط قابلیت‌ها و کدهای برنامه به‌روز می‌شوند (No Data Loss Guarantee).
+                      با نصب نسخه‌های جدیدتر، دیتابیس بدون هیچ تغییری حفظ شده و فقط قابلیت‌های برنامه به‌روز می‌شوند.
                     </p>
                   </div>
                 </div>
-
-                <div className="bg-emerald-100/60 rounded-xl p-2.5 flex items-center justify-between text-[11px] text-emerald-950">
-                  <span className="font-medium">شناسه ایزوله‌شده دستگاه شما در این جلسه:</span>
-                  <code className="bg-white px-2 py-0.5 rounded font-mono font-bold text-emerald-800 border border-emerald-200">
-                    {userId}
-                  </code>
-                </div>
               </div>
 
-              {/* Pre-Update Auto-Backup Step */}
-              <div className="border border-emerald-200/90 rounded-2xl p-4 bg-white space-y-3 shadow-2xs">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <div className="p-1.5 bg-emerald-600 text-white rounded-lg">
-                      <HardDrive className="w-4 h-4" />
-                    </div>
-                    <div>
-                      <h4 className="text-xs font-extrabold text-gray-900">
-                        مرحله ایمنی: پشتیبان‌گیری خودکار پیش از به‌روزرسانی (Pre-Update Backup)
-                      </h4>
-                      <p className="text-[10px] text-gray-500">
-                        برای اطمینان ۱۰۰٪، برنامه پیش از آپگرید یک نسخه پشتیبان کامل از تسک‌ها و اهداف شما تولید می‌کند.
-                      </p>
-                    </div>
-                  </div>
+              {onOpenFullApkDownload && (
+                <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between">
+                  <span className="text-xs font-bold text-emerald-900">دانلود مستقیم بسته نصبی اندروید (APK):</span>
+                  <button
+                    type="button"
+                    onClick={onOpenFullApkDownload}
+                    className="px-3.5 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-xs cursor-pointer"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>دریافت APK</span>
+                  </button>
                 </div>
-
-                {backupSuccessMessage && (
-                  <div className="p-3 bg-emerald-50 border border-emerald-300 text-emerald-900 text-xs font-bold rounded-xl flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                    <span>{backupSuccessMessage}</span>
-                  </div>
-                )}
-
-                {/* Storage Permission Warning Dialog (If user declines storage or denies) */}
-                {showPermissionWarning && (
-                  <div className="p-3.5 bg-rose-50 border border-rose-300 rounded-xl space-y-2 text-xs">
-                    <div className="flex items-start gap-2 text-rose-900">
-                      <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
-                      <div>
-                        <strong className="block font-black text-rose-950 text-xs">
-                          هشدار امنیتی: اجازه دسترسی به ذخیره‌سازی داده نشد!
-                        </strong>
-                        <p className="text-[11px] text-rose-900 mt-1 leading-relaxed">
-                          اگر فایل نسخه پشتیبان به صورت فیزیکی روی دستگاه ذخیره نشود، در صورت بروز خطای سیستمی در سیستم‌عامل ممکن است نتوانید داده‌های قدیمی را خارج از برنامه استخراج کنید.
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center justify-end gap-2 pt-2 border-t border-rose-200">
-                      <button
-                        type="button"
-                        onClick={() => handleRequestStorageAndBackup(false)}
-                        className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-[11px] cursor-pointer"
-                      >
-                        تلاش مجدد و اجازه دانلود فایل بکاپ
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setProceedAfterWarning(true);
-                          setShowPermissionWarning(false);
-                        }}
-                        className="px-3 py-1.5 bg-rose-100 hover:bg-rose-200 text-rose-900 border border-rose-300 rounded-lg font-bold text-[11px] cursor-pointer"
-                      >
-                        پذیرش ریسک و ادامه بدون ذخیره فایل
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {/* Action Trigger Buttons */}
-                <div className="pt-1 flex items-center justify-between flex-wrap gap-2">
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      disabled={isBackingUp}
-                      onClick={() => handleRequestStorageAndBackup(false)}
-                      className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:scale-98 text-white rounded-xl text-xs font-black shadow-xs flex items-center gap-2 cursor-pointer transition-all"
-                    >
-                      <Download className="w-4 h-4" />
-                      <span>{isBackingUp ? 'در حال تهیه پشتیبان...' : 'تهیه نسخه پشتیبان خودکار (توصیه اکید)'}</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => handleRequestStorageAndBackup(true)}
-                      className="px-3 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-xs font-bold cursor-pointer"
-                    >
-                      رد کردن دسترسی ذخیره‌سازی
-                    </button>
-                  </div>
-
-                  {(storagePermissionGranted || proceedAfterWarning) && (
-                    <button
-                      type="button"
-                      onClick={handleProceedToUpdate}
-                      className="px-4 py-2.5 bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-700 hover:to-emerald-700 text-white rounded-xl text-xs font-black shadow-sm flex items-center gap-1.5 cursor-pointer animate-pulse"
-                    >
-                      <span>ادامه به دریافت فایل به‌روزرسانی (APK)</span>
-                      <ArrowRight className="w-4 h-4" />
-                    </button>
-                  )}
-                </div>
-              </div>
+              )}
             </div>
           )}
 
-          {/* TAB 2: DEDICATED TASKS BACKUP & RESTORE */}
-          {activeTab === 'TASKS_BACKUP' && (
-            <div className="space-y-4">
-              <div className="bg-teal-50/70 border border-teal-200 rounded-2xl p-4 space-y-2">
-                <div className="flex items-center gap-2 text-teal-950 font-bold text-xs">
-                  <Database className="w-4 h-4 text-teal-700" />
-                  <span>پشتیبان‌گیری و بارگذاری سریع ویژه «تسک‌ها و برنامه‌ها»</span>
-                </div>
-                <p className="text-[11px] text-teal-900/80 leading-relaxed">
-                  اگر مایلید تنها تسک‌ها، لیست کارهای روزانه و وضعیت انجام آن‌ها را استخراج کرده و مجدداً در این اپ یا روی گوشی دیگر وارد کنید، از این بخش استفاده نمایید.
-                </p>
-                <div className="flex items-center gap-2 pt-1 text-[11px]">
-                  <span className="bg-white px-2 py-0.5 rounded border border-teal-200 font-bold text-teal-800">
-                    مجموع تسک‌های فعلی: {toPersianDigits(tasks.length)}
-                  </span>
-                  <span className="bg-white px-2 py-0.5 rounded border border-teal-200 font-bold text-emerald-800">
-                    تسک‌های انجام‌شده: {toPersianDigits(tasks.filter(t => t.isCompleted).length)}
-                  </span>
-                </div>
-              </div>
-
-              {/* Task Export Action */}
-              <div className="p-4 rounded-xl border border-gray-200 bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
-                <div className="space-y-0.5">
-                  <strong className="text-xs font-bold text-gray-900 block">دانلود فایل بکاپ تسک‌ها</strong>
-                  <p className="text-[11px] text-gray-500">
-                    تولید فایل <code className="bg-gray-100 px-1 py-0.5 rounded text-emerald-800 font-mono">javaneh-tasks-*.json</code> شامل تمامی تسک‌ها
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={handleExportTasksOnly}
-                  className="px-4 py-2 bg-teal-700 hover:bg-teal-800 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer shadow-xs shrink-0"
-                >
-                  <Download className="w-4 h-4" />
-                  <span>دانلود بکاپ تسک‌ها</span>
-                </button>
-              </div>
-
-              {/* Task Import & Restore Action */}
-              <div className="p-4 rounded-xl border border-gray-200 bg-white space-y-3 shadow-2xs">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <strong className="text-xs font-bold text-gray-900 block">بارگذاری مجدد تسک‌ها از فایل پشتیبان</strong>
-                    <p className="text-[11px] text-gray-500">انتخاب فایل پشتیبان تسک‌ها و بازگردانی سریع</p>
-                  </div>
-                  <label className="px-3.5 py-1.5 bg-white border border-teal-300 hover:bg-teal-50 text-teal-900 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-2xs">
-                    <Upload className="w-3.5 h-3.5 text-teal-700" />
-                    <span>انتخاب فایل تسک‌ها</span>
-                    <input
-                      type="file"
-                      accept=".json,application/json"
-                      onChange={handleTaskFileSelect}
-                      className="hidden"
-                    />
-                  </label>
-                </div>
-
-                {taskImportError && (
-                  <div className="p-2.5 bg-rose-50 border border-rose-200 text-rose-800 rounded-xl text-xs">
-                    {taskImportError}
-                  </div>
-                )}
-
-                {taskImportSuccess && (
-                  <div className="p-2.5 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-xs font-bold">
-                    {taskImportSuccess}
-                  </div>
-                )}
-
-                {taskImportData && (
-                  <div className="bg-teal-50/50 p-3 rounded-xl border border-teal-200 space-y-3">
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="font-bold text-teal-950">
-                        تعداد تسک‌های آماده بارگذاری: {toPersianDigits(taskImportData.length)} تسک
-                      </span>
-                      <span className="text-[10px] text-gray-500">{taskImportFile?.name}</span>
-                    </div>
-
-                    <div className="flex items-center gap-4 text-xs">
-                      <label className="flex items-center gap-1.5 cursor-pointer">
-                        <input
-                          type="radio"
-                          name="importMode"
-                          checked={taskImportMode === 'MERGE'}
-                          onChange={() => setTaskImportMode('MERGE')}
-                          className="text-teal-600 focus:ring-teal-500"
-                        />
-                        <span>ترکیب و ادغام با تسک‌های فعلی (بدون حذف)</span>
-                      </label>
-                      <label className="flex items-center gap-1.5 cursor-pointer">
-                        <input
-                          type="radio"
-                          name="importMode"
-                          checked={taskImportMode === 'REPLACE'}
-                          onChange={() => setTaskImportMode('REPLACE')}
-                          className="text-teal-600 focus:ring-teal-500"
-                        />
-                        <span className="text-amber-800 font-bold">جایگزینی کامل لیست تسک‌ها</span>
-                      </label>
-                    </div>
-
-                    <div className="flex items-center justify-end gap-2 pt-1 border-t border-teal-100">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setTaskImportData(null);
-                          setTaskImportFile(null);
-                        }}
-                        className="px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100 rounded-lg cursor-pointer"
-                      >
-                        انصراف
-                      </button>
-                      <button
-                        type="button"
-                        onClick={handleConfirmTaskImport}
-                        className="px-4 py-1.5 bg-teal-700 hover:bg-teal-800 text-white font-bold text-xs rounded-lg shadow-xs cursor-pointer"
-                      >
-                        تایید و اعمال روی تسک‌ها
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* TAB 3: RELEASE NOTES & CHANGELOG */}
+          {/* TAB 4: RELEASE NOTES */}
           {activeTab === 'RELEASE_NOTES' && (
             <div className="space-y-4">
               <div className="bg-amber-50/70 border border-amber-200 rounded-2xl p-4 space-y-1">
@@ -613,7 +1246,6 @@ export const UpdateAndBackupModal: React.FC<Props> = ({
                       </span>
                     </div>
 
-                    {/* Highlights */}
                     <div className="space-y-1">
                       <span className="text-[10px] font-bold text-gray-400 block">ویژگی‌های برجسته این نسخه:</span>
                       <ul className="list-disc list-inside space-y-0.5 text-xs text-emerald-950 font-medium pr-1">
@@ -621,28 +1253,6 @@ export const UpdateAndBackupModal: React.FC<Props> = ({
                           <li key={i}>{h}</li>
                         ))}
                       </ul>
-                    </div>
-
-                    {/* Detailed changes list */}
-                    <div className="space-y-1.5 pt-1">
-                      {item.changes.map((c, i) => (
-                        <div key={i} className="bg-gray-50/70 p-2.5 rounded-xl border border-gray-100 space-y-0.5 text-xs">
-                          <div className="flex items-center gap-1.5">
-                            <span className={`text-[9px] px-1.5 py-0.2 rounded font-bold ${
-                              c.type === 'SECURITY' ? 'bg-purple-100 text-purple-800' :
-                              c.type === 'FEATURE' ? 'bg-emerald-100 text-emerald-800' :
-                              c.type === 'IMPROVEMENT' ? 'bg-blue-100 text-blue-800' :
-                              'bg-amber-100 text-amber-800'
-                            }`}>
-                              {c.type === 'SECURITY' ? 'امنیت و دیتابیس' :
-                               c.type === 'FEATURE' ? 'امکان جدید' :
-                               c.type === 'IMPROVEMENT' ? 'بهبود' : 'اصلاح'}
-                            </span>
-                            <strong className="text-gray-900 text-xs">{c.title}</strong>
-                          </div>
-                          <p className="text-[11px] text-gray-600 leading-relaxed pr-1">{c.description}</p>
-                        </div>
-                      ))}
                     </div>
                   </div>
                 ))}

@@ -26,7 +26,7 @@ import {
   Filter
 } from 'lucide-react';
 import { PlantIcon } from './PlantIcon';
-import { WeeklyTrendBarChart } from './WeeklyTrendBarChart';
+import { WeeklyProgressSummary } from './WeeklyProgressSummary';
 
 interface Props {
   tasks: AppTask[];
@@ -471,9 +471,14 @@ export const ReportsScreen: React.FC<Props> = ({ tasks, habits, goals, categorie
         </div>
       </div>
 
-      {/* Dynamic Timeframe Trend Bar Chart */}
+      {/* Weekly Progress Summary Component */}
       {timeframe === 'WEEK' ? (
-        <WeeklyTrendBarChart tasks={tasks} habits={habits} />
+        <WeeklyProgressSummary 
+          tasks={tasks} 
+          habits={habits} 
+          categories={categories} 
+          goals={goals} 
+        />
       ) : (
         <div className="bg-white rounded-2xl p-5 border border-emerald-100 shadow-xs">
           <div className="flex items-center justify-between mb-4">
@@ -685,12 +690,6 @@ export const ReportsScreen: React.FC<Props> = ({ tasks, habits, goals, categorie
                             </span>
                           )}
 
-                          {goal.plantType && (
-                            <span className="inline-flex items-center gap-1 text-[10px] text-emerald-900 bg-white border border-emerald-200/80 px-1.5 py-0.2 rounded-md font-medium">
-                              <PlantIcon type={goal.plantType} size="xs" />
-                              <span>{goal.plantType}</span>
-                            </span>
-                          )}
                         </div>
 
                         <h4 className="text-xs sm:text-sm font-bold text-gray-900 mt-1.5 flex items-center gap-2">
@@ -815,7 +814,7 @@ export const ReportsScreen: React.FC<Props> = ({ tasks, habits, goals, categorie
                   </span>
                 </div>
                 <p className="text-[10px] text-gray-400 mt-0.5">
-                  گیاه {r.habit.plantType} • {toPersianDigits(r.checks)} بار ثبت در بازه
+                  {toPersianDigits(r.checks)} بار ثبت در این بازه
                 </p>
                 <div className="h-1.5 w-full bg-emerald-50 rounded-full overflow-hidden mt-1.5">
                   <div

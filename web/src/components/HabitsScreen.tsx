@@ -31,7 +31,7 @@ import {
   Copy
 } from 'lucide-react';
 import { PlantIcon } from './PlantIcon';
-import { EntityBadge, EntityIcon } from './EntityIcon';
+
 import { HabitContributionGrid } from './HabitContributionGrid';
 import { Hourglass } from 'lucide-react';
 import { FocusHistoryModal } from './FocusHistoryModal';
@@ -290,8 +290,6 @@ export const HabitsScreen: React.FC<Props> = ({
                           {h.title}
                         </h3>
                         <div className="flex flex-wrap items-center gap-1.5 mt-1">
-                          <EntityBadge type="HABIT" size="xs" />
-
                           {h.isClosed && (
                             <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-100 text-amber-900 border border-amber-300 flex items-center gap-1">
                               <Archive className="w-3 h-3 text-amber-700" />
@@ -311,10 +309,6 @@ export const HabitsScreen: React.FC<Props> = ({
                               {cat.title}
                             </span>
                           )}
-
-                          <span className="text-[10px] font-medium text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
-                            گیاه: {h.plantType}
-                          </span>
 
                           {goal && (
                             <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-900 border border-emerald-200">

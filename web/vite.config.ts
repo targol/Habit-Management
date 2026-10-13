@@ -12,13 +12,20 @@ function persistentStoragePlugin(): Plugin {
   return {
     name: 'persistent-storage-plugin',
     configureServer(server) {
-      // Direct APK download handler with full HTTP Range (206 Partial Content) support for mobile download managers
+      // Direct APK download handler with full HTTP HEAD and Range support for network inspection and resume
       server.middlewares.use((req, res, next) => {
         const urlPath = req.url ? req.url.split('?')[0] : '';
-        if (urlPath === '/javaneh.apk') {
+        if (
+          urlPath === '/javaneh.apk' || 
+          urlPath === '/api/download-apk' || 
+          urlPath.endsWith('/javaneh.apk') ||
+          urlPath.endsWith('/app-debug.apk')
+        ) {
           const candidateApkPaths = [
             path.resolve(__dirname, 'public/javaneh.apk'),
+            path.resolve(__dirname, '../public/javaneh.apk'),
             path.resolve(__dirname, '../dist/javaneh.apk'),
+            path.resolve(__dirname, 'dist/javaneh.apk'),
             path.resolve(__dirname, '../.build-outputs/app-debug.apk'),
           ];
           const apkFile = candidateApkPaths.find(p => fs.existsSync(p));
@@ -26,13 +33,43 @@ function persistentStoragePlugin(): Plugin {
             try {
               const stat = fs.statSync(apkFile);
               const totalSize = stat.size;
+              const formattedSize = (totalSize / (1024 * 1024)).toFixed(2) + ' MB';
               const rangeHeader = req.headers.range;
 
+              // Comprehensive CORS and custom metadata headers for pre-flight network checks
+              res.setHeader('Access-Control-Allow-Origin', '*');
+              res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+              res.setHeader('Access-Control-Allow-Headers', '*');
+              res.setHeader(
+                'Access-Control-Expose-Headers', 
+                'Content-Length, Content-Disposition, Content-Range, Accept-Ranges, X-File-Size-Bytes, X-File-Size-Formatted, X-Package-Name, X-File-Version'
+              );
               res.setHeader('Content-Type', 'application/vnd.android.package-archive');
               res.setHeader('Content-Disposition', 'attachment; filename="javaneh.apk"');
               res.setHeader('Accept-Ranges', 'bytes');
-              res.setHeader('Cache-Control', 'public, max-age=86400');
+              res.setHeader('X-File-Size-Bytes', String(totalSize));
+              res.setHeader('X-File-Size-Formatted', formattedSize);
+              res.setHeader('X-Package-Name', 'ir.javaneh.app');
+              res.setHeader('X-File-Version', '1.3.0');
 
+              if (req.method === 'OPTIONS') {
+                res.statusCode = 204;
+                res.end();
+                return;
+              }
+
+              // Explicit HEAD request: deliver accurate Content-Length without downloading payload
+              if (req.method === 'HEAD') {
+                res.statusCode = 200;
+                res.setHeader('Content-Length', String(totalSize));
+                res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+                res.end();
+                return;
+              }
+
+              res.setHeader('Cache-Control', 'public, max-age=3600');
+
+              // HTTP Range requests (206 Partial Content)
               if (rangeHeader && rangeHeader.startsWith('bytes=')) {
                 const parts = rangeHeader.replace(/bytes=/, '').split('-');
                 const start = parseInt(parts[0], 10);
@@ -48,24 +85,16 @@ function persistentStoragePlugin(): Plugin {
                 const chunkSize = end - start + 1;
                 res.statusCode = 206; // Partial Content
                 res.setHeader('Content-Range', `bytes ${start}-${end}/${totalSize}`);
-                res.setHeader('Content-Length', chunkSize);
-
-                if (req.method === 'HEAD') {
-                  res.end();
-                  return;
-                }
+                res.setHeader('Content-Length', String(chunkSize));
 
                 const stream = fs.createReadStream(apkFile, { start, end });
                 stream.pipe(res);
                 return;
               }
 
+              // Standard full GET download: direct single transmission with explicit Content-Length
               res.statusCode = 200;
-              res.setHeader('Content-Length', totalSize);
-              if (req.method === 'HEAD') {
-                res.end();
-                return;
-              }
+              res.setHeader('Content-Length', String(totalSize));
               const stream = fs.createReadStream(apkFile);
               stream.pipe(res);
               return;

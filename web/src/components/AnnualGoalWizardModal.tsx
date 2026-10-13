@@ -89,14 +89,12 @@ export const AnnualGoalWizardModal: React.FC<Props> = ({
   const [annualDescription, setAnnualDescription] = useState('');
   const [annualVisionWhy, setAnnualVisionWhy] = useState('');
   const [annualYear, setAnnualYear] = useState<number>(today.year);
-  const [isCustomAnnualYear, setIsCustomAnnualYear] = useState(false);
-  const [customAnnualYearInput, setCustomAnnualYearInput] = useState<string>(today.year.toString());
+  const [annualYearError, setAnnualYearError] = useState<string | null>(null);
+  const allowedGoalYears = [today.year, today.year + 1];
   const [annualCategoryId, setAnnualCategoryId] = useState<string>(categories[0]?.id || 'cat-work');
   const [annualPlantType, setAnnualPlantType] = useState<string>('بونسای');
   const [startTimingType, setStartTimingType] = useState<'TODAY' | 'YEAR_START' | 'CUSTOM'>('TODAY');
   const [customStartDate, setCustomStartDate] = useState(todayStr);
-
-  const standardYears = Array.from({ length: 13 }, (_, i) => today.year - 2 + i);
 
   // Step 2: Intermediate Goals (All 4 Seasons + Monthly goals)
   // Category is NOT selectable; it strictly inherits annualCategoryId
@@ -213,9 +211,13 @@ export const AnnualGoalWizardModal: React.FC<Props> = ({
       return;
     }
 
-    const effectiveYear = isCustomAnnualYear
-      ? (parseInt(customAnnualYearInput, 10) || today.year)
-      : annualYear;
+    if (annualYear < today.year || annualYear > today.year + 1) {
+      setAnnualYearError(`تعریف هدف تنها برای سال جاری (${toPersianDigits(today.year)}) یا حداکثر یک سال بعد (${toPersianDigits(today.year + 1)}) امکان‌پذیر است.`);
+      setStep(1);
+      return;
+    }
+
+    const effectiveYear = annualYear;
 
     const effectiveStartDate =
       startTimingType === 'TODAY'
@@ -514,29 +516,53 @@ export const AnnualGoalWizardModal: React.FC<Props> = ({
 
                 {/* Target Year */}
                 <div className="bg-gray-50/80 p-3 rounded-xl border border-gray-200 space-y-2">
-                  <label className="font-bold text-gray-800 flex items-center gap-1.5">
-                    <Calendar className="w-4 h-4 text-emerald-600" />
-                    <span>سال هدف:</span>
-                  </label>
-                  <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto pr-1">
-                    {standardYears.map((y) => {
-                      const isSel = !isCustomAnnualYear && annualYear === y;
+                  <div className="flex items-center justify-between">
+                    <label className="font-bold text-gray-800 flex items-center gap-1.5">
+                      <Calendar className="w-4 h-4 text-emerald-600" />
+                      <span>سال برنامه‌ریزی هدف:</span>
+                    </label>
+                    <span className="text-[10px] text-emerald-800 bg-emerald-100 font-bold px-2 py-0.5 rounded-md border border-emerald-200">
+                      امسال یا سال آینده
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    {allowedGoalYears.map((y) => {
+                      const isSel = annualYear === y;
+                      const isCurrentYear = y === today.year;
                       return (
                         <button
                           key={y}
                           type="button"
-                          onClick={() => { setAnnualYear(y); setIsCustomAnnualYear(false); }}
-                          className={`px-2 py-0.5 rounded-md font-semibold text-[11px] border cursor-pointer transition-all ${
+                          onClick={() => {
+                            setAnnualYear(y);
+                            setAnnualYearError(null);
+                          }}
+                          className={`p-2.5 rounded-xl border cursor-pointer transition-all flex flex-col items-center justify-center gap-0.5 ${
                             isSel
-                              ? 'bg-emerald-700 text-white border-emerald-800 font-bold'
-                              : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
+                              ? 'bg-emerald-700 text-white border-emerald-800 shadow-xs font-bold'
+                              : 'bg-white text-gray-700 border-gray-200 hover:bg-emerald-50 hover:border-emerald-200'
                           }`}
                         >
-                          {toPersianDigits(y)}
+                          <span className="text-sm font-black">{toPersianDigits(y)}</span>
+                          <span className={`text-[10px] font-semibold ${isSel ? 'text-emerald-100' : 'text-gray-500'}`}>
+                            {isCurrentYear ? 'سال جاری (امسال)' : 'سال آینده (پیش‌رو)'}
+                          </span>
                         </button>
                       );
                     })}
                   </div>
+
+                  {annualYearError && (
+                    <p className="text-[11px] font-bold text-rose-600 flex items-center gap-1">
+                      <AlertCircle className="w-3.5 h-3.5" />
+                      <span>{annualYearError}</span>
+                    </p>
+                  )}
+
+                  <p className="text-[10px] text-gray-400 leading-relaxed">
+                    تعریف هدف برای سال‌های گذشته مجاز نیست. اطلاعات، تسک‌ها و اهداف سال‌های قبل در بخش آرشیو و فیلتر سال‌ها قابل مشاهده هستند.
+                  </p>
                 </div>
               </div>
 

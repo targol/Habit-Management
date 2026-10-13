@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { toPersianDigits } from '../calendar/jalali';
 import { APP_VERSION_INFO, RELEASE_HISTORY } from '../version';
+import { downloadApkBlobSecure } from '../services/apkDownloadService';
 
 interface Props {
   isOpen: boolean;
@@ -35,8 +36,8 @@ interface ServerApkInfo {
   acceptRanges: boolean;
 }
 
-const EXPECTED_HASH = '4aec4194adeeaa023f0f7453371a9ccc21d3d92d0b4afc8d9bbfb4cf824be280';
-const EXPECTED_SIZE = 22587660; // 22,587,660 bytes
+const EXPECTED_HASH = '3580d3fe2f20612b786a06a745af09739b5677c9171795e248f2725342561878';
+const EXPECTED_SIZE = 547128; // 547,128 bytes (535 KB)
 const CHUNK_SIZE = 1024 * 1024; // 1 MB chunks for robust resumable downloading
 
 export const ApkIntegrityModal: React.FC<Props> = ({ isOpen, onClose }) => {
@@ -75,22 +76,31 @@ export const ApkIntegrityModal: React.FC<Props> = ({ isOpen, onClose }) => {
     setLoadingServerInfo(true);
 
     fetch('/api/apk-info')
-      .then(res => res.json())
+      .then(res => (res && res.ok ? res.json() : null))
       .then(data => {
-        if (isMounted) {
+        if (!isMounted) return;
+        if (data && data.available) {
           setServerInfo(data);
           if (data.size) setTotalBytes(data.size);
-          setLoadingServerInfo(false);
-        }
-      })
-      .catch(() => {
-        if (isMounted) {
-          // Fallback to constants
+        } else {
           setServerInfo({
             available: true,
             filename: 'javaneh.apk',
             size: EXPECTED_SIZE,
-            formattedSize: '22.58 MB',
+            formattedSize: '527 KB',
+            sha256: EXPECTED_HASH,
+            acceptRanges: true,
+          });
+        }
+        setLoadingServerInfo(false);
+      })
+      .catch(() => {
+        if (isMounted) {
+          setServerInfo({
+            available: true,
+            filename: 'javaneh.apk',
+            size: EXPECTED_SIZE,
+            formattedSize: '527 KB',
             sha256: EXPECTED_HASH,
             acceptRanges: true,
           });
@@ -567,14 +577,14 @@ export const ApkIntegrityModal: React.FC<Props> = ({ isOpen, onClose }) => {
           </div>
 
           <div className="flex items-center gap-2 w-full sm:w-auto">
-            <a
-              href="/javaneh.apk"
-              download="javaneh.apk"
+            <button
+              type="button"
+              onClick={() => downloadApkBlobSecure()}
               className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-xs font-bold transition-colors flex items-center justify-center gap-1.5 cursor-pointer w-full sm:w-auto"
             >
               <Download className="w-3.5 h-3.5" />
-              <span>دانلود مستقیم از مرورگر</span>
-            </a>
+              <span>دانلود مستقیم فایل باینری</span>
+            </button>
 
             <button
               type="button"

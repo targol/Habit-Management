@@ -8,10 +8,10 @@ import { isNotificationSupported, getNotificationPermission, requestNotification
 import { DEFAULT_USER_PROFILE, DEFAULT_REMINDER_SETTINGS, getOrCreateUserId } from '../services/storageService';
 import { UserProfileSettings } from './UserProfileSettings';
 import { ReminderAlarmSettings } from './ReminderAlarmSettings';
-import { ApkIntegrityModal } from './ApkIntegrityModal';
 import { UpdateAndBackupModal } from './UpdateAndBackupModal';
-import { MobileInstallModal } from './MobileInstallModal';
+import { ApkDownloadConfirmModal } from './ApkDownloadConfirmModal';
 import { APP_VERSION_INFO } from '../version';
+import { validateAndSanitizeBackupJson } from '../services/backupValidationService';
 import { 
   Settings, 
   Plus, 
@@ -69,7 +69,6 @@ import {
   ChevronDown,
   ChevronUp,
   Globe,
-  QrCode,
   Share2,
   Moon,
   Monitor,
@@ -81,7 +80,7 @@ import {
   Clock
 } from 'lucide-react';
 
-export type SettingsTabId = 'PROFILE' | 'REMINDERS' | 'THEMES' | 'CATEGORIES' | 'DATA' | 'MOBILE' | 'ALL';
+export type SettingsTabId = 'PROFILE' | 'REMINDERS' | 'THEMES' | 'CATEGORIES' | 'DATA' | 'ALL';
 
 interface Props {
   categories: Category[];
@@ -278,7 +277,7 @@ export const SettingsScreen: React.FC<Props> = ({
   const [activeTab, setActiveTab] = useState<SettingsTabId>(() => {
     try {
       const saved = localStorage.getItem('javaneh_settings_active_tab') as SettingsTabId;
-      if (['PROFILE', 'REMINDERS', 'THEMES', 'CATEGORIES', 'DATA', 'MOBILE', 'ALL'].includes(saved)) {
+      if (['PROFILE', 'REMINDERS', 'THEMES', 'CATEGORIES', 'DATA', 'ALL'].includes(saved)) {
         return saved;
       }
     } catch {}
@@ -313,12 +312,10 @@ export const SettingsScreen: React.FC<Props> = ({
   // Status message for actions
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
-  // Mobile Install & Troubleshooting guide toggle
-  const [isMobileInstallModalOpen, setIsMobileInstallModalOpen] = useState(false);
-  const [showTroubleshooting, setShowTroubleshooting] = useState(false);
-  const [showApkDetails, setShowApkDetails] = useState(false);
-  const [isApkModalOpen, setIsApkModalOpen] = useState(false);
+  // APK Download confirmation modal
+  const [isApkConfirmModalOpen, setIsApkConfirmModalOpen] = useState(false);
   const [isUpdateAndBackupModalOpen, setIsUpdateAndBackupModalOpen] = useState(false);
+  const [backupModalInitialTab, setBackupModalInitialTab] = useState<'FULL_TRANSFER' | 'TASKS_BACKUP' | 'UPDATE_SAFETY' | 'RELEASE_NOTES'>('FULL_TRANSFER');
 
   // In-app category deletion confirmation modal state
   const [categoryToDelete, setCategoryToDelete] = useState<{
@@ -557,63 +554,36 @@ export const SettingsScreen: React.FC<Props> = ({
 
   // 3. Parser & Validator for JSON Backup
   const parseAndPrepareBackup = (rawContent: string, fileName = 'داده‌های پشتیبان', fileSizeKb = 0): boolean => {
-    try {
-      const parsed = JSON.parse(rawContent);
-      const root = parsed && typeof parsed === 'object' && parsed.data && typeof parsed.data === 'object' ? parsed.data : parsed;
+    const valResult = validateAndSanitizeBackupJson(rawContent);
 
-      const importedCategories: Category[] = Array.isArray(root.categories) ? root.categories : [];
-      const importedGoals: Goal[] = Array.isArray(root.goals) ? root.goals : [];
-      const importedTasks: AppTask[] = Array.isArray(root.tasks) ? root.tasks : [];
-      const importedHabits: Habit[] = Array.isArray(root.habits) ? root.habits : [];
-      const importedUserProfile: UserProfile | undefined = root.userProfile;
-      const importedReminderSettings: ReminderSettings | undefined = root.reminderSettings;
-
-      if (
-        importedCategories.length === 0 &&
-        importedGoals.length === 0 &&
-        importedTasks.length === 0 &&
-        importedHabits.length === 0 &&
-        !importedUserProfile
-      ) {
-        showNotification('خطا: هیچ داده معتبری (هدف، تسک، عادت یا دسته‌بندی) در این فایل یافت نشد.');
-        return false;
-      }
-
-      let dateLabel = parsed.exportPersianDate;
-      if (!dateLabel && parsed.exportDate) {
-        try {
-          dateLabel = new Date(parsed.exportDate).toLocaleDateString('fa-IR');
-        } catch {}
-      }
-
-      setRestoreModal({
-        isOpen: true,
-        fileName,
-        fileSizeKb: fileSizeKb || Math.max(1, Math.round(new Blob([rawContent]).size / 1024)),
-        exportDate: dateLabel || 'نامشخص',
-        data: {
-          categories: importedCategories,
-          goals: importedGoals,
-          tasks: importedTasks,
-          habits: importedHabits,
-          userProfile: importedUserProfile,
-          reminderSettings: importedReminderSettings,
-        },
-        counts: {
-          categories: importedCategories.length,
-          goals: importedGoals.length,
-          tasks: importedTasks.length,
-          habits: importedHabits.length,
-        },
-        mode: 'MERGE',
-        autoBackupBeforeRestore: true,
-      });
-
-      return true;
-    } catch (err) {
-      showNotification('خطا در خواندن: متن یا فایل وارد شده ساختار استاندارد JSON ندارد.');
+    if (!valResult.isValid || !valResult.data) {
+      showNotification(valResult.fatalError || 'خطای ساختاری در فایل پشتیبان. به منظور حفظ امنیت، هیچ تغییری در داده‌های شما ایجاد نشد.');
       return false;
     }
+
+    setRestoreModal({
+      isOpen: true,
+      fileName,
+      fileSizeKb: fileSizeKb || Math.max(1, Math.round(new Blob([rawContent]).size / 1024)),
+      exportDate: valResult.exportDateString || 'معتبر',
+      data: valResult.data,
+      counts: {
+        categories: valResult.counts.categories,
+        goals: valResult.counts.goals,
+        tasks: valResult.counts.tasks,
+        habits: valResult.counts.habits,
+      },
+      mode: 'MERGE',
+      autoBackupBeforeRestore: true,
+    });
+
+    if (valResult.warnings.length > 0) {
+      showNotification(`اعتبارسنجی تایید شد. (${valResult.warnings[0]})`);
+    } else {
+      showNotification('اعتبارسنجی ساختار فایل با موفقیت انجام شد ✓');
+    }
+
+    return true;
   };
 
   // 4. File input change
@@ -714,19 +684,11 @@ export const SettingsScreen: React.FC<Props> = ({
     },
     {
       id: 'DATA' as SettingsTabId,
-      label: 'مدیریت داده‌ها و ذخیره‌سازی',
-      shortLabel: 'مدیریت داده‌ها',
+      label: 'دانلود، پشتیبان‌گیری و پایگاه داده',
+      shortLabel: 'دانلود و پشتیبان',
       icon: Database,
       badge: `${toPersianDigits(goals.length + tasks.length + habits.length)} رکورد`,
       colorClass: 'blue'
-    },
-    {
-      id: 'MOBILE' as SettingsTabId,
-      label: 'نصب اپلیکیشن در گوشی',
-      shortLabel: 'نصب موبایل',
-      icon: Smartphone,
-      badge: 'نسخه رسمی',
-      colorClass: 'green'
     },
     {
       id: 'ALL' as SettingsTabId,
@@ -777,31 +739,26 @@ export const SettingsScreen: React.FC<Props> = ({
             </div>
 
             {/* Quick action buttons on banner */}
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <button
                 type="button"
-                onClick={handleExportData}
-                className="px-3 py-1.5 bg-white/15 hover:bg-white/25 text-white text-xs font-bold rounded-xl border border-white/20 flex items-center gap-1.5 transition-colors cursor-pointer"
-                title="دانلود سریع فایل پشتیبان JSON"
+                onClick={() => setIsUpdateAndBackupModalOpen(true)}
+                className="px-3 py-1.5 bg-white/20 hover:bg-white/30 text-white text-xs font-bold rounded-xl border border-white/30 flex items-center gap-1.5 transition-all cursor-pointer shadow-xs active:scale-95"
+                title="پشتیبان‌گیری جامع، اعتبارسنجی و انتقال داده‌ها به گوشی"
               >
-                <Download className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">پشتیبان سریع</span>
+                <Database className="w-3.5 h-3.5 text-emerald-200" />
+                <span>پشتیبان و انتقال</span>
               </button>
 
               <button
                 type="button"
-                onClick={() => {
-                  if (deferredPrompt && onInstallClick) {
-                    onInstallClick();
-                  } else {
-                    setIsMobileInstallModalOpen(true);
-                  }
-                }}
+                onClick={() => setIsApkConfirmModalOpen(true)}
                 className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-white text-xs font-black rounded-xl shadow-xs flex items-center gap-1.5 transition-all cursor-pointer active:scale-95"
-                title="نصب اپلیکیشن روی گوشی"
+                title="دانلود فایل نصبی APK جوانه برای اندروید"
               >
-                <Smartphone className="w-3.5 h-3.5" />
-                <span>نصب در گوشی</span>
+                <Download className="w-3.5 h-3.5" />
+                <span>دانلود فایل APK</span>
+                <span className="hidden sm:inline-block px-1.5 py-0.2 bg-black/15 rounded-md text-[9px] font-bold">۵۳۵KB</span>
               </button>
             </div>
           </div>
@@ -814,6 +771,51 @@ export const SettingsScreen: React.FC<Props> = ({
           <span>{statusMessage}</span>
         </div>
       )}
+
+      {/* Prominent Quick Actions: Download APK & Full Backup Action Box */}
+      <div className="bg-gradient-to-r from-emerald-50 via-teal-50/60 to-emerald-50/40 border border-emerald-200/90 rounded-2xl p-4 sm:p-4.5 shadow-2xs space-y-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-emerald-700 text-white flex items-center justify-center shrink-0 shadow-xs">
+              <Database className="w-5 h-5 text-emerald-100" />
+            </div>
+            <div>
+              <h4 className="text-xs sm:text-sm font-extrabold text-emerald-950 flex items-center gap-2">
+                <span>دانلود نرم‌افزار و پشتیبان‌گیری داده‌ها</span>
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-bold border border-emerald-200">
+                  انتقال به گوشی
+                </span>
+              </h4>
+              <p className="text-[11px] text-gray-600 mt-0.5 leading-relaxed">
+                دانلود فایل نصبی APK برای اندروید، تهیه خروجی معتبر JSON، کپی سریع و بازیابی امن داده‌ها
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              type="button"
+              onClick={() => setIsApkConfirmModalOpen(true)}
+              className="px-3.5 py-2 bg-gradient-to-r from-emerald-700 to-green-700 hover:from-emerald-800 hover:to-green-800 text-white text-xs font-black rounded-xl shadow-xs flex items-center gap-1.5 transition-all cursor-pointer active:scale-95"
+              title="دانلود فایل نصبی APK اندروید"
+            >
+              <Download className="w-3.5 h-3.5 text-emerald-200" />
+              <span>دانلود فایل APK</span>
+              <span className="hidden sm:inline-block px-1.5 py-0.2 bg-white/20 rounded-md text-[10px] font-bold">۵۳۵KB</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setIsUpdateAndBackupModalOpen(true)}
+              className="px-3.5 py-2 bg-white hover:bg-emerald-50 text-emerald-950 border border-emerald-300 text-xs font-bold rounded-xl shadow-2xs flex items-center gap-1.5 transition-all cursor-pointer active:scale-95"
+              title="پشتیبان‌گیری جامع، اعتبارسنجی خودکار و انتقال به گوشی"
+            >
+              <Database className="w-3.5 h-3.5 text-emerald-700" />
+              <span>پشتیبان‌گیری و انتقال</span>
+            </button>
+          </div>
+        </div>
+      </div>
 
       {/* --- Settings Menu: Interactive Categorized Tab Navigation --- */}
       <div className="bg-white rounded-2xl border border-gray-200/90 p-2 sm:p-2.5 shadow-xs">
@@ -1399,11 +1401,37 @@ export const SettingsScreen: React.FC<Props> = ({
 
                 <button
                   type="button"
-                  onClick={() => setIsUpdateAndBackupModalOpen(true)}
-                  className="px-3 py-2 bg-emerald-100 hover:bg-emerald-200 text-emerald-900 border border-emerald-300 text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs"
-                  title="پشتیبان‌گیری و بارگذاری سریع فقط تسک‌ها و وضعیت انجام آن‌ها"
+                  onClick={() => {
+                    setBackupModalInitialTab('FULL_TRANSFER');
+                    setIsUpdateAndBackupModalOpen(true);
+                  }}
+                  className="px-3.5 py-2 bg-gradient-to-r from-emerald-700 to-green-700 hover:from-emerald-800 text-white text-xs font-bold rounded-xl shadow-xs flex items-center gap-1.5 transition-all cursor-pointer"
+                  title="پنل جامع پشتیبان‌گیری، اعتبارسنجی JSON و انتقال بین گوشی و سیستم"
                 >
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700" />
+                  <Database className="w-3.5 h-3.5 text-emerald-200" />
+                  <span>پنل جامع پشتیبان و انتقال</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setIsApkConfirmModalOpen(true)}
+                  className="px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-950 border border-emerald-300 text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs"
+                  title="دانلود فایل نصبی APK برای گوشی اندروید"
+                >
+                  <Download className="w-3.5 h-3.5 text-emerald-700" />
+                  <span>دانلود فایل APK (اندروید)</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setBackupModalInitialTab('TASKS_BACKUP');
+                    setIsUpdateAndBackupModalOpen(true);
+                  }}
+                  className="px-3.5 py-2 bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold rounded-xl shadow-xs flex items-center gap-1.5 transition-all cursor-pointer"
+                  title="پشتیبان‌گیری و بارگذاری سریع فقط تسک‌ها و وضعیت انجام آن‌ها (بدون تغییر عادت‌ها یا اهداف)"
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5 text-teal-100" />
                   <span>پشتیبان ویژه تسک‌ها</span>
                 </button>
               </div>
@@ -1439,15 +1467,19 @@ export const SettingsScreen: React.FC<Props> = ({
               </div>
 
               <div className="flex items-center gap-2 pt-1 flex-wrap">
-                <label className="px-3.5 py-2 bg-teal-700 hover:bg-teal-800 active:scale-98 text-white text-xs font-bold rounded-xl shadow-xs flex items-center gap-1.5 transition-all cursor-pointer">
+                <label
+                  htmlFor="settings-screen-file-input"
+                  className="px-3.5 py-2 bg-teal-700 hover:bg-teal-800 active:scale-98 text-white text-xs font-bold rounded-xl shadow-xs flex items-center gap-1.5 transition-all cursor-pointer select-none"
+                >
                   <FileUp className="w-3.5 h-3.5" />
                   <span>انتخاب فایل پشتیبان (.json)</span>
                   <input
+                    id="settings-screen-file-input"
                     ref={fileInputRef}
                     type="file"
-                    accept=".json,application/json"
+                    accept=".json,application/json,text/plain,*/*"
                     onChange={handleFileInputChange}
-                    className="hidden"
+                    className="sr-only"
                   />
                 </label>
 
@@ -1464,208 +1496,6 @@ export const SettingsScreen: React.FC<Props> = ({
                 </button>
               </div>
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* ========================================================================= */}
-      {/* SECTION 6: MOBILE APP INSTALLATION & OFFLINE (نصب اپلیکیشن موبایل) */}
-      {/* ========================================================================= */}
-      {(activeTab === 'MOBILE' || activeTab === 'ALL') && (
-        <div className="bg-gradient-to-br from-emerald-50/90 via-white to-green-50/50 rounded-3xl border-2 border-emerald-200/90 p-5 shadow-sm space-y-5 animate-fade-in">
-          <div className="flex items-start justify-between flex-wrap gap-3">
-            <div className="flex items-center gap-3.5">
-              <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-emerald-700 to-green-600 text-white flex items-center justify-center shadow-md shrink-0 border border-emerald-400/40">
-                <Smartphone className="w-6 h-6 text-emerald-100" />
-              </div>
-              <div>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <h3 className="text-sm font-black text-emerald-950">
-                    بخش ششم: نصب اپلیکیشن جوانه روی گوشی (۱۰۰٪ مطابق با پیش‌نمایش)
-                  </h3>
-                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-600 text-white shadow-2xs">
-                    نسخه رسمی و کامل
-                  </span>
-                </div>
-                <p className="text-xs text-emerald-800/90 mt-0.5 font-medium">
-                  دارای تمامی بخش‌ها، صفحه تنظیمات، تقویم شمسی و آیکون رسمی جوانه با قابلیت کارکرد آفلاین
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2 flex-wrap">
-              <button
-                type="button"
-                onClick={() => {
-                  if (deferredPrompt && onInstallClick) {
-                    onInstallClick();
-                  } else {
-                    setIsMobileInstallModalOpen(true);
-                  }
-                }}
-                className="px-4 py-2.5 bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-700 hover:to-green-700 text-white text-xs font-black rounded-xl shadow-md hover:shadow-lg flex items-center gap-2 transition-all cursor-pointer active:scale-95"
-                title="نصب مستقیم جوانه روی صفحه گوشی موبایل"
-              >
-                <Sparkles className="w-4 h-4 text-emerald-200" />
-                <span>نصب فوری در گوشی</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setIsMobileInstallModalOpen(true)}
-                className="px-3.5 py-2.5 bg-white hover:bg-emerald-50 text-emerald-900 border border-emerald-300 text-xs font-bold rounded-xl shadow-2xs flex items-center gap-1.5 transition-all cursor-pointer"
-                title="اسکن بارکد QR یا مشاهده راهنمای نصب در کروم گوشی"
-              >
-                <QrCode className="w-4 h-4 text-emerald-700" />
-                <span>بارکد QR و راهنما</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setIsUpdateAndBackupModalOpen(true)}
-                className="px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-bold rounded-xl border border-emerald-200 flex items-center gap-1.5 transition-all cursor-pointer"
-                title="بررسی وضعیت نسخه‌ها و پشتیبان‌گیری"
-              >
-                <ShieldCheck className="w-4 h-4 text-emerald-700" />
-                <span>لاگ نسخه (v{APP_VERSION_INFO.currentVersion})</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Feature comparison guarantee cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div className="p-3 bg-white/95 rounded-2xl border border-emerald-100 shadow-2xs space-y-1">
-              <span className="text-[11px] font-black text-emerald-900 flex items-center gap-1.5">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                <span>لوگوی رسمی و باکیفیت جوانه</span>
-              </span>
-              <p className="text-[10px] text-gray-500 leading-relaxed">
-                با نصب مستقیم، آیکون زیبای جوانه سبز با کیفیت بالا روی صفحه اصلی گوشی شما قرار می‌گیرد.
-              </p>
-            </div>
-
-            <div className="p-3 bg-white/95 rounded-2xl border border-emerald-100 shadow-2xs space-y-1">
-              <span className="text-[11px] font-black text-emerald-900 flex items-center gap-1.5">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                <span>دارای تمامی بخش‌ها و تنظیمات</span>
-              </span>
-              <p className="text-[10px] text-gray-500 leading-relaxed">
-                شامل صفحه تنظیمات کامل، تقویم شمسی رسمی ایران، باغبانی و مراحل رشد، تایمر و آلارم صوتی.
-              </p>
-            </div>
-
-            <div className="p-3 bg-white/95 rounded-2xl border border-emerald-100 shadow-2xs space-y-1">
-              <span className="text-[11px] font-black text-emerald-900 flex items-center gap-1.5">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                <span>کارکرد کامل آفلاین</span>
-              </span>
-              <p className="text-[10px] text-gray-500 leading-relaxed">
-                تمامی داده‌ها روی حافظه امن گوشی شما ذخیره شده و پس از نصب، بدون نیاز به اینترنت کار می‌کند.
-              </p>
-            </div>
-          </div>
-
-          {/* Quick Instructions box */}
-          <div className="bg-emerald-100/60 rounded-2xl p-3.5 border border-emerald-200/80 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
-            <div className="flex items-center gap-2.5">
-              <Globe className="w-4 h-4 text-emerald-700 shrink-0" />
-              <span className="text-emerald-950 font-bold text-[11px]">
-                راهنمای سریع: در کروم گوشی، منوی <strong>(⋮)</strong> را بزنید و <strong>«نصب برنامه»</strong> یا <strong>«افزودن به صفحه اصلی»</strong> را انتخاب کنید.
-              </span>
-            </div>
-            <button
-              type="button"
-              onClick={() => setIsMobileInstallModalOpen(true)}
-              className="text-[11px] font-black text-emerald-800 hover:text-emerald-950 underline cursor-pointer shrink-0"
-            >
-              مشاهده راهنمای کامل تصویری ←
-            </button>
-          </div>
-
-          {/* Collapsible raw APK prototype section */}
-          <div className="border border-gray-200 bg-gray-50/70 rounded-2xl p-3.5 space-y-2.5">
-            <button
-              type="button"
-              onClick={() => setShowApkDetails(!showApkDetails)}
-              className="w-full flex items-center justify-between text-right cursor-pointer"
-            >
-              <span className="text-xs font-bold text-gray-700 flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
-                <span>توضیحات و دانلود فایل خام نصبی APK (نسخه آزمایشی / Prototype)</span>
-              </span>
-              {showApkDetails ? (
-                <ChevronUp className="w-4 h-4 text-gray-500" />
-              ) : (
-                <ChevronDown className="w-4 h-4 text-gray-500" />
-              )}
-            </button>
-
-            {showApkDetails && (
-              <div className="text-xs text-gray-700 space-y-3 pt-2 border-t border-gray-200 leading-relaxed">
-                <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-amber-900 space-y-1">
-                  <span className="font-extrabold text-[11px] block">
-                    نکته مهم درباره فایل javaneh.apk:
-                  </span>
-                  <p className="text-[10px] text-amber-800 leading-relaxed">
-                    فایل خام نصبی یک نسخه اولیه (پروتوتایپ) نیتیو بوده و امکانات پیشرفته پیش‌نمایش (مانند تب تنظیمات، تقویم و نمادهای گرافیکی کامل) در آن هنوز گنجانده نشده است. <strong>برای داشتن تجربه ۱۰۰٪ کامل و مشابه همین پیش‌نمایش، حتماً از روش «نصب مستقیم در گوشی (PWA)» در بالای همین بخش استفاده نمایید.</strong>
-                  </p>
-                </div>
-
-                <div className="flex items-center gap-2 flex-wrap">
-                  <a
-                    href="/javaneh.apk"
-                    download="javaneh.apk"
-                    className="px-3.5 py-2 bg-white hover:bg-gray-100 text-gray-800 border border-gray-300 text-xs font-bold rounded-xl shadow-2xs flex items-center gap-2 transition-all cursor-pointer"
-                    title="دانلود مستقیم فایل نصبی اندروید (javaneh.apk)"
-                  >
-                    <Download className="w-4 h-4 text-emerald-600" />
-                    <span>دانلود فایل خام javaneh.apk (۲۲.۵۸ مگابایت)</span>
-                  </a>
-
-                  <button
-                    type="button"
-                    onClick={() => setIsApkModalOpen(true)}
-                    className="px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-bold rounded-xl border border-emerald-200 flex items-center gap-1.5 transition-all cursor-pointer"
-                  >
-                    <Smartphone className="w-4 h-4 text-emerald-600" />
-                    <span>دانلود هوشمند با بررسی هش و سلامت فایل</span>
-                  </button>
-                </div>
-
-                {/* Troubleshooting guide toggle */}
-                <div className="border border-amber-200/80 bg-amber-50/60 rounded-xl p-3 space-y-2">
-                  <button
-                    type="button"
-                    onClick={() => setShowTroubleshooting(!showTroubleshooting)}
-                    className="w-full flex items-center justify-between text-right cursor-pointer"
-                  >
-                    <span className="text-[11px] font-bold text-amber-900 flex items-center gap-1.5">
-                      <HelpCircle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                      <span>راهنمای رفع خطاهای احتمالی نصب فایل APK</span>
-                    </span>
-                    {showTroubleshooting ? (
-                      <ChevronUp className="w-3.5 h-3.5 text-amber-700" />
-                    ) : (
-                      <ChevronDown className="w-3.5 h-3.5 text-amber-700" />
-                    )}
-                  </button>
-
-                  {showTroubleshooting && (
-                    <div className="text-[10px] text-amber-950 space-y-2 pt-1 border-t border-amber-200/60 leading-relaxed">
-                      <p>
-                        <strong>۱. خطای Play Protect:</strong> روی «جزئیات بیشتر» و سپس «نصب به هر حال» بزنید.
-                      </p>
-                      <p>
-                        <strong>۲. خطای برنامه نصب نشد:</strong> ابتدا نسخه‌های قبلی نصب‌شده از جوانه را از گوشی لغو نصب (Uninstall) کنید.
-                      </p>
-                      <p>
-                        <strong>۳. خطای تجزیه بسته (Parsing Error):</strong> فایل‌های قبلی javaneh.apk را از پوشه Downloads حذف و مجدداً دانلود فرمایید.
-                      </p>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
           </div>
         </div>
       )}
@@ -2141,16 +1971,11 @@ export const SettingsScreen: React.FC<Props> = ({
         </div>
       )}
 
-      {/* APK Integrity & Resumable Download Modal */}
-      <ApkIntegrityModal
-        isOpen={isApkModalOpen}
-        onClose={() => setIsApkModalOpen(false)}
-      />
-
       {/* Safe Pre-Update Backup, Tasks Backup & Google Play Release Notes Modal */}
       <UpdateAndBackupModal
         isOpen={isUpdateAndBackupModalOpen}
         onClose={() => setIsUpdateAndBackupModalOpen(false)}
+        initialTab={backupModalInitialTab}
         tasks={tasks}
         goals={goals}
         habits={habits}
@@ -2158,15 +1983,14 @@ export const SettingsScreen: React.FC<Props> = ({
         userProfile={userProfile}
         reminderSettings={reminderSettings}
         onImportTasksOnly={onImportTasksOnly}
-        onOpenFullApkDownload={() => setIsApkModalOpen(true)}
+        onImportAllData={onImportAllData}
+        onOpenFullApkDownload={() => setIsApkConfirmModalOpen(true)}
       />
 
-      {/* Mobile Install (PWA & QR Code) Modal */}
-      <MobileInstallModal
-        isOpen={isMobileInstallModalOpen}
-        onClose={() => setIsMobileInstallModalOpen(false)}
-        deferredPrompt={deferredPrompt}
-        onInstallClick={onInstallClick || (() => {})}
+      {/* Direct APK Download Modal with HEAD inspection */}
+      <ApkDownloadConfirmModal
+        isOpen={isApkConfirmModalOpen}
+        onClose={() => setIsApkConfirmModalOpen(false)}
       />
     </div>
   );

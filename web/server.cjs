@@ -55,9 +55,9 @@ const server = http.createServer((req, res) => {
         res.end(JSON.stringify({
           available: true,
           filename: 'javaneh.apk',
-          version: '1.2.0',
-          versionCode: 10200,
-          releaseDate: '1403/07/02',
+          version: '1.3.0',
+          versionCode: 130,
+          releaseDate: '۱۴۰۵/۰۷/۱۵',
           packageName: 'com.javaneh.app',
           size: stat.size,
           formattedSize: (stat.size / (1024 * 1024)).toFixed(2) + ' MB',
@@ -71,6 +71,42 @@ const server = http.createServer((req, res) => {
     }
     res.writeHead(404);
     res.end(JSON.stringify({ available: false, error: 'APK not found' }));
+    return;
+  }
+
+  // Handle direct file download attachment for backup
+  if (reqPath === '/api/download-backup') {
+    const filename = `javaneh-full-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+
+    if (req.method === 'POST') {
+      let body = '';
+      req.on('data', chunk => { body += chunk; });
+      req.on('end', () => {
+        res.writeHead(200);
+        res.end(body || '{}');
+      });
+      return;
+    }
+
+    const DB_DIR = path.resolve(__dirname, '..', 'data');
+    const urlObj = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+    const rawUserId = req.headers['x-user-id'] || urlObj.searchParams.get('userId') || 'default_user';
+    const safeUserId = String(rawUserId).replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 64);
+    const userDbFile = path.join(DB_DIR, `user_${safeUserId}.json`);
+    const fallbackDbFile = path.join(DB_DIR, 'javaneh_db.json');
+    const targetFile = fs.existsSync(userDbFile) ? userDbFile : (fs.existsSync(fallbackDbFile) ? fallbackDbFile : null);
+    if (targetFile) {
+      try {
+        const content = fs.readFileSync(targetFile, 'utf-8');
+        res.writeHead(200);
+        res.end(content);
+        return;
+      } catch (e) {}
+    }
+    res.writeHead(200);
+    res.end('{}');
     return;
   }
 
@@ -134,10 +170,16 @@ const server = http.createServer((req, res) => {
   }
 
   // Direct APK download route with HTTP Range (206 Partial Content) support
-  if (reqPath === '/javaneh.apk') {
+  if (
+    reqPath === '/javaneh.apk' || 
+    reqPath === '/api/download-apk' || 
+    reqPath.endsWith('/javaneh.apk') ||
+    reqPath.endsWith('/app-debug.apk')
+  ) {
     const candidateApkPaths = [
       path.join(DIST_DIR, 'javaneh.apk'),
       path.join(__dirname, 'public', 'javaneh.apk'),
+      path.join(__dirname, '..', 'public', 'javaneh.apk'),
       path.join(__dirname, '..', 'dist', 'javaneh.apk'),
       path.join(__dirname, '..', '.build-outputs', 'app-debug.apk'),
     ];
@@ -151,7 +193,9 @@ const server = http.createServer((req, res) => {
         res.setHeader('Content-Type', 'application/vnd.android.package-archive');
         res.setHeader('Content-Disposition', 'attachment; filename="javaneh.apk"');
         res.setHeader('Accept-Ranges', 'bytes');
-        res.setHeader('Cache-Control', 'public, max-age=86400');
+        res.setHeader('Cache-Control', 'public, max-age=3600');
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Disposition, Content-Range');
 
         if (rangeHeader && rangeHeader.startsWith('bytes=')) {
           const parts = rangeHeader.replace(/bytes=/, '').split('-');
