@@ -55,10 +55,10 @@ const server = http.createServer((req, res) => {
         res.end(JSON.stringify({
           available: true,
           filename: 'javaneh.apk',
-          version: '1.4.0',
-          versionCode: 140,
+          version: '1.5.0',
+          versionCode: 150,
           releaseDate: '۱۴۰۵/۰۷/۲۲',
-          packageName: 'com.javaneh.app',
+          packageName: 'ir.javaneh.app',
           size: stat.size,
           formattedSize: (stat.size / (1024 * 1024)).toFixed(2) + ' MB',
           sha256: '4aec4194adeeaa023f0f7453371a9ccc21d3d92d0b4afc8d9bbfb4cf824be280',
@@ -121,26 +121,45 @@ const server = http.createServer((req, res) => {
       }
     }
 
-    // Extract user ID from header or query param for multi-user isolation
-    const urlObj = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
-    const rawUserId = req.headers['x-user-id'] || urlObj.searchParams.get('userId') || 'default_user';
-    const safeUserId = String(rawUserId).replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 64);
-    const userDbFile = path.join(DB_DIR, `user_${safeUserId}.json`);
-    const fallbackDbFile = path.join(DB_DIR, 'javaneh_db.json');
+    const SNAPSHOTS_DIR = path.join(DB_DIR, 'snapshots');
+    const mainDbFile = path.join(DB_DIR, 'javaneh_db.json');
+    const backupDbFile = path.join(DB_DIR, 'javaneh_db_backup.json');
+
+    if (!fs.existsSync(SNAPSHOTS_DIR)) {
+      try { fs.mkdirSync(SNAPSHOTS_DIR, { recursive: true }); } catch (e) {}
+    }
 
     if (req.method === 'GET') {
       res.setHeader('Content-Type', 'application/json; charset=utf-8');
-      const targetFile = fs.existsSync(userDbFile) ? userDbFile : (fs.existsSync(fallbackDbFile) && safeUserId === 'default_user' ? fallbackDbFile : null);
-      if (targetFile) {
-        try {
-          const content = fs.readFileSync(targetFile, 'utf-8');
-          res.writeHead(200);
-          res.end(content);
-          return;
-        } catch (err) {
-          console.error('[Storage] Failed to read db file:', err);
+      const candidateFiles = [mainDbFile, backupDbFile];
+      for (const file of candidateFiles) {
+        if (fs.existsSync(file)) {
+          try {
+            const content = fs.readFileSync(file, 'utf-8');
+            const parsed = JSON.parse(content);
+            if (parsed && (parsed.goals?.length || parsed.tasks?.length || parsed.habits?.length || parsed.categories?.length)) {
+              res.writeHead(200);
+              res.end(content);
+              return;
+            }
+          } catch (err) {}
         }
       }
+
+      // Check snapshots if primary files empty
+      try {
+        const snapshotFiles = fs.readdirSync(SNAPSHOTS_DIR)
+          .filter(f => f.startsWith('snapshot-') && f.endsWith('.json'))
+          .sort().reverse();
+        if (snapshotFiles.length > 0) {
+          const latestSnap = path.join(SNAPSHOTS_DIR, snapshotFiles[0]);
+          const snapContent = fs.readFileSync(latestSnap, 'utf-8');
+          res.writeHead(200);
+          res.end(snapContent);
+          return;
+        }
+      } catch (e) {}
+
       res.writeHead(200);
       res.end(JSON.stringify({ initialized: false, tasks: [], goals: [], habits: [], categories: null }));
       return;
@@ -154,19 +173,76 @@ const server = http.createServer((req, res) => {
       req.on('end', () => {
         try {
           const parsed = JSON.parse(body);
-          const userTargetFile = path.join(DB_DIR, `user_${safeUserId}.json`);
-          fs.writeFileSync(userTargetFile, JSON.stringify(parsed, null, 2), 'utf-8');
+          const hasValidContent = parsed && (
+            (Array.isArray(parsed.goals) && parsed.goals.length > 0) ||
+            (Array.isArray(parsed.tasks) && parsed.tasks.length > 0) ||
+            (Array.isArray(parsed.habits) && parsed.habits.length > 0) ||
+            (Array.isArray(parsed.categories) && parsed.categories.length > 0) ||
+            Boolean(parsed.userProfile?.name)
+          );
+
+          if (hasValidContent) {
+            const formatted = JSON.stringify(parsed, null, 2);
+            const tmpFile = path.join(DB_DIR, `javaneh_db.json.tmp.${Date.now()}`);
+
+            // 1. Write atomic temp file then rename
+            fs.writeFileSync(tmpFile, formatted, 'utf-8');
+            if (fs.existsSync(mainDbFile)) {
+              try { fs.copyFileSync(mainDbFile, backupDbFile); } catch (e) {}
+            }
+            fs.renameSync(tmpFile, mainDbFile);
+
+            // 2. Rolling snapshot
+            try {
+              const snapFile = path.join(SNAPSHOTS_DIR, `snapshot-${Date.now()}.json`);
+              fs.writeFileSync(snapFile, formatted, 'utf-8');
+              const allSnaps = fs.readdirSync(SNAPSHOTS_DIR)
+                .filter(f => f.startsWith('snapshot-') && f.endsWith('.json'))
+                .sort();
+              if (allSnaps.length > 20) {
+                for (let i = 0; i < allSnaps.length - 20; i++) {
+                  fs.unlinkSync(path.join(SNAPSHOTS_DIR, allSnaps[i]));
+                }
+              }
+            } catch (e) {}
+          }
+
           res.setHeader('Content-Type', 'application/json; charset=utf-8');
           res.writeHead(200);
-          res.end(JSON.stringify({ success: true, timestamp: Date.now(), userId: safeUserId }));
+          res.end(JSON.stringify({ success: true, timestamp: Date.now() }));
         } catch (err) {
-          console.error('[Storage] Failed to write user db:', err);
+          console.error('[Storage] Failed to write db:', err);
           res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
           res.end(JSON.stringify({ error: 'Invalid JSON payload' }));
         }
       });
       return;
     }
+  }
+
+  // Handle /api/snapshots (list available snapshots in data directory)
+  if (reqPath === '/api/snapshots') {
+    const DB_DIR = path.resolve(__dirname, '..', 'data');
+    const SNAPSHOTS_DIR = path.join(DB_DIR, 'snapshots');
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    try {
+      if (fs.existsSync(SNAPSHOTS_DIR)) {
+        const files = fs.readdirSync(SNAPSHOTS_DIR)
+          .filter(f => f.startsWith('snapshot-') && f.endsWith('.json'))
+          .sort().reverse();
+        const list = files.slice(0, 15).map(f => {
+          const stat = fs.statSync(path.join(SNAPSHOTS_DIR, f));
+          const ts = parseInt(f.replace('snapshot-', '').replace('.json', ''), 10);
+          return { filename: f, timestamp: ts, size: stat.size };
+        });
+        res.writeHead(200);
+        res.end(JSON.stringify({ snapshots: list }));
+        return;
+      }
+    } catch (e) {}
+    res.writeHead(200);
+    res.end(JSON.stringify({ snapshots: [] }));
+    return;
   }
 
   // Direct APK download route with HTTP Range (206 Partial Content) support
@@ -193,7 +269,9 @@ const server = http.createServer((req, res) => {
         res.setHeader('Content-Type', 'application/vnd.android.package-archive');
         res.setHeader('Content-Disposition', 'attachment; filename="javaneh.apk"');
         res.setHeader('Accept-Ranges', 'bytes');
-        res.setHeader('Cache-Control', 'public, max-age=3600');
+        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+        res.setHeader('Pragma', 'no-cache');
+        res.setHeader('Expires', '0');
         res.setHeader('Access-Control-Allow-Origin', '*');
         res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Disposition, Content-Range');
 
@@ -229,12 +307,31 @@ const server = http.createServer((req, res) => {
           res.end();
           return;
         }
-        fs.createReadStream(apkFile).pipe(res);
+        const stream = fs.createReadStream(apkFile);
+        stream.on('error', (streamErr) => {
+          console.error('[Storage Error streaming apk]:', streamErr);
+          if (!res.headersSent) {
+            res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+            res.end(JSON.stringify({ error: 'APK_STREAMING_FAILED', message: 'خطا در استریم فایل APK: ' + (streamErr?.message || 'خطای سرور') }));
+          } else {
+            res.destroy(streamErr);
+          }
+        });
+        res.on('error', () => stream.destroy());
+        stream.pipe(res);
         return;
       } catch (e) {
         console.error('[Storage] Error streaming apk:', e);
+        if (!res.headersSent) {
+          res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ error: 'APK_STREAMING_FAILED', message: 'خطا در استریم فایل APK: ' + (e?.message || 'خطای سرور') }));
+          return;
+        }
       }
     }
+    res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify({ available: false, error: 'فایل APK در سرور موجود نیست. از گزینه نصب PWA استفاده فرمایید.' }));
+    return;
   }
 
   if (reqPath === '/') reqPath = '/index.html';

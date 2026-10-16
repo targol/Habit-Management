@@ -315,16 +315,24 @@ export const UpdateAndBackupModal: React.FC<Props> = ({
     const file = e.target.files?.[0];
     if (!file) return;
     setFullImportFile(file);
+    setFullImportError(null);
     const reader = new FileReader();
     reader.onload = (event) => {
       const text = event.target?.result as string;
+      if (!text || !text.trim()) {
+        setFullImportError('محتوای فایل انتخاب‌شده خالی است.');
+        return;
+      }
       parseFullBackupString(text, file.name);
     };
     reader.onerror = () => {
-      setFullImportError('خطا در خواندن فایل از حافظه دستگاه.');
+      setFullImportError('خطا در خواندن فایل از حافظه گوشی. لطفاً متن فایل را دستی پیست کنید.');
     };
-    reader.readAsText(file, 'UTF-8');
-    e.target.value = '';
+    try {
+      reader.readAsText(file, 'UTF-8');
+    } catch {
+      setFullImportError('امکان خواندن این فایل روی دستگاه وجود ندارد.');
+    }
   };
 
   // 5. Confirm Full Restore Execution with Auto Emergency Snapshot
@@ -479,16 +487,24 @@ export const UpdateAndBackupModal: React.FC<Props> = ({
     const file = e.target.files?.[0];
     if (!file) return;
     setTaskImportFile(file);
+    setTaskImportError(null);
     const reader = new FileReader();
     reader.onload = (event) => {
       const text = event.target?.result as string;
+      if (!text || !text.trim()) {
+        setTaskImportError('محتوای فایل انتخاب‌شده خالی است.');
+        return;
+      }
       parseTasksJsonString(text, file.name);
     };
     reader.onerror = () => {
-      setTaskImportError('خطا در خواندن فایل از حافظه دستگاه.');
+      setTaskImportError('خطا در خواندن فایل از حافظه گوشی.');
     };
-    reader.readAsText(file, 'UTF-8');
-    e.target.value = '';
+    try {
+      reader.readAsText(file, 'UTF-8');
+    } catch {
+      setTaskImportError('امکان خواندن این فایل روی دستگاه وجود ندارد.');
+    }
   };
 
   // 8. Confirm Task-only restore
@@ -713,21 +729,27 @@ export const UpdateAndBackupModal: React.FC<Props> = ({
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2">
-                  <label
-                    htmlFor="full-backup-file-input"
+                  {/* Hidden Detached Native Input */}
+                  <input
+                    id="full-backup-file-input"
+                    ref={fullFileInputRef}
+                    type="file"
+                    accept=".json,application/json,text/plain,*/*"
+                    onChange={handleFullFileSelect}
+                    onClick={(e) => {
+                      (e.target as HTMLInputElement).value = '';
+                    }}
+                    className="hidden"
+                  />
+
+                  <button
+                    type="button"
+                    onClick={() => fullFileInputRef.current?.click()}
                     className="px-4 py-2.5 bg-teal-700 hover:bg-teal-800 text-white rounded-xl text-xs font-bold flex items-center gap-2 cursor-pointer shadow-xs transition-all active:scale-95 select-none"
                   >
                     <Upload className="w-4 h-4" />
                     <span>انتخاب و آپلود فایل پشتیبان (.json)</span>
-                    <input
-                      id="full-backup-file-input"
-                      ref={fullFileInputRef}
-                      type="file"
-                      accept=".json,application/json,text/plain,*/*"
-                      onChange={handleFullFileSelect}
-                      className="sr-only"
-                    />
-                  </label>
+                  </button>
 
                   <button
                     type="button"
@@ -983,20 +1005,27 @@ export const UpdateAndBackupModal: React.FC<Props> = ({
                     </p>
                   </div>
                   <div className="flex items-center gap-2 flex-wrap">
-                    <label
-                      htmlFor="task-backup-file-input"
+                    {/* Hidden Detached Native Task Input */}
+                    <input
+                      id="task-backup-file-input"
+                      ref={taskFileInputRef}
+                      type="file"
+                      accept=".json,application/json,text/plain,*/*"
+                      onChange={handleTaskFileSelect}
+                      onClick={(e) => {
+                        (e.target as HTMLInputElement).value = '';
+                      }}
+                      className="hidden"
+                    />
+
+                    <button
+                      type="button"
+                      onClick={() => taskFileInputRef.current?.click()}
                       className="px-3.5 py-1.5 bg-white border border-teal-300 hover:bg-teal-50 text-teal-900 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-2xs select-none"
                     >
                       <Upload className="w-3.5 h-3.5 text-teal-700" />
                       <span>انتخاب فایل تسک‌ها</span>
-                      <input
-                        id="task-backup-file-input"
-                        type="file"
-                        accept=".json,application/json,text/plain,*/*"
-                        onChange={handleTaskFileSelect}
-                        className="sr-only"
-                      />
-                    </label>
+                    </button>
 
                     <button
                       type="button"
@@ -1199,14 +1228,14 @@ export const UpdateAndBackupModal: React.FC<Props> = ({
 
               {onOpenFullApkDownload && (
                 <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between">
-                  <span className="text-xs font-bold text-emerald-900">دانلود مستقیم بسته نصبی اندروید (APK):</span>
+                  <span className="text-xs font-bold text-emerald-900">نصب برنامه و نسخه اندروید (PWA / APK):</span>
                   <button
                     type="button"
                     onClick={onOpenFullApkDownload}
                     className="px-3.5 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-xs cursor-pointer"
                   >
-                    <Download className="w-3.5 h-3.5" />
-                    <span>دریافت APK</span>
+                    <Smartphone className="w-3.5 h-3.5" />
+                    <span>نصب روی گوشی</span>
                   </button>
                 </div>
               )}

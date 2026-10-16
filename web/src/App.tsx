@@ -1,5 +1,16 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { AppTask, Habit, Goal, Category, PlantState, GoalStatus, GoalHistoryEntry, UserProfile, ReminderSettings } from './types';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { 
+  AppTask, 
+  Habit, 
+  Goal, 
+  Category, 
+  UserProfile, 
+  ReminderSettings, 
+  PlantState,
+  AppBackupData,
+  FocusSessionLog,
+  GoalStatus
+} from './types';
 import { 
   INITIAL_CATEGORIES, 
   getInitialGoals, 
@@ -7,43 +18,56 @@ import {
   getInitialHabits 
 } from './data/initialData';
 import { 
-  saveToLocalStorage, 
-  loadFromLocalStorage, 
-  saveToIndexedDB, 
-  loadFromIndexedDB, 
-  fetchServerData, 
-  triggerServerSync,
-  mergeEntitiesById,
-  saveLocalSnapshot,
-  resetLocalSnapshotsWithData,
-  getLocalSnapshots,
-  recoverAllLocalData,
-  DEFAULT_USER_PROFILE,
-  DEFAULT_REMINDER_SETTINGS,
-  STORAGE_KEYS,
-  checkAndPerformVersionUpgradeMigration,
-} from './services/storageService';
-import { APP_VERSION_INFO } from './version';
-import { 
   getTodayJalali, 
   jalaliToFormattedString, 
-  getCurrentPersianDateTimeString, 
   toPersianDigits, 
-  getDayOfWeek, 
+  WEEKDAYS, 
+  isDateHoliday,
   addDaysJalali,
-  PERSIAN_MONTHS,
-  WEEKDAYS,
-  isDateHoliday
+  getCurrentPersianDateTimeString
 } from './calendar/jalali';
-import { isTaskReminderDue, isTaskHolidayAdvanceReminderDue, triggerReminderAlarm, calculateSnoozeTime } from './services/reminderService';
-import { stopAllAlarmSounds, PRESET_ALARM_SOUNDS } from './services/soundService';
+import { 
+  loadFromLocalStorage, 
+  saveToLocalStorage, 
+  STORAGE_KEYS, 
+  DEFAULT_USER_PROFILE, 
+  DEFAULT_REMINDER_SETTINGS,
+  saveLocalSnapshot,
+  triggerServerSync,
+  fetchServerData,
+  startPeriodicPersistence,
+  checkAndPerformVersionUpgradeMigration,
+  mergeEntitiesById
+} from './services/storageService';
+import { 
+  setupThemeListeners, 
+  getDarkModePreference, 
+  getDarkModeSchedule,
+  applyDarkMode,
+  computeEffectiveDarkMode
+} from './services/themeService';
+import { 
+  playAlarmSound, 
+  stopAllAlarmSounds 
+} from './services/soundService';
+import { 
+  sendBrowserNotification, 
+  getTaskEffectiveReminderTime,
+  isNotificationSupported,
+  getNotificationPermission
+} from './services/reminderService';
+import { APP_VERSION_INFO } from './version';
+
+// Screens
 import { TodayScreen } from './components/TodayScreen';
 import { TasksScreen } from './components/TasksScreen';
 import { HabitsScreen } from './components/HabitsScreen';
 import { GoalsScreen } from './components/GoalsScreen';
+import { PersianCalendarScreen } from './components/PersianCalendarScreen';
 import { ReportsScreen } from './components/ReportsScreen';
 import { SettingsScreen } from './components/SettingsScreen';
-import { PersianCalendarScreen } from './components/PersianCalendarScreen';
+
+// Modals
 import { TaskModal } from './components/TaskModal';
 import { HabitModal } from './components/HabitModal';
 import { GoalModal } from './components/GoalModal';
@@ -51,494 +75,90 @@ import { AnnualGoalWizardModal } from './components/AnnualGoalWizardModal';
 import { GoalDetailHistoryModal } from './components/GoalDetailHistoryModal';
 import { TimerModal } from './components/TimerModal';
 import { ReminderAlertModal } from './components/ReminderAlertModal';
-import { UpdateAndBackupModal } from './components/UpdateAndBackupModal';
-import { ApkDownloadConfirmModal } from './components/ApkDownloadConfirmModal';
+import { TransferTaskModal } from './components/TransferTaskModal';
+
+// Icons
 import { 
-  Sprout, 
   CheckSquare, 
-  Flame, 
+  RotateCw, 
   Target, 
+  Calendar as CalendarIcon, 
   BarChart3, 
-  Plus, 
-  Clock, 
-  Sparkles,
-  Settings,
-  Calendar,
-  AlertCircle,
-  Smartphone,
-  Download,
-  Database
+  Settings as SettingsIcon,
+  Sprout,
+  Plus,
+  Bell,
+  Sun,
+  Flame,
+  Clock,
+  Sparkles
 } from 'lucide-react';
+import { PlantIcon } from './components/PlantIcon';
 
-type NavTab = 'TODAY' | 'TASKS' | 'HABITS' | 'CALENDAR' | 'GOALS' | 'REPORTS' | 'SETTINGS';
-
-// Helper to flatten nested goals arrays and sanitize objects
-export function flattenAndSanitizeGoals(raw: any[]): Goal[] {
-  if (!Array.isArray(raw)) return [];
-  const result: Goal[] = [];
-  function walk(item: any) {
-    if (!item) return;
-    if (Array.isArray(item)) {
-      item.forEach(walk);
-    } else if (typeof item === 'object' && item.id && item.title) {
-      result.push({
-        ...item,
-        history: Array.isArray(item.history) ? item.history : [],
-      });
-    }
-  }
-  raw.forEach(walk);
-  return result;
-}
+export type MainTab = 'TODAY' | 'TASKS' | 'HABITS' | 'GOALS' | 'CALENDAR' | 'REPORTS' | 'SETTINGS';
 
 export const App: React.FC = () => {
-  // Current Jalali date for calculations
-  const today = getTodayJalali();
-  const todayStr = jalaliToFormattedString(today);
+  const today = useMemo(() => getTodayJalali(), []);
+  const todayStr = useMemo(() => jalaliToFormattedString(today), [today]);
 
-  // --- Persistent State with Safe Fallbacks & Triple-Layer Data Preservation ---
+  // --- Core State Hydration ---
   const [categories, setCategories] = useState<Category[]>(() => {
-    return loadFromLocalStorage('javaneh_categories', INITIAL_CATEGORIES);
+    return loadFromLocalStorage<Category[]>(STORAGE_KEYS.CATEGORIES, INITIAL_CATEGORIES);
   });
 
   const [goals, setGoals] = useState<Goal[]>(() => {
-    const saved = loadFromLocalStorage<any[]>('javaneh_goals', []);
-    if (Array.isArray(saved) && saved.length > 0) {
-      const clean = flattenAndSanitizeGoals(saved);
-      if (clean.length > 0) return clean;
-    }
-    return getInitialGoals();
+    return loadFromLocalStorage<Goal[]>(STORAGE_KEYS.GOALS, getInitialGoals());
   });
 
   const [tasks, setTasks] = useState<AppTask[]>(() => {
-    const saved = loadFromLocalStorage<AppTask[]>('javaneh_tasks', []);
-    if (Array.isArray(saved)) {
-      return saved.map((t: AppTask) => ({
-        ...t,
-        repeatDaysOfWeek: t.repeatDaysOfWeek || [],
-      }));
-    }
-    return getInitialTasks();
+    return loadFromLocalStorage<AppTask[]>(STORAGE_KEYS.TASKS, getInitialTasks());
   });
 
   const [habits, setHabits] = useState<Habit[]>(() => {
-    const saved = loadFromLocalStorage<Habit[]>('javaneh_habits', []);
-    if (Array.isArray(saved)) {
-      return saved.map((h: Habit) => ({
-        ...h,
-        targetDaysOfWeek: h.targetDaysOfWeek || [0, 1, 2, 3, 4, 5, 6],
-        completionHistory: h.completionHistory || {},
-      }));
-    }
-    return getInitialHabits();
+    return loadFromLocalStorage<Habit[]>(STORAGE_KEYS.HABITS, getInitialHabits());
   });
 
   const [userProfile, setUserProfile] = useState<UserProfile>(() => {
-    return loadFromLocalStorage<UserProfile>(STORAGE_KEYS.PROFILE, DEFAULT_USER_PROFILE);
+    return loadFromLocalStorage<UserProfile>(STORAGE_KEYS.USER_PROFILE, DEFAULT_USER_PROFILE);
   });
 
   const [reminderSettings, setReminderSettings] = useState<ReminderSettings>(() => {
-    return loadFromLocalStorage<ReminderSettings>(STORAGE_KEYS.REMINDERS, DEFAULT_REMINDER_SETTINGS);
+    return loadFromLocalStorage<ReminderSettings>(STORAGE_KEYS.REMINDER_SETTINGS, DEFAULT_REMINDER_SETTINGS);
   });
 
-  const [activeReminderTask, setActiveReminderTask] = useState<AppTask | null>(null);
-  const [activeReminderHolidayNotice, setActiveReminderHolidayNotice] = useState<string | null>(null);
-  const [upgradeNotice, setUpgradeNotice] = useState<string | null>(null);
+  // Navigation
+  const [activeTab, setActiveTab] = useState<MainTab>('TODAY');
 
-  const [isStorageReady, setIsStorageReady] = useState(false);
-  const isInitialMount = useRef(true);
+  // PWA Install prompt
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
 
-  // Initial Boot: Check server file storage (/api/data), IndexedDB, and LocalStorage Snapshots
-  useEffect(() => {
-    async function hydrateFromDurableStore() {
-      try {
-        // 1 & 2. Parallel non-blocking hydration from Server API and IndexedDB
-        const [serverData, idbResults] = await Promise.all([
-          fetchServerData().catch(() => null),
-          Promise.all([
-            loadFromIndexedDB<Goal[]>('goals').catch(() => null),
-            loadFromIndexedDB<AppTask[]>('tasks').catch(() => null),
-            loadFromIndexedDB<Habit[]>('habits').catch(() => null),
-            loadFromIndexedDB<Category[]>('categories').catch(() => null),
-            loadFromIndexedDB<UserProfile>('userProfile').catch(() => null),
-            loadFromIndexedDB<ReminderSettings>('reminderSettings').catch(() => null),
-          ]).catch(() => [null, null, null, null, null, null] as const),
-        ]);
-
-        const [idbGoals, idbTasks, idbHabits, idbCats, idbProfile, idbReminders] = idbResults;
-
-        // 3. Fetch from LocalStorage primary & snapshots
-        const lsCats = loadFromLocalStorage<Category[]>('javaneh_categories', []);
-        const lsGoals = loadFromLocalStorage<Goal[]>('javaneh_goals', []);
-        const lsTasks = loadFromLocalStorage<AppTask[]>('javaneh_tasks', []);
-        const lsHabits = loadFromLocalStorage<Habit[]>('javaneh_habits', []);
-        const lsProfile = loadFromLocalStorage<UserProfile>(STORAGE_KEYS.PROFILE, DEFAULT_USER_PROFILE);
-        const lsReminders = loadFromLocalStorage<ReminderSettings>(STORAGE_KEYS.REMINDERS, DEFAULT_REMINDER_SETTINGS);
-
-        const snapshots = getLocalSnapshots();
-        const snapGoals = snapshots.flatMap(s => s.payload.goals || []);
-        const snapTasks = snapshots.flatMap(s => s.payload.tasks || []);
-        const snapHabits = snapshots.flatMap(s => s.payload.habits || []);
-
-        // 4. Safe Non-Destructive Union Merge:
-        // Prioritize: (snapshots / initial) -> (IndexedDB) -> (LocalStorage) -> (Server)
-        // If an item exists in ANY of these sources, it is preserved!
-        const mergedCategories = mergeEntitiesById(
-          INITIAL_CATEGORIES,
-          idbCats,
-          lsCats,
-          serverData?.categories
-        );
-
-        const mergedGoals = flattenAndSanitizeGoals(
-          mergeEntitiesById(
-            snapGoals,
-            idbGoals,
-            lsGoals,
-            serverData?.goals
-          )
-        );
-
-        const mergedTasks = mergeEntitiesById(
-          snapTasks,
-          idbTasks,
-          lsTasks,
-          serverData?.tasks
-        ).map((t: AppTask) => ({
-          ...t,
-          repeatDaysOfWeek: t.repeatDaysOfWeek || [],
-        }));
-
-        const mergedHabits = mergeEntitiesById(
-          snapHabits,
-          idbHabits,
-          lsHabits,
-          serverData?.habits
-        ).map((h: Habit) => ({
-          ...h,
-          targetDaysOfWeek: h.targetDaysOfWeek || [0, 1, 2, 3, 4, 5, 6],
-          completionHistory: h.completionHistory || {},
-        }));
-
-        // Find any preserved profile from snapshots, indexedDB, localStorage, or server
-        const snapProfile = snapshots.find(s => s.payload.userProfile?.name && s.payload.userProfile.name !== DEFAULT_USER_PROFILE.name)?.payload.userProfile
-          || snapshots.find(s => Boolean(s.payload.userProfile))?.payload.userProfile;
-
-        const candidateProfiles = [
-          DEFAULT_USER_PROFILE,
-          (serverData as any)?.userProfile,
-          snapProfile,
-          idbProfile,
-          lsProfile,
-        ].filter(Boolean);
-
-        const mergedProfile: UserProfile = candidateProfiles.reduce((acc, curr) => {
-          if (!curr || typeof curr !== 'object') return acc;
-          return {
-            ...acc,
-            name: curr.name && curr.name !== DEFAULT_USER_PROFILE.name ? curr.name : (acc.name || curr.name),
-            title: curr.title && curr.title !== DEFAULT_USER_PROFILE.title ? curr.title : (acc.title || curr.title),
-            avatarUrl: curr.avatarUrl && curr.avatarUrl !== DEFAULT_USER_PROFILE.avatarUrl ? curr.avatarUrl : (acc.avatarUrl || curr.avatarUrl),
-            bio: curr.bio && curr.bio !== DEFAULT_USER_PROFILE.bio ? curr.bio : (acc.bio || curr.bio),
-          };
-        }, DEFAULT_USER_PROFILE);
-
-        const finalProfile = mergedProfile;
-
-        const finalReminders = (lsReminders && typeof lsReminders === 'object' && lsReminders.selectedSoundId)
-          ? lsReminders
-          : idbReminders || (serverData as any)?.reminderSettings || DEFAULT_REMINDER_SETTINGS;
-
-        // 5. Update state
-        if (mergedCategories.length > 0) setCategories(mergedCategories);
-        if (mergedGoals.length > 0) setGoals(mergedGoals);
-        if (mergedTasks.length > 0) setTasks(mergedTasks);
-        if (mergedHabits.length > 0) setHabits(mergedHabits);
-        if (finalProfile) setUserProfile(finalProfile);
-        if (finalReminders) setReminderSettings(finalReminders);
-
-        // 6. Write back the consolidated union to all stores
-        saveToLocalStorage('javaneh_categories', mergedCategories);
-        saveToLocalStorage('javaneh_goals', mergedGoals);
-        saveToLocalStorage('javaneh_tasks', mergedTasks);
-        saveToLocalStorage('javaneh_habits', mergedHabits);
-        saveToLocalStorage(STORAGE_KEYS.PROFILE, finalProfile);
-        saveToLocalStorage(STORAGE_KEYS.REMINDERS, finalReminders);
-
-        // 6b. Concurrent write-back to IndexedDB (non-blocking)
-        Promise.all([
-          saveToIndexedDB('categories', mergedCategories),
-          saveToIndexedDB('goals', mergedGoals),
-          saveToIndexedDB('tasks', mergedTasks),
-          saveToIndexedDB('habits', mergedHabits),
-          saveToIndexedDB('userProfile', finalProfile),
-          saveToIndexedDB('reminderSettings', finalReminders),
-        ]).catch(() => {});
-
-        saveLocalSnapshot({
-          categories: mergedCategories,
-          goals: mergedGoals,
-          tasks: mergedTasks,
-          habits: mergedHabits,
-        });
-
-        // 7. Sync consolidated state to server disk
-        const currentData = {
-          categories: mergedCategories,
-          goals: mergedGoals,
-          tasks: mergedTasks,
-          habits: mergedHabits,
-          userProfile: finalProfile,
-          reminderSettings: finalReminders,
-        };
-        triggerServerSync(currentData, 300);
-
-        // 8. Automated Google Play & App Version Upgrade Guard (Zero Data Loss Guarantee)
-        const upgradeResult = checkAndPerformVersionUpgradeMigration(
-          currentData,
-          APP_VERSION_INFO.currentVersion,
-          APP_VERSION_INFO.currentVersionCode
-        );
-        if (upgradeResult.isUpgrade) {
-          setUpgradeNotice(`جوانه با موفقیت به نسخه ${APP_VERSION_INFO.currentVersion} به‌روزرسانی شد. تمام تسک‌ها، اهداف و اطلاعات شما بدون تغییر حفظ شدند.`);
-        }
-      } catch (err) {
-        console.warn('Storage hydration notice:', err);
-      } finally {
-        setIsStorageReady(true);
-      }
-    }
-
-    hydrateFromDurableStore();
-  }, []);
-
-  // Save changes to localStorage, IndexedDB, and Server API
-  useEffect(() => {
-    if (isInitialMount.current) {
-      isInitialMount.current = false;
-      return;
-    }
-
-    // 1. LocalStorage
-    saveToLocalStorage('javaneh_categories', categories);
-    saveToLocalStorage('javaneh_goals', goals);
-    saveToLocalStorage('javaneh_tasks', tasks);
-    saveToLocalStorage('javaneh_habits', habits);
-    saveToLocalStorage(STORAGE_KEYS.PROFILE, userProfile);
-    saveToLocalStorage(STORAGE_KEYS.REMINDERS, reminderSettings);
-
-    // 2. IndexedDB
-    saveToIndexedDB('categories', categories);
-    saveToIndexedDB('goals', goals);
-    saveToIndexedDB('tasks', tasks);
-    saveToIndexedDB('habits', habits);
-    saveToIndexedDB('userProfile', userProfile);
-    saveToIndexedDB('reminderSettings', reminderSettings);
-
-    // 3. Persistent Server File
-    triggerServerSync({
-      categories,
-      goals,
-      tasks,
-      habits,
-      userProfile,
-      reminderSettings,
-    }, 400);
-  }, [categories, goals, tasks, habits, userProfile, reminderSettings]);
-
-  // --- Periodic Reminder Check Interval ---
-  useEffect(() => {
-    if (!reminderSettings.enabled) return;
-
-    const checkReminders = () => {
-      try {
-        const now = new Date();
-        const currentHHMM = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-        const currentDayOfWeek = getDayOfWeek(today);
-        const holidayInfo = isDateHoliday(today);
-
-        // Find tasks that are due and not yet notified recently
-        for (const task of tasks) {
-          if (task.isCompleted) continue;
-
-          // 1. Check proactive advance reminder for tasks scheduled on holidays
-          if (reminderSettings.notifyBeforeHolidayTasks && holidayInfo.isHoliday) {
-            const leadMinutes = reminderSettings.holidayLeadMinutes || 15;
-            if (isTaskHolidayAdvanceReminderDue(task, todayStr, currentHHMM, currentDayOfWeek, holidayInfo.isHoliday, leadMinutes)) {
-              const holidayTitle = holidayInfo.title || 'تعطیل رسمی';
-              triggerReminderAlarm(
-                task,
-                reminderSettings,
-                () => {
-                  setActiveReminderHolidayNotice(holidayTitle);
-                  setActiveReminderTask(task);
-                },
-                holidayTitle
-              );
-
-              const slotKey = `holiday-advance-${todayStr} ${currentHHMM}`;
-              setTasks(prev => prev.map(t => t.id === task.id ? { ...t, lastNotifiedAt: slotKey } : t));
-              setActiveReminderHolidayNotice(holidayTitle);
-              setActiveReminderTask(task);
-              break;
-            }
-          }
-
-          // 2. Standard due-time reminder check
-          if (!task.reminderEnabled && !task.isImportant) continue;
-
-          if (isTaskReminderDue(task, todayStr, currentHHMM, currentDayOfWeek)) {
-            // Trigger reminder notification and audio alarm
-            triggerReminderAlarm(task, reminderSettings, () => {
-              setActiveReminderHolidayNotice(null);
-              setActiveReminderTask(task);
-            });
-
-            // Mark task as notified right now to prevent repeated ringing in the same minute
-            const slotKey = `${todayStr} ${currentHHMM}`;
-            setTasks(prev => prev.map(t => t.id === task.id ? { ...t, lastNotifiedAt: slotKey } : t));
-
-            // Set active reminder task for the on-screen alert modal
-            setActiveReminderHolidayNotice(null);
-            setActiveReminderTask(task);
-            break; // Ring one at a time
-          }
-        }
-      } catch (err) {
-        console.warn('Reminder check cycle notice:', err);
-      }
-    };
-
-    // Check on startup / task updates
-    checkReminders();
-
-    const intervalId = setInterval(checkReminders, 15000);
-    return () => clearInterval(intervalId);
-  }, [tasks, reminderSettings, todayStr, today.year, today.month, today.day, today]);
-
-  const handleSaveUserProfile = (updated: UserProfile) => {
-    setUserProfile(updated);
-    saveToLocalStorage(STORAGE_KEYS.PROFILE, updated);
-    saveToIndexedDB('userProfile', updated);
-    triggerServerSync({
-      categories,
-      goals,
-      tasks,
-      habits,
-      userProfile: updated,
-      reminderSettings,
-    }, 100);
-  };
-
-  const handleSaveReminderSettings = (updated: ReminderSettings) => {
-    setReminderSettings(updated);
-    saveToLocalStorage(STORAGE_KEYS.REMINDERS, updated);
-    saveToIndexedDB('reminderSettings', updated);
-    triggerServerSync({
-      categories,
-      goals,
-      tasks,
-      habits,
-      userProfile,
-      reminderSettings: updated,
-    }, 100);
-  };
-
-  const handleDismissReminder = () => {
-    stopAllAlarmSounds();
-    // If auto re-notify is configured and user just closed the popup without completing or explicit snooze:
-    if (activeReminderTask && (reminderSettings.autoReNotifyCount ?? 0) > 0) {
-      const currentCount = activeReminderTask.snoozeCount ?? 0;
-      const maxCount = reminderSettings.autoReNotifyCount ?? 2;
-      const interval = reminderSettings.autoReNotifyIntervalMinutes || reminderSettings.snoozeIntervalMinutes || 10;
-      if (currentCount < maxCount) {
-        const nextTime = calculateSnoozeTime(interval);
-        setTasks(prev => prev.map(t => {
-          if (t.id === activeReminderTask.id) {
-            return {
-              ...t,
-              nextSnoozeAt: nextTime,
-              snoozeCount: currentCount + 1,
-              lastNotifiedAt: null,
-            };
-          }
-          return t;
-        }));
-      }
-    }
-    setActiveReminderTask(null);
-    setActiveReminderHolidayNotice(null);
-  };
-
-  const handleCompleteReminderTask = (taskId: string) => {
-    stopAllAlarmSounds();
-    handleToggleTask(taskId);
-    // Clear snooze state upon task completion
-    setTasks(prev => prev.map(t => {
-      if (t.id === taskId) {
-        return {
-          ...t,
-          nextSnoozeAt: null,
-          snoozeCount: 0,
-        };
-      }
-      return t;
-    }));
-    setActiveReminderTask(null);
-    setActiveReminderHolidayNotice(null);
-  };
-
-  const handleSnoozeReminder = (taskId: string, minutes: number) => {
-    stopAllAlarmSounds();
-    const snoozeTime = calculateSnoozeTime(minutes);
-
-    setTasks(prev => prev.map(t => {
-      if (t.id === taskId) {
-        return {
-          ...t,
-          nextSnoozeAt: snoozeTime,
-          reminderTime: snoozeTime,
-          snoozeCount: (t.snoozeCount || 0) + 1,
-          lastNotifiedAt: null, // allow notifying at new snoozed time
-        };
-      }
-      return t;
-    }));
-    setActiveReminderTask(null);
-    setActiveReminderHolidayNotice(null);
-  };
-
-  // --- Active Tab ---
-  const [currentTab, setCurrentTab] = useState<NavTab>('TODAY');
-
-  // --- Modals State ---
+  // Modals state
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<AppTask | null>(null);
-  const [isDuplicateTask, setIsDuplicateTask] = useState(false);
+  const [isDuplicateTaskMode, setIsDuplicateTaskMode] = useState(false);
 
   const [isHabitModalOpen, setIsHabitModalOpen] = useState(false);
   const [editingHabit, setEditingHabit] = useState<Habit | null>(null);
-  const [isDuplicateHabit, setIsDuplicateHabit] = useState(false);
+  const [isDuplicateHabitMode, setIsDuplicateHabitMode] = useState(false);
 
   const [isGoalModalOpen, setIsGoalModalOpen] = useState(false);
   const [editingGoal, setEditingGoal] = useState<Goal | null>(null);
 
-  // Annual Goal Wizard Modal State
   const [isAnnualWizardOpen, setIsAnnualWizardOpen] = useState(false);
+  const [selectedHistoryGoal, setSelectedHistoryGoal] = useState<Goal | null>(null);
 
-  // Goal History & Detail Modal State
-  const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
-  const [selectedGoalForHistory, setSelectedGoalForHistory] = useState<Goal | null>(null);
+  const [taskToTransfer, setTaskToTransfer] = useState<AppTask | null>(null);
 
-  const [timerConfig, setTimerConfig] = useState<{
+  // Timer state
+  const [timerState, setTimerState] = useState<{
     isOpen: boolean;
     title: string;
     minutes: number;
-    initialElapsedSeconds?: number;
-    currentProgressPercent?: number;
     entityType?: 'TASK' | 'HABIT';
     taskId?: string;
     habitId?: string;
+    initialElapsedSeconds?: number;
+    currentProgressPercent?: number;
     onDone?: (elapsedSeconds: number, isFullyCompleted: boolean) => void;
   }>({
     isOpen: false,
@@ -546,495 +166,305 @@ export const App: React.FC = () => {
     minutes: 25,
   });
 
-  // Direct Full Backup, Mobile Transfer and APK Modal State
-  const [isTasksBackupModalOpen, setIsTasksBackupModalOpen] = useState(false);
-  const [backupModalInitialTab, setBackupModalInitialTab] = useState<'FULL_TRANSFER' | 'TASKS_BACKUP' | 'UPDATE_SAFETY' | 'RELEASE_NOTES'>('FULL_TRANSFER');
-  const [isApkDownloadModalOpen, setIsApkDownloadModalOpen] = useState(false);
-  const [isApkConfirmModalOpen, setIsApkConfirmModalOpen] = useState(false);
-  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
-  const [isStandalone, setIsStandalone] = useState(false);
+  // Reminder alert popup
+  const [activeAlertTask, setActiveAlertTask] = useState<AppTask | null>(null);
+  const notifiedTasksRef = useRef<Set<string>>(new Set());
 
+  // --- Initial Data Hydration: Restore personal user data from server/database if local state is empty or incomplete ---
   useEffect(() => {
-    // Check if running in standalone mode (already installed as PWA)
-    const isPwa = window.matchMedia('(display-mode: standalone)').matches || 
-                  (window.navigator as any).standalone === true;
-    setIsStandalone(isPwa);
+    fetchServerData().then(serverData => {
+      if (serverData) {
+        if (Array.isArray(serverData.categories) && serverData.categories.length > 0) {
+          setCategories(prev => mergeEntitiesById(INITIAL_CATEGORIES, prev, serverData.categories));
+        }
+        if (Array.isArray(serverData.goals) && serverData.goals.length > 0) {
+          setGoals(prev => prev.length > 0 ? prev : serverData.goals);
+        }
+        if (Array.isArray(serverData.tasks) && serverData.tasks.length > 0) {
+          setTasks(prev => prev.length > 0 ? prev : serverData.tasks);
+        }
+        if (Array.isArray(serverData.habits) && serverData.habits.length > 0) {
+          setHabits(prev => prev.length > 0 ? prev : serverData.habits);
+        }
+        if (serverData.userProfile && serverData.userProfile.name) {
+          setUserProfile(prev => (prev?.name && prev.name !== DEFAULT_USER_PROFILE.name) ? prev : serverData.userProfile!);
+        }
+        if (serverData.reminderSettings) {
+          setReminderSettings(prev => prev || serverData.reminderSettings!);
+        }
+      }
+    }).catch(err => {
+      console.warn('[Data Hydration]:', err);
+    });
+  }, []);
 
+  // --- Theme & Version Migration on Mount ---
+  useEffect(() => {
+    try {
+      checkAndPerformVersionUpgradeMigration(
+        { categories, goals, tasks, habits, userProfile, reminderSettings },
+        APP_VERSION_INFO.currentVersion,
+        APP_VERSION_INFO.versionCode
+      );
+    } catch (e) {
+      console.warn('Migration error caught:', e);
+    }
+
+    const pref = getDarkModePreference(userProfile);
+    const schedule = getDarkModeSchedule(userProfile);
+    const effective = computeEffectiveDarkMode(pref, schedule);
+    applyDarkMode(effective);
+
+    const cleanupTheme = setupThemeListeners(pref, schedule);
+    return () => {
+      cleanupTheme();
+    };
+  }, [userProfile?.darkModePreference, userProfile?.darkModeSchedule, userProfile?.darkMode]);
+
+  // PWA beforeinstallprompt listener
+  useEffect(() => {
     const handleBeforeInstall = (e: Event) => {
       e.preventDefault();
       setDeferredPrompt(e);
     };
-
     window.addEventListener('beforeinstallprompt', handleBeforeInstall);
-    window.addEventListener('appinstalled', () => {
-      setDeferredPrompt(null);
-      setIsStandalone(true);
-    });
-
-    return () => {
-      window.removeEventListener('beforeinstallprompt', handleBeforeInstall);
-    };
+    return () => window.removeEventListener('beforeinstallprompt', handleBeforeInstall);
   }, []);
 
-  const handleInstallApp = async () => {
-    if (deferredPrompt) {
-      try {
-        await deferredPrompt.prompt();
-        const choice = await deferredPrompt.userChoice;
-        if (choice.outcome === 'accepted') {
-          setDeferredPrompt(null);
-        }
-      } catch (err) {
-        console.error('PWA install prompt error:', err);
-      }
-    } else {
-      setIsApkConfirmModalOpen(true);
-    }
-  };
+  // --- Auto-Save Persistence & Snapshots ---
+  useEffect(() => {
+    saveToLocalStorage(STORAGE_KEYS.CATEGORIES, categories);
+  }, [categories]);
 
-  // --- Plant Growth State Calculation ---
-  const todayTasks = tasks.filter(t => {
-    if (t.dueDate === todayStr) return true;
-    if (t.repeatType === 'DAILY') return true;
-    if (t.repeatType === 'WEEKLY' && t.repeatDaysOfWeek.includes(today.day % 7)) return true;
-    return false;
-  });
+  useEffect(() => {
+    saveToLocalStorage(STORAGE_KEYS.GOALS, goals);
+  }, [goals]);
 
-  const totalCount = Math.max(1, todayTasks.length + habits.length);
-  const completedTasksCount = todayTasks.filter(t => t.isCompleted).length;
-  const completedHabitsCount = habits.filter(h => !!h.completionHistory[todayStr]).length;
-  const completedCount = completedTasksCount + completedHabitsCount;
-  const progressPercent = Math.min(100, Math.round((completedCount / totalCount) * 100));
+  useEffect(() => {
+    saveToLocalStorage(STORAGE_KEYS.TASKS, tasks);
+  }, [tasks]);
 
-  let stage: PlantState['stage'] = 'SEED';
-  if (progressPercent >= 100) stage = 'FULL_BLOOM';
-  else if (progressPercent >= 75) stage = 'FLOWERING';
-  else if (progressPercent >= 50) stage = 'BUDDING';
-  else if (progressPercent >= 25) stage = 'SAPLING';
-  else if (progressPercent > 0) stage = 'SPROUT';
+  useEffect(() => {
+    saveToLocalStorage(STORAGE_KEYS.HABITS, habits);
+  }, [habits]);
 
-  const plantState: PlantState = {
-    stage,
-    progressPercent,
-    completedCount,
-    totalCount,
-  };
+  useEffect(() => {
+    saveToLocalStorage(STORAGE_KEYS.USER_PROFILE, userProfile);
+  }, [userProfile]);
 
-  // --- Task Operations ---
-  const handleToggleTask = (taskId: string) => {
-    setTasks(prev => prev.map(t => {
-      if (t.id === taskId) {
-        const nextDone = !t.isCompleted;
-        return {
-          ...t,
-          isCompleted: nextDone,
-          completedAt: nextDone ? todayStr : null,
-          isArchived: nextDone ? t.isArchived : false,
-        };
-      }
-      return t;
-    }));
-  };
+  useEffect(() => {
+    saveToLocalStorage(STORAGE_KEYS.REMINDER_SETTINGS, reminderSettings);
+  }, [reminderSettings]);
 
-  const handleArchiveTask = (taskId: string) => {
-    setTasks(prev => prev.map(t => {
-      if (t.id === taskId) {
-        return {
-          ...t,
-          isArchived: true,
-        };
-      }
-      return t;
-    }));
-  };
+  // Periodic File-Based Persistence & Lifecycle Flusher: writes to data/ outside public/dist
+  useEffect(() => {
+    const cleanupPersistence = startPeriodicPersistence(() => ({
+      categories,
+      goals,
+      tasks,
+      habits,
+      userProfile,
+      reminderSettings,
+    }), 12000);
 
-  const handleRestoreTask = (taskId: string) => {
-    setTasks(prev => prev.map(t => {
-      if (t.id === taskId) {
-        return {
-          ...t,
-          isArchived: false,
-          completedAt: todayStr,
-        };
-      }
-      return t;
-    }));
-  };
-
-  const handleClearArchivedTasks = (taskIds?: string[]) => {
-    setTasks(prev => {
-      if (taskIds && taskIds.length > 0) {
-        const idSet = new Set(taskIds);
-        return prev.filter(t => !idSet.has(t.id));
-      }
-      const oneMonthAgoDate = addDaysJalali(today, -30);
-      const oneMonthAgoStr = jalaliToFormattedString(oneMonthAgoDate);
-      return prev.filter(t => {
-        if (t.isArchived === true) return false;
-        if (t.isCompleted) {
-          const dateStr = t.completedAt || t.dueDate;
-          if (dateStr && dateStr < oneMonthAgoStr && t.isArchived !== false) {
-            return false;
-          }
-        }
-        return true;
+    // Debounced quick sync on every user action
+    const timer = setTimeout(() => {
+      saveLocalSnapshot({
+        categories,
+        goals,
+        tasks,
+        habits,
+        userProfile,
+        reminderSettings,
       });
-    });
-  };
+      triggerServerSync({
+        categories,
+        goals,
+        tasks,
+        habits,
+        userProfile,
+        reminderSettings,
+      }, 500);
+    }, 1000);
 
-  const handleSaveTask = (newTask: AppTask) => {
-    setTasks(prev => {
-      const idx = prev.findIndex(t => t.id === newTask.id);
-      if (idx >= 0) {
-        const next = [...prev];
-        next[idx] = newTask;
-        return next;
-      }
-      return [newTask, ...prev];
-    });
-  };
+    return () => {
+      cleanupPersistence();
+      clearTimeout(timer);
+    };
+  }, [categories, goals, tasks, habits, userProfile, reminderSettings]);
 
-  const handleDeleteTask = (taskId: string) => {
-    setTasks(prev => prev.filter(t => t.id !== taskId));
-  };
+  // --- Plant Growth State for Today ---
+  const plantState = useMemo<PlantState>(() => {
+    // 1. Today's active tasks
+    const todayTasks = tasks.filter(t => !t.isArchived && (t.dueDate === todayStr || (!t.dueDate && !t.isCompleted)));
+    const completedTasksCount = todayTasks.filter(t => t.isCompleted).length;
 
-  // --- Habit Operations ---
-  const handleToggleHabitDate = (habitId: string, dateStr: string) => {
-    setHabits(prev => prev.map(h => {
-      if (h.id === habitId) {
-        const nextHistory = { ...h.completionHistory };
-        if (nextHistory[dateStr]) {
-          delete nextHistory[dateStr];
-        } else {
-          nextHistory[dateStr] = true;
+    // 2. Today's habits
+    const todayDayOfWeek = (today.day + 1) % 7; // approximate weekday index
+    const activeHabits = habits.filter(h => !h.isClosed);
+    const completedHabitsCount = activeHabits.filter(h => !!h.completionHistory?.[todayStr]).length;
+
+    const totalCount = todayTasks.length + activeHabits.length;
+    const completedCount = completedTasksCount + completedHabitsCount;
+
+    const progressPercent = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
+
+    let stage: PlantState['stage'] = 'SEED';
+    if (progressPercent >= 100 && totalCount > 0) stage = 'FULL_BLOOM';
+    else if (progressPercent >= 80) stage = 'FLOWERING';
+    else if (progressPercent >= 60) stage = 'BUDDING';
+    else if (progressPercent >= 35) stage = 'SAPLING';
+    else if (progressPercent > 0) stage = 'SPROUT';
+
+    return {
+      stage,
+      progressPercent,
+      completedCount,
+      totalCount,
+    };
+  }, [tasks, habits, todayStr, today]);
+
+  // --- Real-time Scheduled Reminder Check ---
+  useEffect(() => {
+    if (!reminderSettings.enabled) return;
+
+    const checkScheduledReminders = () => {
+      const now = new Date();
+      const currentHours = now.getHours().toString().padStart(2, '0');
+      const currentMinutes = now.getMinutes().toString().padStart(2, '0');
+      const currentTimeStr = `${currentHours}:${currentMinutes}`;
+
+      // Check tasks scheduled for today or without date that match current time
+      tasks.forEach((task) => {
+        if (task.isCompleted || task.isArchived) return;
+        if (task.dueDate && task.dueDate !== todayStr) return;
+
+        const effectiveReminderTime = getTaskEffectiveReminderTime(task);
+        if (!effectiveReminderTime) return;
+
+        const taskKey = `${task.id}_${todayStr}_${effectiveReminderTime}`;
+        if (notifiedTasksRef.current.has(taskKey)) return;
+
+        if (effectiveReminderTime === currentTimeStr) {
+          notifiedTasksRef.current.add(taskKey);
+
+          // Play sound
+          if (reminderSettings.soundEnabled) {
+            try {
+              playAlarmSound(task.customAlarmSound || reminderSettings.selectedSoundId, reminderSettings.volume);
+            } catch (err) {
+              console.warn('Alarm sound play error:', err);
+            }
+          }
+
+          // Trigger native notification
+          sendBrowserNotification(`یادآور جوانه: ${task.title}`, {
+            body: task.notes || 'زمان رسیدگی به این برنامه فرا رسیده است.',
+            tag: task.id,
+            onClick: () => {
+              setActiveTab('TASKS');
+            }
+          });
+
+          // Show in-app alert modal
+          setActiveAlertTask(task);
         }
-        return { ...h, completionHistory: nextHistory };
-      }
-      return h;
-    }));
-  };
-
-  const handleSaveHabit = (newHabit: Habit) => {
-    setHabits(prev => {
-      const idx = prev.findIndex(h => h.id === newHabit.id);
-      if (idx >= 0) {
-        const next = [...prev];
-        next[idx] = newHabit;
-        return next;
-      }
-      return [newHabit, ...prev];
-    });
-  };
-
-  const handleDeleteHabit = (habitId: string) => {
-    setHabits(prev => prev.filter(h => h.id !== habitId));
-  };
-
-  // --- Goal Operations ---
-  const handleSaveGoal = (newGoal: Goal) => {
-    setGoals(prev => {
-      const idx = prev.findIndex(g => g.id === newGoal.id);
-      if (idx >= 0) {
-        const next = [...prev];
-        next[idx] = newGoal;
-        return next;
-      }
-      return [newGoal, ...prev];
-    });
-
-    // If this goal was open in history modal, update it as well
-    if (selectedGoalForHistory && selectedGoalForHistory.id === newGoal.id) {
-      setSelectedGoalForHistory(newGoal);
-    }
-  };
-
-  const handleDeleteGoal = (goalId: string) => {
-    setGoals(prev => prev.filter(g => g.id !== goalId && g.parentId !== goalId));
-    if (selectedGoalForHistory?.id === goalId) {
-      setIsHistoryModalOpen(false);
-      setSelectedGoalForHistory(null);
-    }
-  };
-
-  const handleUpdateGoalProgress = (goalId: string, manualProgress: number | null, isManualActive: boolean) => {
-    const timestampNow = getCurrentPersianDateTimeString();
-    setGoals(prev => prev.map(g => {
-      if (g.id === goalId) {
-        const entry: GoalHistoryEntry = {
-          id: `hist-${Date.now()}`,
-          timestamp: timestampNow,
-          action: 'EDITED',
-          description: isManualActive 
-            ? `تنظیم دستی درصد پیشرفت به ${toPersianDigits(manualProgress ?? 0)}٪` 
-            : 'تغییر شیوه ارزیابی به محاسبه خودکار سیستمی',
-        };
-        const updated: Goal = {
-          ...g,
-          manualProgress,
-          isManualProgressActive: isManualActive,
-          history: [entry, ...(g.history || [])],
-        };
-        if (selectedGoalForHistory?.id === goalId) {
-          setSelectedGoalForHistory(updated);
-        }
-        return updated;
-      }
-      return g;
-    }));
-  };
-
-  const handleTransferSeasonItems = (fromGoalId: string, targetSeasonIndex?: number) => {
-    const fromGoal = goals.find(g => g.id === fromGoalId);
-    if (!fromGoal) return;
-
-    const seasonNames = ['بهار', 'تابستان', 'پاییز', 'زمستان'];
-    const currentFromSeasonIdx = fromGoal.seasonIndex ?? 0;
-    const nextSeasonIdx = targetSeasonIndex !== undefined ? targetSeasonIndex : (currentFromSeasonIdx + 1) % 4;
-    const targetYear = nextSeasonIdx === 0 && currentFromSeasonIdx === 3 ? fromGoal.year + 1 : fromGoal.year;
-
-    // Look for existing target seasonal goal under the same parent
-    let targetGoal = goals.find(g => 
-      (g.parentId === fromGoal.parentId || (!g.parentId && !fromGoal.parentId)) &&
-      g.period === 'SEASONAL' && 
-      g.seasonIndex === nextSeasonIdx &&
-      g.year === targetYear
-    );
-
-    let actualTargetGoalId = targetGoal?.id;
-
-    if (!targetGoal) {
-      actualTargetGoalId = `goal-season-${Date.now()}`;
-      const newTarget: Goal = {
-        id: actualTargetGoalId,
-        title: `هدف فصل ${seasonNames[nextSeasonIdx]} (ادامه ${fromGoal.title})`,
-        description: `انتقال خودکار تسک‌ها و عادات از فصل ${seasonNames[currentFromSeasonIdx]}`,
-        year: targetYear,
-        period: 'SEASONAL',
-        status: 'IN_PROGRESS',
-        startDate: todayStr,
-        seasonIndex: nextSeasonIdx,
-        parentId: fromGoal.parentId,
-        categoryId: fromGoal.categoryId,
-        plantType: fromGoal.plantType,
-        createdAt: todayStr,
-        history: [{
-          id: `hist-${Date.now()}`,
-          timestamp: getCurrentPersianDateTimeString(),
-          action: 'CREATED',
-          description: `ایجاد خودکار هدف فصل ${seasonNames[nextSeasonIdx]} برای دریافت فعالیت‌های فصل قبل`,
-        }],
-      };
-      setGoals(prev => [newTarget, ...prev]);
-    }
-
-    const timestampNow = getCurrentPersianDateTimeString();
-
-    // 1. Transfer incomplete tasks
-    let movedTasksCount = 0;
-    setTasks(prev => prev.map(t => {
-      if (t.goalId === fromGoalId && !t.isCompleted) {
-        movedTasksCount++;
-        return {
-          ...t,
-          goalId: actualTargetGoalId,
-          notes: t.notes ? `${t.notes}\n[انتقال از فصل ${seasonNames[currentFromSeasonIdx]}]` : `[انتقال از فصل ${seasonNames[currentFromSeasonIdx]}]`,
-        };
-      }
-      return t;
-    }));
-
-    // 2. Transfer habits
-    let movedHabitsCount = 0;
-    setHabits(prev => prev.map(h => {
-      if (h.goalId === fromGoalId) {
-        movedHabitsCount++;
-        return {
-          ...h,
-          goalId: actualTargetGoalId,
-        };
-      }
-      return h;
-    }));
-
-    // 3. Update history on source goal
-    setGoals(prev => prev.map(g => {
-      if (g.id === fromGoalId) {
-        const entry: GoalHistoryEntry = {
-          id: `hist-${Date.now() + 1}`,
-          timestamp: timestampNow,
-          action: 'EDITED',
-          description: `انتقال ${toPersianDigits(movedTasksCount)} تسک انجام‌نشده و ${toPersianDigits(movedHabitsCount)} عادت به فصل ${seasonNames[nextSeasonIdx]}`,
-        };
-        return {
-          ...g,
-          history: [entry, ...(g.history || [])],
-        };
-      }
-      return g;
-    }));
-  };
-
-  const handleTransferGoalItems = (
-    fromGoalId: string,
-    targetGoalId: string,
-    options: { transferTasks: boolean; transferHabits: boolean }
-  ) => {
-    const fromGoal = goals.find(g => g.id === fromGoalId);
-    const targetGoal = goals.find(g => g.id === targetGoalId);
-    if (!fromGoal || !targetGoal) return;
-
-    const timestampNow = getCurrentPersianDateTimeString();
-    let movedTasksCount = 0;
-    let movedHabitsCount = 0;
-
-    if (options.transferTasks) {
-      setTasks(prev => prev.map(t => {
-        if (t.goalId === fromGoalId && !t.isCompleted) {
-          movedTasksCount++;
-          return {
-            ...t,
-            goalId: targetGoalId,
-            notes: t.notes 
-              ? `${t.notes}\n[انتقال از هدف «${fromGoal.title}»]` 
-              : `[انتقال از هدف «${fromGoal.title}»]`,
-          };
-        }
-        return t;
-      }));
-    }
-
-    if (options.transferHabits) {
-      setHabits(prev => prev.map(h => {
-        if (h.goalId === fromGoalId) {
-          movedHabitsCount++;
-          return {
-            ...h,
-            goalId: targetGoalId,
-          };
-        }
-        return h;
-      }));
-    }
-
-    // Add history log on both fromGoal and targetGoal
-    setGoals(prev => prev.map(g => {
-      if (g.id === fromGoalId) {
-        const entry: GoalHistoryEntry = {
-          id: `hist-${Date.now()}`,
-          timestamp: timestampNow,
-          action: 'EDITED',
-          description: `انتقال ${toPersianDigits(movedTasksCount)} تسک و ${toPersianDigits(movedHabitsCount)} عادت به هدف «${targetGoal.title}»`,
-        };
-        return { ...g, history: [entry, ...(g.history || [])] };
-      }
-      if (g.id === targetGoalId) {
-        const entry: GoalHistoryEntry = {
-          id: `hist-${Date.now() + 1}`,
-          timestamp: timestampNow,
-          action: 'EDITED',
-          description: `دریافت ${toPersianDigits(movedTasksCount)} تسک و ${toPersianDigits(movedHabitsCount)} عادت از هدف «${fromGoal.title}»`,
-        };
-        return { ...g, history: [entry, ...(g.history || [])] };
-      }
-      return g;
-    }));
-  };
-
-  const handleCreateTargetAndTransfer = (
-    fromGoal: Goal,
-    targetTitle: string,
-    targetPeriod: 'SEASONAL' | 'MONTHLY' | 'ANNUAL',
-    targetSeasonIndex?: number,
-    targetMonthIndex?: number,
-    targetYear?: number
-  ) => {
-    const newGoalId = `goal-${Date.now()}`;
-    const timestampNow = getCurrentPersianDateTimeString();
-    const newTargetGoal: Goal = {
-      id: newGoalId,
-      title: targetTitle,
-      description: `ایجاد شده برای ادامه فعالیت‌های «${fromGoal.title}»`,
-      year: targetYear || fromGoal.year,
-      period: targetPeriod,
-      status: 'IN_PROGRESS',
-      startDate: todayStr,
-      seasonIndex: targetSeasonIndex,
-      monthIndex: targetMonthIndex,
-      parentId: targetPeriod === 'ANNUAL' ? null : fromGoal.parentId,
-      categoryId: fromGoal.categoryId,
-      plantType: fromGoal.plantType,
-      createdAt: todayStr,
-      history: [{
-        id: `hist-${Date.now()}`,
-        timestamp: timestampNow,
-        action: 'CREATED',
-        description: `ایجاد هدف جدید و انتقال فعالیت‌ها از «${fromGoal.title}»`,
-      }],
+      });
     };
 
-    setGoals(prev => [newTargetGoal, ...prev]);
+    const intervalId = window.setInterval(checkScheduledReminders, 15000);
+    // Initial check
+    checkScheduledReminders();
 
-    // Transfer tasks and habits to new target
-    handleTransferGoalItems(fromGoal.id, newGoalId, { transferTasks: true, transferHabits: true });
-  };
+    return () => window.clearInterval(intervalId);
+  }, [tasks, reminderSettings, todayStr]);
 
-  const handleCloseGoalPendingItems = (goalId: string) => {
-    const fromGoal = goals.find(g => g.id === goalId);
-    if (!fromGoal) return;
-
-    const timestampNow = getCurrentPersianDateTimeString();
-    let closedTasksCount = 0;
-
-    // Mark pending tasks of this goal as completed
+  // --- Handlers: Tasks ---
+  const handleToggleTask = useCallback((taskId: string) => {
     setTasks(prev => prev.map(t => {
-      if (t.goalId === goalId && !t.isCompleted) {
-        closedTasksCount++;
+      if (t.id === taskId) {
+        const nextState = !t.isCompleted;
         return {
           ...t,
-          isCompleted: true,
-          completionDate: todayStr,
-          notes: t.notes 
-            ? `${t.notes}\n[بسته‌شده در پایان دوره]` 
-            : `[بسته‌شده در پایان دوره]`,
+          isCompleted: nextState,
+          completedAt: nextState ? todayStr : null,
         };
       }
       return t;
     }));
+  }, [todayStr]);
 
-    // Update goal history and mark status as COMPLETED
-    setGoals(prev => prev.map(g => {
-      if (g.id === goalId) {
-        const entry: GoalHistoryEntry = {
-          id: `hist-${Date.now()}`,
-          timestamp: timestampNow,
-          action: 'STATUS_CHANGED',
-          description: `خاتمه دوره: بستن ${toPersianDigits(closedTasksCount)} تسک باقی‌مانده و تکمیل هدف`,
-        };
-        return {
-          ...g,
-          status: 'COMPLETED',
-          history: [entry, ...(g.history || [])],
-        };
+  const handleSaveTask = useCallback((taskData: AppTask) => {
+    setTasks(prev => {
+      const exists = prev.some(t => t.id === taskData.id);
+      if (exists) {
+        return prev.map(t => t.id === taskData.id ? taskData : t);
       }
-      return g;
-    }));
-  };
+      return [taskData, ...prev];
+    });
+    setIsTaskModalOpen(false);
+    setEditingTask(null);
+  }, []);
 
-  const handleToggleCloseHabit = (habitId: string) => {
-    setHabits(prev => prev.map(h => {
-      if (h.id === habitId) {
-        const willClose = !h.isClosed;
-        return {
-          ...h,
-          isClosed: willClose,
-          closedAt: willClose ? todayStr : undefined,
-        };
-      }
-      return h;
-    }));
-  };
+  const handleDeleteTask = useCallback((taskId: string) => {
+    setTasks(prev => prev.filter(t => t.id !== taskId));
+  }, []);
 
-  const handleTransferSingleTask = (
+  const handleEditTask = useCallback((task: AppTask) => {
+    setEditingTask(task);
+    setIsDuplicateTaskMode(false);
+    setIsTaskModalOpen(true);
+  }, []);
+
+  const handleDuplicateTask = useCallback((task: AppTask) => {
+    setEditingTask({
+      ...task,
+      id: `task_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      title: `${task.title} (کپی)`,
+      isCompleted: false,
+      completedAt: null,
+      focusProgressPercent: 0,
+      timerSecondsElapsed: 0,
+    });
+    setIsDuplicateTaskMode(true);
+    setIsTaskModalOpen(true);
+  }, []);
+
+  const handleNewTask = useCallback((initialDate?: string) => {
+    setEditingTask({
+      id: `task_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      title: '',
+      notes: '',
+      categoryId: categories[0]?.id || 'cat-work',
+      dueDate: initialDate || todayStr,
+      time: '10:00',
+      repeatType: 'NONE',
+      repeatDaysOfWeek: [],
+      timerSecondsTarget: 25 * 60,
+      timerSecondsElapsed: 0,
+      isCompleted: false,
+    });
+    setIsDuplicateTaskMode(false);
+    setIsTaskModalOpen(true);
+  }, [categories, todayStr]);
+
+  const handleArchiveTask = useCallback((taskId: string) => {
+    setTasks(prev => prev.map(t => t.id === taskId ? { ...t, isArchived: true } : t));
+  }, []);
+
+  const handleRestoreTask = useCallback((taskId: string) => {
+    setTasks(prev => prev.map(t => t.id === taskId ? { ...t, isArchived: false } : t));
+  }, []);
+
+  const handleClearArchivedTasks = useCallback((taskIds?: string[]) => {
+    if (taskIds && taskIds.length > 0) {
+      setTasks(prev => prev.filter(t => !taskIds.includes(t.id)));
+    } else {
+      setTasks(prev => prev.filter(t => !t.isArchived));
+    }
+  }, []);
+
+  const handleTransferTask = useCallback((
     taskId: string, 
     targetGoalId: string | null, 
     closeTask: boolean, 
@@ -1042,442 +472,202 @@ export const App: React.FC = () => {
   ) => {
     setTasks(prev => prev.map(t => {
       if (t.id === taskId) {
-        if (closeTask) {
-          return {
-            ...t,
-            isCompleted: true,
-            completionDate: todayStr,
-            notes: noteAppend ? (t.notes ? `${t.notes}\n${noteAppend}` : noteAppend) : t.notes,
-          };
-        }
         return {
           ...t,
           goalId: targetGoalId,
-          notes: noteAppend ? (t.notes ? `${t.notes}\n${noteAppend}` : noteAppend) : t.notes,
+          isCompleted: closeTask ? true : t.isCompleted,
+          completedAt: closeTask ? todayStr : t.completedAt,
+          notes: noteAppend ? `${t.notes || ''}\n${noteAppend}`.trim() : t.notes,
         };
       }
       return t;
     }));
-  };
+    setTaskToTransfer(null);
+  }, [todayStr]);
 
-  const handleCreateSeasonalGoalAndTransferTask = (
-    taskId: string, 
-    seasonIdx: number, 
-    year: number, 
-    title: string,
-    parentAnnualId?: string | null, 
-    categoryId?: string
-  ) => {
-    const newGoalId = `goal-season-${Date.now()}`;
-    const timestampNow = getCurrentPersianDateTimeString();
-    const newTargetGoal: Goal = {
-      id: newGoalId,
-      title: title,
-      description: `هدف فصل برای دریافت تسک‌های انتقالی`,
-      year: year,
-      period: 'SEASONAL',
-      status: 'IN_PROGRESS',
-      startDate: todayStr,
-      seasonIndex: seasonIdx,
-      parentId: parentAnnualId || null,
-      categoryId: categoryId || categories[0]?.id,
-      createdAt: todayStr,
-      history: [{
-        id: `hist-${Date.now()}`,
-        timestamp: timestampNow,
-        action: 'CREATED',
-        description: `ایجاد هدف فصلی جدید برای دریافت تسک‌های انتقالی`,
-      }],
-    };
-
-    setGoals(prev => [newTargetGoal, ...prev]);
-    setTasks(prev => prev.map(t => {
-      if (t.id === taskId) {
+  // --- Handlers: Habits ---
+  const handleToggleHabitDate = useCallback((habitId: string, dateStr: string) => {
+    setHabits(prev => prev.map(h => {
+      if (h.id === habitId) {
+        const currentDone = Boolean(h.completionHistory?.[dateStr]);
         return {
-          ...t,
-          goalId: newGoalId,
-          notes: t.notes ? `${t.notes}\n[انتقال به هدف «${title}»]` : `[انتقال به هدف «${title}»]`,
+          ...h,
+          completionHistory: {
+            ...(h.completionHistory || {}),
+            [dateStr]: !currentDone,
+          },
         };
       }
-      return t;
+      return h;
     }));
-  };
+  }, []);
 
-  const handleUpdateGoalStatus = (goalId: string, status: GoalStatus, note?: string) => {
-    const timestampNow = getCurrentPersianDateTimeString();
-    const statusLabels: Record<GoalStatus, string> = {
-      NOT_STARTED: 'شروع نشده',
-      IN_PROGRESS: 'در حال انجام',
-      COMPLETED: 'تکمیل شده',
-      PAUSED: 'متوقف شده',
-    };
-
-    setGoals(prev => prev.map(g => {
-      if (g.id === goalId) {
-        const entry: GoalHistoryEntry = {
-          id: `hist-${Date.now()}`,
-          timestamp: timestampNow,
-          action: 'STATUS_CHANGED',
-          description: `تغییر وضعیت به: ${statusLabels[status]}${note ? ` (توضیح: ${note})` : ''}`,
-          previousValues: { status: g.status }
-        };
-        const updated = {
-          ...g,
-          status,
-          history: [entry, ...(g.history || [])],
-        };
-        if (selectedGoalForHistory?.id === goalId) {
-          setSelectedGoalForHistory(updated);
-        }
-        return updated;
+  const handleSaveHabit = useCallback((habitData: Habit) => {
+    setHabits(prev => {
+      const exists = prev.some(h => h.id === habitData.id);
+      if (exists) {
+        return prev.map(h => h.id === habitData.id ? habitData : h);
       }
-      return g;
-    }));
-  };
-
-  const handleAddGoalNote = (goalId: string, note: string) => {
-    const timestampNow = getCurrentPersianDateTimeString();
-    setGoals(prev => prev.map(g => {
-      if (g.id === goalId) {
-        const entry: GoalHistoryEntry = {
-          id: `hist-${Date.now()}`,
-          timestamp: timestampNow,
-          action: 'NOTE_ADDED',
-          description: note,
-        };
-        const updated = {
-          ...g,
-          history: [entry, ...(g.history || [])],
-        };
-        if (selectedGoalForHistory?.id === goalId) {
-          setSelectedGoalForHistory(updated);
-        }
-        return updated;
-      }
-      return g;
-    }));
-  };
-
-  const handleAddGoalMilestone = (goalId: string, title: string) => {
-    const timestampNow = getCurrentPersianDateTimeString();
-    setGoals(prev => prev.map(g => {
-      if (g.id === goalId) {
-        const entry: GoalHistoryEntry = {
-          id: `hist-${Date.now()}`,
-          timestamp: timestampNow,
-          action: 'MILESTONE_COMPLETED',
-          description: `دستیابی به نقطه عطف: ${title}`,
-        };
-        const updated = {
-          ...g,
-          history: [entry, ...(g.history || [])],
-        };
-        if (selectedGoalForHistory?.id === goalId) {
-          setSelectedGoalForHistory(updated);
-        }
-        return updated;
-      }
-      return g;
-    }));
-  };
-
-  // Annual Goal Wizard save handler
-  const handleSaveAnnualWizard = (
-    annualGoal: Goal, 
-    intermediateGoals?: Goal[] | Goal, 
-    microTask?: AppTask, 
-    microHabit?: Habit
-  ) => {
-    setGoals(prev => {
-      const added: Goal[] = [annualGoal];
-      if (Array.isArray(intermediateGoals)) {
-        added.push(...intermediateGoals);
-      } else if (intermediateGoals) {
-        added.push(intermediateGoals);
-      }
-      return flattenAndSanitizeGoals([...added, ...prev]);
+      return [habitData, ...prev];
     });
+    setIsHabitModalOpen(false);
+    setEditingHabit(null);
+  }, []);
 
-    if (microTask) {
-      setTasks(prev => [microTask, ...prev]);
-    }
+  const handleDeleteHabit = useCallback((habitId: string) => {
+    setHabits(prev => prev.filter(h => h.id !== habitId));
+  }, []);
 
-    if (microHabit) {
-      setHabits(prev => [microHabit, ...prev]);
-    }
+  const handleEditHabit = useCallback((habit: Habit) => {
+    setEditingHabit(habit);
+    setIsDuplicateHabitMode(false);
+    setIsHabitModalOpen(true);
+  }, []);
 
-    // Switch to GOALS tab to see the newly created hierarchy
-    setCurrentTab('GOALS');
-  };
+  const handleDuplicateHabit = useCallback((habit: Habit) => {
+    setEditingHabit({
+      ...habit,
+      id: `habit_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      title: `${habit.title} (کپی)`,
+      completionHistory: {},
+      dailyProgressHistory: {},
+      dailyElapsedSeconds: {},
+      createdAt: todayStr,
+    });
+    setIsDuplicateHabitMode(true);
+    setIsHabitModalOpen(true);
+  }, [todayStr]);
 
-  // Helper to open task modal pre-filled for a specific goal
-  const handleNewTaskForGoal = (goalId: string) => {
-    const parentGoal = goals.find(g => g.id === goalId);
-    setEditingTask({
-      id: `task-${Date.now()}`,
+  const handleNewHabit = useCallback(() => {
+    setEditingHabit({
+      id: `habit_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
       title: '',
       notes: '',
-      categoryId: parentGoal?.categoryId || categories[0]?.id || 'cat-work',
-      goalId,
-      dueDate: todayStr,
-      repeatType: 'NONE',
-      repeatDaysOfWeek: [today.day % 7],
-      weekOfMonth: 1,
-      dayOfWeek: 0,
-      timerSecondsTarget: 1500,
-      timerSecondsElapsed: 0,
-      isCompleted: false,
-    });
-    setIsTaskModalOpen(true);
-  };
-
-  // Helper to open habit modal pre-filled for a specific goal
-  const handleNewHabitForGoal = (goalId: string) => {
-    const parentGoal = goals.find(g => g.id === goalId);
-    const parentCat = parentGoal ? categories.find(c => c.id === parentGoal.categoryId) : undefined;
-    setEditingHabit({
-      id: `habit-${Date.now()}`,
-      title: '',
-      categoryId: parentGoal?.categoryId || categories[0]?.id || 'cat-work',
-      plantType: parentGoal?.plantType || parentCat?.plantType || 'بونسای',
-      frequency: 'DAILY',
-      targetDaysPerWeek: 7,
-      selectedDaysOfWeek: [0, 1, 2, 3, 4, 5, 6],
-      currentStreak: 0,
-      longestStreak: 0,
-      completionHistory: {},
-      goalId,
+      categoryId: categories[0]?.id || 'cat-work',
+      time: '08:00',
       timerMinutes: 15,
+      frequency: 'DAILY',
+      targetDaysOfWeek: [0, 1, 2, 3, 4, 5, 6],
+      exemptHolidays: false,
+      exemptWeekends: false,
+      plantType: 'بونسای',
+      completionHistory: {},
+      createdAt: todayStr,
     });
+    setIsDuplicateHabitMode(false);
     setIsHabitModalOpen(true);
-  };
+  }, [categories, todayStr]);
 
-  // Helper to open new goal modal pre-filled with parent or period
-  const handleOpenNewGoalModal = (
-    parentId?: string | null, 
+  const handleToggleCloseHabit = useCallback((habitId: string) => {
+    setHabits(prev => prev.map(h => {
+      if (h.id === habitId) {
+        const nextClosed = !h.isClosed;
+        return {
+          ...h,
+          isClosed: nextClosed,
+          closedAt: nextClosed ? todayStr : null,
+        };
+      }
+      return h;
+    }));
+  }, [todayStr]);
+
+  // --- Handlers: Goals ---
+  const handleSaveGoal = useCallback((goalData: Goal) => {
+    setGoals(prev => {
+      const exists = prev.some(g => g.id === goalData.id);
+      if (exists) {
+        return prev.map(g => g.id === goalData.id ? goalData : g);
+      }
+      return [goalData, ...prev];
+    });
+    setIsGoalModalOpen(false);
+    setEditingGoal(null);
+  }, []);
+
+  const handleDeleteGoal = useCallback((goalId: string) => {
+    setGoals(prev => prev.filter(g => g.id !== goalId));
+  }, []);
+
+  const handleEditGoal = useCallback((goal: Goal) => {
+    setEditingGoal(goal);
+    setIsGoalModalOpen(true);
+  }, []);
+
+  const handleNewGoal = useCallback((
+    parentId?: string | null,
     period?: 'ANNUAL' | 'SEASONAL' | 'MONTHLY',
     seasonIndex?: number
   ) => {
-    const foundParent = parentId ? goals.find(g => g.id === parentId) : null;
-    const initialCategory = foundParent?.categoryId || categories[0]?.id || 'cat-work';
-    const initialCatObj = categories.find(c => c.id === initialCategory);
-    const seasonNames = ['بهار', 'تابستان', 'پاییز', 'زمستان'];
-
-    let prefillTitle = '';
-    if (foundParent) {
-      const targetSeasonIdx = seasonIndex !== undefined ? seasonIndex : foundParent.seasonIndex;
-      if (period === 'SEASONAL' && targetSeasonIdx !== undefined) {
-        prefillTitle = `گام فصل ${seasonNames[targetSeasonIdx]}: ${foundParent.title}`;
-      } else if (period === 'SEASONAL') {
-        prefillTitle = `گام فصلی: ${foundParent.title}`;
-      } else if (period === 'MONTHLY') {
-        prefillTitle = `گام ماهانه: ${foundParent.title}`;
-      }
-    }
+    const parent = parentId ? goals.find(g => g.id === parentId) : null;
+    const catId = parent?.categoryId || categories[0]?.id || 'cat-work';
 
     setEditingGoal({
-      id: '', // Empty ID ensures it is treated as a clean new goal
-      title: prefillTitle,
+      id: `goal_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      title: '',
       description: '',
-      visionWhy: '',
-      year: foundParent?.year || today.year,
+      year: parent?.year || today.year,
       period: period || (parentId ? 'SEASONAL' : 'ANNUAL'),
-      seasonIndex: seasonIndex !== undefined ? seasonIndex : foundParent?.seasonIndex,
       status: 'IN_PROGRESS',
       startDate: todayStr,
       parentId: parentId || null,
-      categoryId: initialCategory,
-      plantType: foundParent?.plantType || initialCatObj?.plantType || 'بونسای',
-      history: [],
+      seasonIndex: seasonIndex !== undefined ? seasonIndex : (period === 'SEASONAL' ? Math.floor((today.month - 1) / 3) : undefined),
+      categoryId: catId,
+      plantType: parent?.plantType || 'بونسای',
+      history: [
+        {
+          id: `h_${Date.now()}`,
+          timestamp: getCurrentPersianDateTimeString(),
+          action: 'CREATED',
+          description: 'ایجاد اولیه هدف'
+        }
+      ],
       createdAt: todayStr,
     });
     setIsGoalModalOpen(true);
-  };
+  }, [goals, categories, today, todayStr]);
 
-  // Category management handlers for Settings
-  const handleSaveCategory = (cat: Category) => {
-    setCategories(prev => {
-      const idx = prev.findIndex(c => c.id === cat.id);
-      if (idx >= 0) {
-        const next = [...prev];
-        next[idx] = cat;
-        return next;
-      }
-      return [...prev, cat];
-    });
-  };
-
-  const handleDeleteCategory = (catId: string) => {
-    if (categories.length <= 1) return;
-    const fallbackCat = categories.find(c => c.id !== catId)?.id || 'cat-work';
-    setCategories(prev => prev.filter(c => c.id !== catId));
-    setGoals(prev => prev.map(g => g.categoryId === catId ? { ...g, categoryId: fallbackCat } : g));
-    setTasks(prev => prev.map(t => t.categoryId === catId ? { ...t, categoryId: fallbackCat } : t));
-    setHabits(prev => prev.map(h => h.categoryId === catId ? { ...h, categoryId: fallbackCat } : h));
-  };
-
-  const handleResetCategories = () => {
-    setCategories(INITIAL_CATEGORIES);
-  };
-
-  const handleImportAllData = (
-    data: { 
-      categories?: Category[]; 
-      goals?: Goal[]; 
-      tasks?: AppTask[]; 
-      habits?: Habit[];
-      userProfile?: UserProfile;
-      reminderSettings?: ReminderSettings;
-    },
-    mode: 'REPLACE' | 'MERGE' = 'REPLACE'
+  const handleUpdateGoalProgress = useCallback((
+    goalId: string, 
+    manualProgress: number | null, 
+    isManualActive: boolean
   ) => {
-    // 0. Safety Guard: Never allow an empty or corrupt payload to wipe existing data
-    const hasAnyEntities = 
-      (Array.isArray(data.categories) && data.categories.length > 0) ||
-      (Array.isArray(data.goals) && data.goals.length > 0) ||
-      (Array.isArray(data.tasks) && data.tasks.length > 0) ||
-      (Array.isArray(data.habits) && data.habits.length > 0) ||
-      Boolean(data.userProfile);
-
-    if (!hasAnyEntities) {
-      console.warn('[Safety] Blocked import of empty or corrupt data payload to preserve current data.');
-      return;
-    }
-
-    // Always record an emergency backup snapshot of the exact current state before any modification
-    saveLocalSnapshot({
-      categories,
-      goals,
-      tasks,
-      habits,
-      userProfile,
-      reminderSettings,
-    });
-
-    let nextCategories = categories;
-    let nextGoals = goals;
-    let nextTasks = tasks;
-    let nextHabits = habits;
-
-    if (mode === 'REPLACE') {
-      nextCategories = data.categories && data.categories.length > 0 ? data.categories : INITIAL_CATEGORIES;
-      nextGoals = data.goals ? flattenAndSanitizeGoals(data.goals) : [];
-      nextTasks = data.tasks ? data.tasks.map(t => ({ ...t, repeatDaysOfWeek: t.repeatDaysOfWeek || [] })) : [];
-      nextHabits = data.habits ? data.habits.map(h => ({
-        ...h,
-        targetDaysOfWeek: h.targetDaysOfWeek || [0, 1, 2, 3, 4, 5, 6],
-        completionHistory: h.completionHistory || {},
-      })) : [];
-
-      resetLocalSnapshotsWithData({
-        categories: nextCategories,
-        goals: nextGoals,
-        tasks: nextTasks,
-        habits: nextHabits,
-      });
-    } else {
-      // MERGE mode
-      if (data.categories && data.categories.length > 0) {
-        nextCategories = mergeEntitiesById(categories, data.categories);
+    setGoals(prev => prev.map(g => {
+      if (g.id === goalId) {
+        return {
+          ...g,
+          manualProgress,
+          isManualProgressActive: isManualActive,
+          status: manualProgress === 100 ? 'COMPLETED' : g.status,
+          history: [
+            ...g.history,
+            {
+              id: `h_${Date.now()}`,
+              timestamp: getCurrentPersianDateTimeString(),
+              action: 'EDITED',
+              description: `تنظیم دستی پیشرفت به ${toPersianDigits(manualProgress ?? 0)}٪`
+            }
+          ]
+        };
       }
-      if (data.goals && data.goals.length > 0) {
-        nextGoals = flattenAndSanitizeGoals(mergeEntitiesById(goals, data.goals));
-      }
-      if (data.tasks && data.tasks.length > 0) {
-        nextTasks = mergeEntitiesById(tasks, data.tasks).map(t => ({
-          ...t,
-          repeatDaysOfWeek: t.repeatDaysOfWeek || [],
-        }));
-      }
-      if (data.habits && data.habits.length > 0) {
-        nextHabits = mergeEntitiesById(habits, data.habits).map(h => ({
-          ...h,
-          targetDaysOfWeek: h.targetDaysOfWeek || [0, 1, 2, 3, 4, 5, 6],
-          completionHistory: h.completionHistory || {},
-        }));
-      }
+      return g;
+    }));
+  }, []);
 
-      saveLocalSnapshot({
-        categories: nextCategories,
-        goals: nextGoals,
-        tasks: nextTasks,
-        habits: nextHabits,
-      });
-    }
+  const handleGoalWizardSave = useCallback((
+    annualGoal: Goal, 
+    intermediateGoals: Goal[], 
+    microTask?: AppTask, 
+    microHabit?: Habit
+  ) => {
+    setGoals(prev => [annualGoal, ...intermediateGoals, ...prev]);
+    if (microTask) setTasks(prev => [microTask, ...prev]);
+    if (microHabit) setHabits(prev => [microHabit, ...prev]);
+    setIsAnnualWizardOpen(false);
+  }, []);
 
-    setCategories(nextCategories);
-    setGoals(nextGoals);
-    setTasks(nextTasks);
-    setHabits(nextHabits);
-
-    // Explicitly write to persistent stores immediately
-    saveToLocalStorage('javaneh_categories', nextCategories);
-    saveToLocalStorage('javaneh_goals', nextGoals);
-    saveToLocalStorage('javaneh_tasks', nextTasks);
-    saveToLocalStorage('javaneh_habits', nextHabits);
-
-    saveToIndexedDB('categories', nextCategories);
-    saveToIndexedDB('goals', nextGoals);
-    saveToIndexedDB('tasks', nextTasks);
-    saveToIndexedDB('habits', nextHabits);
-
-    if (data.userProfile) {
-      setUserProfile(data.userProfile);
-      saveToLocalStorage(STORAGE_KEYS.PROFILE, data.userProfile);
-      saveToIndexedDB('userProfile', data.userProfile);
-    }
-    if (data.reminderSettings) {
-      setReminderSettings(data.reminderSettings);
-      saveToLocalStorage(STORAGE_KEYS.REMINDERS, data.reminderSettings);
-      saveToIndexedDB('reminderSettings', data.reminderSettings);
-    }
-
-    triggerServerSync({
-      categories: nextCategories,
-      goals: nextGoals,
-      tasks: nextTasks,
-      habits: nextHabits,
-      userProfile: data.userProfile || userProfile,
-      reminderSettings: data.reminderSettings || reminderSettings,
-    }, 100);
-  };
-
-  // Dedicated Tasks-only import handler (Fast Task Restore)
-  const handleImportTasksOnly = (importedTasks: AppTask[], mode: 'REPLACE' | 'MERGE' = 'MERGE') => {
-    let nextTasks: AppTask[] = [];
-    if (mode === 'REPLACE') {
-      nextTasks = importedTasks.map(t => ({ ...t, repeatDaysOfWeek: t.repeatDaysOfWeek || [] }));
-    } else {
-      nextTasks = mergeEntitiesById(tasks, importedTasks).map(t => ({
-        ...t,
-        repeatDaysOfWeek: t.repeatDaysOfWeek || [],
-      }));
-    }
-
-    setTasks(nextTasks);
-    saveToLocalStorage('javaneh_tasks', nextTasks);
-    saveToIndexedDB('tasks', nextTasks);
-    saveLocalSnapshot({
-      categories,
-      goals,
-      tasks: nextTasks,
-      habits,
-      userProfile,
-      reminderSettings,
-    });
-
-    triggerServerSync({
-      categories,
-      goals,
-      tasks: nextTasks,
-      habits,
-      userProfile,
-      reminderSettings,
-    }, 100);
-  };
-
-  // --- Timer Helper ---
-  const openTimer = (
+  // --- Handlers: Timer & Focus Sessions ---
+  const handleOpenTimer = useCallback((
     title: string,
     minutes: number,
     onDone?: (elapsedSeconds: number, isFullyCompleted: boolean) => void,
@@ -1489,7 +679,7 @@ export const App: React.FC = () => {
       currentProgressPercent?: number;
     }
   ) => {
-    setTimerConfig({
+    setTimerState({
       isOpen: true,
       title,
       minutes,
@@ -1500,189 +690,183 @@ export const App: React.FC = () => {
       currentProgressPercent: options?.currentProgressPercent || 0,
       onDone,
     });
-  };
+  }, []);
 
-  const handleTimerComplete = (elapsedSeconds: number, isFullyCompleted: boolean) => {
-    const timestampNow = new Date().toISOString();
-    const targetSeconds = (timerConfig.minutes || 25) * 60;
-    const progressPct = isFullyCompleted 
-      ? 100 
-      : Math.min(100, Math.round((elapsedSeconds / Math.max(1, targetSeconds)) * 100));
+  const handleTimerComplete = useCallback((elapsedSeconds: number, isFullyCompleted: boolean) => {
+    const { taskId, habitId, entityType, onDone, minutes } = timerState;
 
-    // Handle Task Focus Session
-    if (timerConfig.taskId) {
-      const taskId = timerConfig.taskId;
+    if (onDone) {
+      onDone(elapsedSeconds, isFullyCompleted);
+    }
+
+    const log: FocusSessionLog = {
+      id: `focus_${Date.now()}`,
+      dateStr: todayStr,
+      timestamp: new Date().toISOString(),
+      durationSeconds: elapsedSeconds,
+      targetSeconds: (minutes || 25) * 60,
+      completed100: isFullyCompleted,
+      progressPercent: Math.min(100, Math.round((elapsedSeconds / ((minutes || 25) * 60)) * 100)),
+    };
+
+    if (entityType === 'TASK' && taskId) {
       setTasks(prev => prev.map(t => {
         if (t.id === taskId) {
-          const session: FocusSessionLog = {
-            id: `session-${Date.now()}`,
-            dateStr: todayStr,
-            timestamp: timestampNow,
-            durationSeconds: elapsedSeconds,
-            targetSeconds,
-            completed100: isFullyCompleted || progressPct >= 100,
-            progressPercent: progressPct,
-          };
-          const nextSessions = [session, ...(t.focusSessions || [])];
+          const sessions = [...(t.focusSessions || []), log];
           return {
             ...t,
-            timerSecondsElapsed: elapsedSeconds,
-            focusProgressPercent: progressPct,
-            focusSessions: nextSessions,
-            isCompleted: isFullyCompleted ? true : (t.isCompleted || false),
-            completedAt: isFullyCompleted ? todayStr : (t.isCompleted ? t.completedAt : null),
+            timerSecondsElapsed: (t.timerSecondsElapsed || 0) + elapsedSeconds,
+            focusProgressPercent: isFullyCompleted ? 100 : Math.min(100, Math.round(((t.timerSecondsElapsed || 0) + elapsedSeconds) / (t.timerSecondsTarget || 1500) * 100)),
+            isCompleted: isFullyCompleted ? true : t.isCompleted,
+            completedAt: isFullyCompleted ? todayStr : t.completedAt,
+            focusSessions: sessions,
           };
         }
         return t;
       }));
-    }
-
-    // Handle Habit Focus Session
-    if (timerConfig.habitId) {
-      const habitId = timerConfig.habitId;
+    } else if (entityType === 'HABIT' && habitId) {
       setHabits(prev => prev.map(h => {
         if (h.id === habitId) {
-          const session: FocusSessionLog = {
-            id: `session-${Date.now()}`,
-            dateStr: todayStr,
-            timestamp: timestampNow,
-            durationSeconds: elapsedSeconds,
-            targetSeconds,
-            completed100: isFullyCompleted || progressPct >= 100,
-            progressPercent: progressPct,
-          };
-          const nextSessions = [session, ...(h.focusSessions || [])];
-          const nextDailyProgress = { ...(h.dailyProgressHistory || {}), [todayStr]: progressPct };
-          const nextDailyElapsed = { ...(h.dailyElapsedSeconds || {}), [todayStr]: elapsedSeconds };
-          const nextCompletion = { ...h.completionHistory };
-          if (isFullyCompleted) {
-            nextCompletion[todayStr] = true;
-          }
-
+          const sessions = [...(h.focusSessions || []), log];
+          const prevDayElapsed = h.dailyElapsedSeconds?.[todayStr] || 0;
           return {
             ...h,
-            dailyProgressHistory: nextDailyProgress,
-            dailyElapsedSeconds: nextDailyElapsed,
-            completionHistory: nextCompletion,
-            focusSessions: nextSessions,
+            dailyElapsedSeconds: {
+              ...(h.dailyElapsedSeconds || {}),
+              [todayStr]: prevDayElapsed + elapsedSeconds,
+            },
+            dailyProgressHistory: {
+              ...(h.dailyProgressHistory || {}),
+              [todayStr]: isFullyCompleted ? 100 : Math.min(100, Math.round(((prevDayElapsed + elapsedSeconds) / ((h.timerMinutes || 15) * 60)) * 100)),
+            },
+            completionHistory: {
+              ...(h.completionHistory || {}),
+              [todayStr]: isFullyCompleted ? true : Boolean(h.completionHistory?.[todayStr]),
+            },
+            focusSessions: sessions,
           };
         }
         return h;
       }));
     }
 
-    // Call custom onDone if provided
-    if (timerConfig.onDone) {
-      timerConfig.onDone(elapsedSeconds, isFullyCompleted);
+    setTimerState(prev => ({ ...prev, isOpen: false }));
+  }, [timerState, todayStr]);
+
+  // --- Handlers: Settings & Backup ---
+  const handleSaveUserProfile = useCallback((profile: UserProfile) => {
+    setUserProfile(profile);
+  }, []);
+
+  const handleSaveReminderSettings = useCallback((settings: ReminderSettings) => {
+    setReminderSettings(settings);
+  }, []);
+
+  const handleSaveCategory = useCallback((cat: Category) => {
+    setCategories(prev => {
+      const exists = prev.some(c => c.id === cat.id);
+      if (exists) return prev.map(c => c.id === cat.id ? cat : c);
+      return [...prev, cat];
+    });
+  }, []);
+
+  const handleDeleteCategory = useCallback((catId: string) => {
+    setCategories(prev => prev.filter(c => c.id !== catId));
+  }, []);
+
+  const handleResetCategories = useCallback(() => {
+    setCategories(INITIAL_CATEGORIES);
+  }, []);
+
+  const handleImportTasksOnly = useCallback((importedTasks: AppTask[]) => {
+    setTasks(prev => mergeEntitiesById(prev, importedTasks));
+  }, []);
+
+  const handleImportAllData = useCallback((data: AppBackupData) => {
+    if (data.categories && data.categories.length > 0) setCategories(data.categories);
+    if (data.goals) setGoals(data.goals);
+    if (data.tasks) setTasks(data.tasks);
+    if (data.habits) setHabits(data.habits);
+    if (data.userProfile) setUserProfile(data.userProfile);
+    if (data.reminderSettings) setReminderSettings(data.reminderSettings);
+  }, []);
+
+  const handleInstallClick = () => {
+    if (deferredPrompt) {
+      deferredPrompt.prompt();
+      deferredPrompt.userChoice.then(() => setDeferredPrompt(null));
     }
   };
 
+  // Nav Items
+  const navItems = [
+    { id: 'TODAY' as MainTab, label: 'امروز', icon: Sun },
+    { id: 'TASKS' as MainTab, label: 'وظایف', icon: CheckSquare, badge: tasks.filter(t => !t.isCompleted && !t.isArchived).length },
+    { id: 'HABITS' as MainTab, label: 'عادت‌ها', icon: RotateCw, badge: habits.filter(h => !h.isClosed && !h.completionHistory?.[todayStr]).length },
+    { id: 'GOALS' as MainTab, label: 'اهداف', icon: Target },
+    { id: 'CALENDAR' as MainTab, label: 'تقویم', icon: CalendarIcon },
+    { id: 'REPORTS' as MainTab, label: 'گزارشات', icon: BarChart3 },
+    { id: 'SETTINGS' as MainTab, label: 'تنظیمات', icon: SettingsIcon },
+  ];
+
   return (
-    <div className="h-[100dvh] max-h-[100dvh] min-h-[100dvh] overflow-hidden bg-[#F8F9F5] text-[#1A2E1A] flex flex-col antialiased">
-      {/* Top Navbar */}
-      <header className="shrink-0 z-40 bg-white/95 backdrop-blur-md border-b border-emerald-100 shadow-xs">
-        <div className="max-w-4xl mx-auto px-3 sm:px-4 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-2.5 sm:gap-3">
-            <div 
-              onClick={() => setCurrentTab('TODAY')}
-              className="flex items-center gap-2.5 sm:gap-3 cursor-pointer group"
-            >
-              <div className="w-9 h-9 rounded-xl overflow-hidden shadow-xs border border-emerald-300/60 bg-emerald-800 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
-                <img src="/icon.svg" alt="جوانه" className="w-full h-full object-cover" />
-              </div>
-              <div>
-                <h1 className="text-base font-extrabold text-emerald-950 tracking-tight group-hover:text-emerald-800 transition-colors">
+    <div className="min-h-screen bg-[#F8F9F5] text-[#1A2E1A] flex flex-col font-sans select-none antialiased selection:bg-emerald-200">
+      {/* Top Header Bar */}
+      <header className="sticky top-0 z-40 bg-white/90 backdrop-blur-md border-b border-gray-200/80 px-4 py-2.5 shadow-2xs">
+        <div className="max-w-6xl mx-auto flex items-center justify-between">
+          {/* Logo & Brand */}
+          <div className="flex items-center gap-2.5 cursor-pointer" onClick={() => setActiveTab('TODAY')}>
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-500 text-white flex items-center justify-center shadow-xs">
+              <Sprout className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-1.5">
+                <h1 className="text-base sm:text-lg font-black tracking-tight text-gray-900">
                   جوانه
                 </h1>
-                <p className="text-[10px] text-gray-400">تسک‌ها، عادات و اهداف سالانه</p>
+                <span className="text-[10px] font-bold px-1.5 py-0.2 rounded-md bg-emerald-50 text-emerald-800 border border-emerald-200">
+                  v{APP_VERSION_INFO.currentVersion}
+                </span>
+              </div>
+              <p className="text-[10px] text-gray-500 leading-none">
+                {WEEKDAYS[today.day % 7]}، {toPersianDigits(today.day)} {today.month} {toPersianDigits(today.year)}
+              </p>
+            </div>
+          </div>
+
+          {/* Plant Progress Indicator & Fast Actions */}
+          <div className="flex items-center gap-2">
+            {/* Today Plant Status Pill */}
+            <div 
+              onClick={() => setActiveTab('TODAY')}
+              className="flex items-center gap-2 px-3 py-1.5 bg-emerald-50/80 hover:bg-emerald-100/80 rounded-xl border border-emerald-200/80 cursor-pointer transition-colors shadow-2xs"
+              title="مشاهده باغچه امروز"
+            >
+              <PlantIcon plantType={userProfile?.avatarUrl || 'بونسای'} stage={plantState.stage} className="w-5 h-5" />
+              <div className="text-right">
+                <div className="text-[10px] font-bold text-emerald-950 flex items-center gap-1">
+                  <span>رشد امروز:</span>
+                  <span className="font-mono text-emerald-700">%{toPersianDigits(plantState.progressPercent)}</span>
+                </div>
               </div>
             </div>
 
-            {/* Main Header Persian Date (Clickable to switch to Persian Calendar) */}
+            {/* Quick Add Button */}
             <button
               type="button"
-              onClick={() => setCurrentTab('CALENDAR')}
-              title="مشاهده تقویم شمسی و تعطیلات رسمی ایران"
-              className={`hidden md:flex items-center gap-2 mr-3 px-2.5 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                currentTab === 'CALENDAR'
-                  ? 'bg-emerald-600 text-white shadow-xs'
-                  : 'bg-emerald-50/70 border border-emerald-200/70 text-emerald-950 hover:bg-emerald-100'
-              }`}
-            >
-              <Calendar className="w-3.5 h-3.5" />
-              <span>{WEEKDAYS[getDayOfWeek(today)]}، {toPersianDigits(today.day)} {PERSIAN_MONTHS[today.month - 1]} {toPersianDigits(today.year)}</span>
-            </button>
-          </div>
-
-          <div className="flex items-center gap-1.5 sm:gap-2">
-            {/* Small mobile date chip */}
-            <button
-              type="button"
-              onClick={() => setCurrentTab('CALENDAR')}
-              title="مشاهده تقویم شمسی"
-              className={`md:hidden flex items-center gap-1 px-2 py-1.5 rounded-lg text-[11px] font-bold cursor-pointer transition-colors ${
-                currentTab === 'CALENDAR'
-                  ? 'bg-emerald-600 text-white'
-                  : 'bg-emerald-50/70 border border-emerald-200/60 text-emerald-900'
-              }`}
-            >
-              <span>{toPersianDigits(today.day)} {PERSIAN_MONTHS[today.month - 1]}</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setIsApkConfirmModalOpen(true)}
-              title="دانلود فایل نصبی APK جوانه برای اندروید (نسخه کامل و سبک)"
-              className="hidden sm:flex px-2.5 py-1.5 bg-gradient-to-r from-emerald-700 to-green-700 hover:from-emerald-800 hover:to-green-800 text-white text-xs font-black rounded-xl shadow-xs hover:shadow-md items-center gap-1.5 transition-all cursor-pointer active:scale-95"
-            >
-              <Download className="w-3.5 h-3.5 text-emerald-200" />
-              <span>دانلود APK</span>
-              <span className="hidden md:inline-block px-1.5 py-0.5 bg-white/20 rounded-md text-[10px] font-bold">۵۳۵KB</span>
-            </button>
-
-            {/* Direct Data Backup & Mobile Transfer Button */}
-            <button
-              type="button"
-              onClick={() => {
-                setBackupModalInitialTab('FULL_TRANSFER');
-                setIsTasksBackupModalOpen(true);
-              }}
-              title="پشتیبان‌گیری از داده‌ها و انتقال به گوشی (دانلود یا آپلود)"
-              className="hidden sm:flex px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-200/90 hover:border-emerald-300 rounded-xl text-xs font-black shadow-2xs items-center gap-1.5 transition-all cursor-pointer active:scale-95"
-            >
-              <Database className="w-3.5 h-3.5 text-emerald-700" />
-              <span>پشتیبان و انتقال</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setIsAnnualWizardOpen(true)}
-              className="hidden sm:flex px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-bold rounded-xl border border-emerald-200 items-center gap-1.5 transition-colors cursor-pointer"
-            >
-              <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
-              <span>طراحی هدف سالانه</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                setEditingTask(null);
-                setIsDuplicateTask(false);
-                setIsTaskModalOpen(true);
-              }}
-              className="px-2.5 sm:px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs flex items-center gap-1 transition-colors cursor-pointer"
+              onClick={() => handleNewTask()}
+              className="p-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl shadow-2xs flex items-center justify-center transition-all active:scale-95 cursor-pointer"
+              title="افزودن تسک سریع"
             >
               <Plus className="w-4 h-4" />
-              <span className="hidden xs:inline sm:inline">تسک سریع</span>
             </button>
           </div>
         </div>
       </header>
 
-      {/* Main Content Area */}
-      <main className="flex-1 min-h-0 overflow-y-auto w-full pb-20 sm:pb-24">
-        <div className="max-w-4xl w-full mx-auto px-4 py-5">
-        {currentTab === 'TODAY' && (
+      {/* Main Screen Content */}
+      <main className="flex-1 max-w-6xl w-full mx-auto p-3 sm:p-5 pb-24">
+        {activeTab === 'TODAY' && (
           <TodayScreen
             tasks={tasks}
             habits={habits}
@@ -1690,102 +874,119 @@ export const App: React.FC = () => {
             categories={categories}
             plantState={plantState}
             userProfile={userProfile}
-            onOpenSettings={() => setCurrentTab('SETTINGS')}
+            onOpenSettings={() => setActiveTab('SETTINGS')}
             onToggleTask={handleToggleTask}
             onToggleHabitToday={(id) => handleToggleHabitDate(id, todayStr)}
             onToggleHabitDate={handleToggleHabitDate}
-            onOpenTimer={(title, mins, cb, opts) => openTimer(title, mins, cb, opts)}
-            onOpenNewTask={() => { setEditingTask(null); setIsDuplicateTask(false); setIsTaskModalOpen(true); }}
-            onOpenNewHabit={() => { setEditingHabit(null); setIsDuplicateHabit(false); setIsHabitModalOpen(true); }}
-            onDuplicateTask={(t) => { setEditingTask(t); setIsDuplicateTask(true); setIsTaskModalOpen(true); }}
-            onEditTask={(t) => { setEditingTask(t); setIsDuplicateTask(false); setIsTaskModalOpen(true); }}
+            onOpenTimer={handleOpenTimer}
+            onOpenNewTask={() => handleNewTask()}
+            onOpenNewHabit={() => handleNewHabit()}
+            onDuplicateTask={handleDuplicateTask}
+            onEditTask={handleEditTask}
           />
         )}
 
-        {currentTab === 'TASKS' && (
+        {activeTab === 'TASKS' && (
           <TasksScreen
             tasks={tasks}
             categories={categories}
             goals={goals}
             onToggleTask={handleToggleTask}
             onDeleteTask={handleDeleteTask}
-            onEditTask={(t) => { setEditingTask(t); setIsDuplicateTask(false); setIsTaskModalOpen(true); }}
-            onDuplicateTask={(t) => { setEditingTask(t); setIsDuplicateTask(true); setIsTaskModalOpen(true); }}
-            onNewTask={() => { setEditingTask(null); setIsDuplicateTask(false); setIsTaskModalOpen(true); }}
-            onOpenTimer={(title, mins, cb, opts) => openTimer(title, mins, cb, opts)}
-            onTransferTask={handleTransferSingleTask}
-            onCreateSeasonalGoalAndTransfer={handleCreateSeasonalGoalAndTransferTask}
+            onEditTask={handleEditTask}
+            onNewTask={() => handleNewTask()}
+            onOpenTimer={handleOpenTimer}
+            onTransferTask={handleTransferTask}
             onArchiveTask={handleArchiveTask}
             onRestoreTask={handleRestoreTask}
             onClearArchivedTasks={handleClearArchivedTasks}
-            onOpenTasksBackup={() => {
-              setBackupModalInitialTab('TASKS_BACKUP');
-              setIsTasksBackupModalOpen(true);
-            }}
+            onDuplicateTask={handleDuplicateTask}
+            onOpenTasksBackup={() => setActiveTab('SETTINGS')}
           />
         )}
 
-        {currentTab === 'HABITS' && (
+        {activeTab === 'HABITS' && (
           <HabitsScreen
             habits={habits}
             categories={categories}
             goals={goals}
             onToggleHabitDate={handleToggleHabitDate}
             onDeleteHabit={handleDeleteHabit}
-            onEditHabit={(h) => { setEditingHabit(h); setIsDuplicateHabit(false); setIsHabitModalOpen(true); }}
-            onDuplicateHabit={(h) => { setEditingHabit(h); setIsDuplicateHabit(true); setIsHabitModalOpen(true); }}
-            onNewHabit={() => { setEditingHabit(null); setIsDuplicateHabit(false); setIsHabitModalOpen(true); }}
-            onOpenTimer={(title, mins, cb, opts) => openTimer(title, mins, cb, opts)}
+            onEditHabit={handleEditHabit}
+            onDuplicateHabit={handleDuplicateHabit}
+            onNewHabit={handleNewHabit}
+            onOpenTimer={handleOpenTimer}
             onToggleCloseHabit={handleToggleCloseHabit}
           />
         )}
 
-        {currentTab === 'CALENDAR' && (
-          <PersianCalendarScreen
-            tasks={tasks}
-            habits={habits}
-            categories={categories}
-            goals={goals}
-            onToggleTask={handleToggleTask}
-            onToggleHabitDate={(id, dateStr) => handleToggleHabitDate(id, dateStr)}
-            onOpenTimer={(title, mins, cb, opts) => openTimer(title, mins, cb, opts)}
-            onNewTaskWithDate={(dateStr) => {
-              setEditingTask(null);
-              setIsDuplicateTask(false);
-              setIsTaskModalOpen(true);
-            }}
-          />
-        )}
-
-        {currentTab === 'GOALS' && (
+        {activeTab === 'GOALS' && (
           <GoalsScreen
             goals={goals}
             tasks={tasks}
             habits={habits}
             categories={categories}
             onOpenAnnualWizard={() => setIsAnnualWizardOpen(true)}
-            onNewGoal={handleOpenNewGoalModal}
-            onEditGoal={(g) => { setEditingGoal(g); setIsGoalModalOpen(true); }}
+            onNewGoal={handleNewGoal}
+            onEditGoal={handleEditGoal}
             onDeleteGoal={handleDeleteGoal}
-            onViewHistory={(g) => { setSelectedGoalForHistory(g); setIsHistoryModalOpen(true); }}
-            onNewTaskForGoal={handleNewTaskForGoal}
-            onNewHabitForGoal={handleNewHabitForGoal}
+            onViewHistory={(g) => setSelectedHistoryGoal(g)}
+            onNewTaskForGoal={(gId) => {
+              setEditingTask({
+                id: `task_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+                title: '',
+                notes: '',
+                categoryId: categories[0]?.id || 'cat-work',
+                goalId: gId,
+                dueDate: todayStr,
+                repeatType: 'NONE',
+                repeatDaysOfWeek: [],
+                timerSecondsTarget: 25 * 60,
+                timerSecondsElapsed: 0,
+                isCompleted: false,
+              });
+              setIsTaskModalOpen(true);
+            }}
+            onNewHabitForGoal={(gId) => {
+              setEditingHabit({
+                id: `habit_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+                title: '',
+                notes: '',
+                categoryId: categories[0]?.id || 'cat-work',
+                goalId: gId,
+                frequency: 'DAILY',
+                targetDaysOfWeek: [0, 1, 2, 3, 4, 5, 6],
+                exemptHolidays: false,
+                exemptWeekends: false,
+                plantType: 'بونسای',
+                timerMinutes: 15,
+                completionHistory: {},
+                createdAt: todayStr,
+              });
+              setIsHabitModalOpen(true);
+            }}
             onToggleTask={handleToggleTask}
             onToggleHabitToday={(id) => handleToggleHabitDate(id, todayStr)}
-            onOpenTimer={(title, mins, cb) => openTimer(title, mins, cb)}
+            onOpenTimer={handleOpenTimer}
             onUpdateGoalProgress={handleUpdateGoalProgress}
-            onTransferSeasonItems={handleTransferSeasonItems}
             onDeleteCategory={handleDeleteCategory}
-            onTransferGoalItems={handleTransferGoalItems}
-            onCreateTargetAndTransfer={handleCreateTargetAndTransfer}
-            onCloseGoalPendingItems={handleCloseGoalPendingItems}
-            onTransferTask={handleTransferSingleTask}
-            onCreateSeasonalGoalAndTransfer={handleCreateSeasonalGoalAndTransferTask}
-            onDuplicateTask={(t) => { setEditingTask(t); setIsDuplicateTask(true); setIsTaskModalOpen(true); }}
           />
         )}
 
-        {currentTab === 'REPORTS' && (
+        {activeTab === 'CALENDAR' && (
+          <PersianCalendarScreen
+            tasks={tasks}
+            habits={habits}
+            categories={categories}
+            goals={goals}
+            onToggleTask={handleToggleTask}
+            onToggleHabitDate={handleToggleHabitDate}
+            onOpenTimer={handleOpenTimer}
+            onNewTaskWithDate={(dateStr) => handleNewTask(dateStr)}
+          />
+        )}
+
+        {activeTab === 'REPORTS' && (
           <ReportsScreen
             tasks={tasks}
             habits={habits}
@@ -1794,7 +995,7 @@ export const App: React.FC = () => {
           />
         )}
 
-        {currentTab === 'SETTINGS' && (
+        {activeTab === 'SETTINGS' && (
           <SettingsScreen
             categories={categories}
             goals={goals}
@@ -1803,7 +1004,7 @@ export const App: React.FC = () => {
             userProfile={userProfile}
             reminderSettings={reminderSettings}
             deferredPrompt={deferredPrompt}
-            onInstallClick={handleInstallApp}
+            onInstallClick={handleInstallClick}
             onSaveUserProfile={handleSaveUserProfile}
             onSaveReminderSettings={handleSaveReminderSettings}
             onSaveCategory={handleSaveCategory}
@@ -1813,229 +1014,195 @@ export const App: React.FC = () => {
             onImportAllData={handleImportAllData}
           />
         )}
-        </div>
       </main>
 
-      {/* Bottom Navigation Bar */}
-      <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-emerald-100 shadow-[0_-4px_16px_rgba(0,0,0,0.06)] pb-[env(safe-area-inset-bottom,0px)]">
-        <div className="max-w-xl mx-auto px-1.5 h-16 flex items-center justify-around overflow-x-auto no-scrollbar">
-          <button
-            type="button"
-            onClick={() => setCurrentTab('TODAY')}
-            className={`flex-1 py-1 flex flex-col items-center justify-center gap-0.5 min-w-0 cursor-pointer transition-all ${
-              currentTab === 'TODAY' ? 'text-emerald-700 font-bold' : 'text-gray-400 hover:text-gray-600'
-            }`}
-          >
-            <div className={`p-1 px-2 rounded-xl transition-colors ${currentTab === 'TODAY' ? 'bg-emerald-100 text-emerald-800' : ''}`}>
-              <Sprout className={`w-4.5 h-4.5 ${currentTab === 'TODAY' ? 'stroke-[2.5]' : ''}`} />
-            </div>
-            <span className="text-[10px] leading-tight">باغچه</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setCurrentTab('TASKS')}
-            className={`flex-1 py-1 flex flex-col items-center justify-center gap-0.5 min-w-0 cursor-pointer transition-all ${
-              currentTab === 'TASKS' ? 'text-emerald-700 font-bold' : 'text-gray-400 hover:text-gray-600'
-            }`}
-          >
-            <div className={`p-1 px-2 rounded-xl transition-colors ${currentTab === 'TASKS' ? 'bg-emerald-100 text-emerald-800' : ''}`}>
-              <CheckSquare className={`w-4.5 h-4.5 ${currentTab === 'TASKS' ? 'stroke-[2.5]' : ''}`} />
-            </div>
-            <span className="text-[10px] leading-tight">تسک‌ها</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setCurrentTab('HABITS')}
-            className={`flex-1 py-1 flex flex-col items-center justify-center gap-0.5 min-w-0 cursor-pointer transition-all ${
-              currentTab === 'HABITS' ? 'text-emerald-700 font-bold' : 'text-gray-400 hover:text-gray-600'
-            }`}
-          >
-            <div className={`p-1 px-2 rounded-xl transition-colors ${currentTab === 'HABITS' ? 'bg-emerald-100 text-emerald-800' : ''}`}>
-              <Flame className={`w-4.5 h-4.5 ${currentTab === 'HABITS' ? 'stroke-[2.5]' : ''}`} />
-            </div>
-            <span className="text-[10px] leading-tight">عادت‌ها</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setCurrentTab('CALENDAR')}
-            className={`flex-1 py-1 flex flex-col items-center justify-center gap-0.5 min-w-0 cursor-pointer transition-all ${
-              currentTab === 'CALENDAR' ? 'text-emerald-700 font-bold' : 'text-gray-400 hover:text-gray-600'
-            }`}
-          >
-            <div className={`p-1 px-2 rounded-xl transition-colors ${currentTab === 'CALENDAR' ? 'bg-emerald-100 text-emerald-800' : ''}`}>
-              <Calendar className={`w-4.5 h-4.5 ${currentTab === 'CALENDAR' ? 'stroke-[2.5]' : ''}`} />
-            </div>
-            <span className="text-[10px] leading-tight">تقویم</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setCurrentTab('GOALS')}
-            className={`flex-1 py-1 flex flex-col items-center justify-center gap-0.5 min-w-0 cursor-pointer transition-all ${
-              currentTab === 'GOALS' ? 'text-emerald-700 font-bold' : 'text-gray-400 hover:text-gray-600'
-            }`}
-          >
-            <div className={`p-1 px-2 rounded-xl transition-colors ${currentTab === 'GOALS' ? 'bg-emerald-100 text-emerald-800' : ''}`}>
-              <Target className={`w-4.5 h-4.5 ${currentTab === 'GOALS' ? 'stroke-[2.5]' : ''}`} />
-            </div>
-            <span className="text-[10px] leading-tight">اهداف</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setCurrentTab('REPORTS')}
-            className={`flex-1 py-1 flex flex-col items-center justify-center gap-0.5 min-w-0 cursor-pointer transition-all ${
-              currentTab === 'REPORTS' ? 'text-emerald-700 font-bold' : 'text-gray-400 hover:text-gray-600'
-            }`}
-          >
-            <div className={`p-1 px-2 rounded-xl transition-colors ${currentTab === 'REPORTS' ? 'bg-emerald-100 text-emerald-800' : ''}`}>
-              <BarChart3 className={`w-4.5 h-4.5 ${currentTab === 'REPORTS' ? 'stroke-[2.5]' : ''}`} />
-            </div>
-            <span className="text-[10px] leading-tight">گزارش</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setCurrentTab('SETTINGS')}
-            className={`flex-1 py-1 flex flex-col items-center justify-center gap-0.5 min-w-0 cursor-pointer transition-all ${
-              currentTab === 'SETTINGS' ? 'text-emerald-700 font-bold' : 'text-gray-400 hover:text-gray-600'
-            }`}
-          >
-            <div className={`p-1 px-2 rounded-xl transition-colors ${currentTab === 'SETTINGS' ? 'bg-emerald-100 text-emerald-800' : ''}`}>
-              <Settings className={`w-4.5 h-4.5 ${currentTab === 'SETTINGS' ? 'stroke-[2.5]' : ''}`} />
-            </div>
-            <span className="text-[10px] leading-tight">تنظیمات</span>
-          </button>
+      {/* Bottom Sticky Navigation Bar */}
+      <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-gray-200/90 shadow-lg px-2 py-1.5">
+        <div className="max-w-md mx-auto grid grid-cols-7 gap-1">
+          {navItems.map((item) => {
+            const Icon = item.icon;
+            const isActive = activeTab === item.id;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => setActiveTab(item.id)}
+                className={`relative flex flex-col items-center justify-center py-1.5 px-0.5 rounded-xl transition-all cursor-pointer ${
+                  isActive
+                    ? 'text-emerald-700 bg-emerald-50/90 font-black scale-105'
+                    : 'text-gray-500 hover:text-gray-800 hover:bg-gray-50 font-medium'
+                }`}
+              >
+                <div className="relative">
+                  <Icon className={`w-5 h-5 ${isActive ? 'stroke-[2.5]' : 'stroke-[1.8]'}`} />
+                  {Boolean(item.badge && item.badge > 0) && (
+                    <span className="absolute -top-1 -right-1 bg-emerald-600 text-white text-[9px] font-bold w-4 h-4 rounded-full flex items-center justify-center font-mono shadow-xs">
+                      {toPersianDigits(item.badge! > 99 ? '99+' : item.badge!)}
+                    </span>
+                  )}
+                </div>
+                <span className="text-[10px] mt-0.5 tracking-tight truncate max-w-full">
+                  {item.label}
+                </span>
+              </button>
+            );
+          })}
         </div>
       </nav>
 
       {/* Modals */}
-      <AnnualGoalWizardModal
-        isOpen={isAnnualWizardOpen}
-        categories={categories}
-        onClose={() => setIsAnnualWizardOpen(false)}
-        onSaveComplete={handleSaveAnnualWizard}
-      />
-
-      <GoalDetailHistoryModal
-        isOpen={isHistoryModalOpen}
-        goal={selectedGoalForHistory}
-        subGoals={goals.filter(g => g.parentId === selectedGoalForHistory?.id)}
-        linkedTasks={tasks.filter(t => t.goalId === selectedGoalForHistory?.id)}
-        onClose={() => { setIsHistoryModalOpen(false); setSelectedGoalForHistory(null); }}
-        onEdit={(g) => {
-          setIsHistoryModalOpen(false);
-          setEditingGoal(g);
-          setIsGoalModalOpen(true);
-        }}
-        onUpdateStatus={handleUpdateGoalStatus}
-        onAddNote={handleAddGoalNote}
-        onAddMilestone={handleAddGoalMilestone}
-      />
-
       <TaskModal
-        key={isTaskModalOpen ? `${editingTask?.id || 'new'}-${isDuplicateTask ? 'dup' : 'edit'}` : 'task-modal-closed'}
         isOpen={isTaskModalOpen}
         task={editingTask}
         categories={categories}
         goals={goals}
         reminderSettings={reminderSettings}
-        isDuplicate={isDuplicateTask}
-        onClose={() => { setIsTaskModalOpen(false); setEditingTask(null); setIsDuplicateTask(false); }}
+        isDuplicate={isDuplicateTaskMode}
+        onClose={() => {
+          setIsTaskModalOpen(false);
+          setEditingTask(null);
+        }}
         onSave={handleSaveTask}
       />
 
       <HabitModal
-        key={isHabitModalOpen ? `${editingHabit?.id || 'new'}-${isDuplicateHabit ? 'dup' : 'edit'}` : 'habit-modal-closed'}
         isOpen={isHabitModalOpen}
         habit={editingHabit}
         categories={categories}
         goals={goals}
-        isDuplicate={isDuplicateHabit}
-        onClose={() => { setIsHabitModalOpen(false); setEditingHabit(null); setIsDuplicateHabit(false); }}
+        isDuplicate={isDuplicateHabitMode}
+        onClose={() => {
+          setIsHabitModalOpen(false);
+          setEditingHabit(null);
+        }}
         onSave={handleSaveHabit}
       />
 
       <GoalModal
-        key={isGoalModalOpen ? (editingGoal?.id || `new-goal-${editingGoal?.parentId || 'root'}-${editingGoal?.period || 'annual'}-${editingGoal?.seasonIndex ?? 'noseason'}`) : 'goal-modal-closed'}
         isOpen={isGoalModalOpen}
         goal={editingGoal}
         categories={categories}
         existingGoals={goals}
-        onClose={() => { setIsGoalModalOpen(false); setEditingGoal(null); }}
+        onClose={() => {
+          setIsGoalModalOpen(false);
+          setEditingGoal(null);
+        }}
         onSave={handleSaveGoal}
       />
 
-      <TimerModal
-        isOpen={timerConfig.isOpen}
-        title={timerConfig.title}
-        initialMinutes={timerConfig.minutes}
-        initialElapsedSeconds={timerConfig.initialElapsedSeconds || 0}
-        currentProgressPercent={timerConfig.currentProgressPercent || 0}
-        entityType={timerConfig.entityType || 'TASK'}
-        onClose={() => setTimerConfig(prev => ({ ...prev, isOpen: false }))}
-        onComplete={(elapsed, isFullyCompleted) => {
-          handleTimerComplete(elapsed, isFullyCompleted);
+      <AnnualGoalWizardModal
+        isOpen={isAnnualWizardOpen}
+        categories={categories}
+        onClose={() => setIsAnnualWizardOpen(false)}
+        onSaveComplete={handleGoalWizardSave}
+      />
+
+      <GoalDetailHistoryModal
+        isOpen={Boolean(selectedHistoryGoal)}
+        goal={selectedHistoryGoal}
+        subGoals={goals.filter(g => g.parentId === selectedHistoryGoal?.id)}
+        linkedTasks={tasks.filter(t => t.goalId === selectedHistoryGoal?.id)}
+        onClose={() => setSelectedHistoryGoal(null)}
+        onEdit={(g) => {
+          setSelectedHistoryGoal(null);
+          handleEditGoal(g);
+        }}
+        onUpdateStatus={(gId, status, note) => {
+          setGoals(prev => prev.map(g => {
+            if (g.id === gId) {
+              return {
+                ...g,
+                status,
+                history: [
+                  ...g.history,
+                  {
+                    id: `h_${Date.now()}`,
+                    timestamp: getCurrentPersianDateTimeString(),
+                    action: 'STATUS_CHANGED',
+                    description: `تغییر وضعیت به ${status}${note ? `: ${note}` : ''}`,
+                  }
+                ]
+              };
+            }
+            return g;
+          }));
+        }}
+        onAddNote={(gId, note) => {
+          setGoals(prev => prev.map(g => {
+            if (g.id === gId) {
+              return {
+                ...g,
+                history: [
+                  ...g.history,
+                  {
+                    id: `h_${Date.now()}`,
+                    timestamp: getCurrentPersianDateTimeString(),
+                    action: 'NOTE_ADDED',
+                    description: note,
+                  }
+                ]
+              };
+            }
+            return g;
+          }));
         }}
       />
 
-      {/* Active Task Reminder Alarm Alert */}
+      <TimerModal
+        isOpen={timerState.isOpen}
+        title={timerState.title}
+        initialMinutes={timerState.minutes}
+        initialElapsedSeconds={timerState.initialElapsedSeconds}
+        currentProgressPercent={timerState.currentProgressPercent}
+        entityType={timerState.entityType}
+        onClose={() => setTimerState(prev => ({ ...prev, isOpen: false }))}
+        onComplete={handleTimerComplete}
+      />
+
       <ReminderAlertModal
-        isOpen={!!activeReminderTask}
-        task={activeReminderTask}
-        category={categories.find(c => c.id === activeReminderTask?.categoryId)}
-        soundTitle={
-          PRESET_ALARM_SOUNDS.find(s => s.id === (activeReminderTask?.customAlarmSound || reminderSettings.selectedSoundId))?.title ||
-          reminderSettings.customSounds?.find(s => s.id === activeReminderTask?.customAlarmSound)?.title ||
-          'آرامش صبحگاهی'
-        }
+        isOpen={Boolean(activeAlertTask)}
+        task={activeAlertTask}
+        category={categories.find(c => c.id === activeAlertTask?.categoryId)}
+        soundTitle={reminderSettings.selectedSoundId}
         reminderSettings={reminderSettings}
-        holidayNotice={activeReminderHolidayNotice}
-        onDismiss={handleDismissReminder}
-        onComplete={handleCompleteReminderTask}
-        onSnooze={handleSnoozeReminder}
+        holidayNotice={isDateHoliday(today)?.title}
+        onDismiss={() => {
+          stopAllAlarmSounds();
+          setActiveAlertTask(null);
+        }}
+        onComplete={(tId) => {
+          stopAllAlarmSounds();
+          handleToggleTask(tId);
+          setActiveAlertTask(null);
+        }}
+        onSnooze={(tId, mins) => {
+          stopAllAlarmSounds();
+          const [h, m] = (activeAlertTask?.time || '12:00').split(':').map(Number);
+          const totalMin = h * 60 + m + mins;
+          const nextH = Math.floor(totalMin / 60) % 24;
+          const nextM = totalMin % 60;
+          const nextSnoozeAt = `${nextH.toString().padStart(2, '0')}:${nextM.toString().padStart(2, '0')}`;
+
+          setTasks(prev => prev.map(t => t.id === tId ? {
+            ...t,
+            nextSnoozeAt,
+            snoozeCount: (t.snoozeCount || 0) + 1,
+          } : t));
+
+          setActiveAlertTask(null);
+        }}
       />
 
-      {/* Direct Full Data Backup, Transfer & Restore Modal */}
-      <UpdateAndBackupModal
-        isOpen={isTasksBackupModalOpen}
-        onClose={() => setIsTasksBackupModalOpen(false)}
-        initialTab={backupModalInitialTab}
-        tasks={tasks}
-        goals={goals}
-        habits={habits}
-        categories={categories}
-        userProfile={userProfile}
-        reminderSettings={reminderSettings}
-        onImportTasksOnly={handleImportTasksOnly}
-        onImportAllData={handleImportAllData}
-        onOpenFullApkDownload={() => setIsApkConfirmModalOpen(true)}
-      />
-
-      {/* Direct APK Download Modal with HEAD inspection */}
-      <ApkDownloadConfirmModal
-        isOpen={isApkConfirmModalOpen}
-        onClose={() => setIsApkConfirmModalOpen(false)}
-      />
-
-      {/* Google Play / In-App Upgrade Notification Toast */}
-      {upgradeNotice && (
-        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 max-w-md w-11/12 bg-emerald-900/95 text-white text-xs font-bold px-4 py-3 rounded-2xl shadow-xl border border-emerald-500/50 flex items-center justify-between gap-3 animate-fade-in">
-          <div className="flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-emerald-300 shrink-0" />
-            <span>{upgradeNotice}</span>
-          </div>
-          <button 
-            type="button" 
-            onClick={() => setUpgradeNotice(null)}
-            className="p-1 hover:bg-white/20 rounded-lg text-emerald-200 cursor-pointer"
-          >
-            <X className="w-3.5 h-3.5" />
-          </button>
-        </div>
+      {taskToTransfer && (
+        <TransferTaskModal
+          isOpen={Boolean(taskToTransfer)}
+          task={taskToTransfer}
+          goals={goals}
+          onClose={() => setTaskToTransfer(null)}
+          onConfirm={(targetGoalId, closeTask, noteAppend) => {
+            handleTransferTask(taskToTransfer.id, targetGoalId, closeTask, noteAppend);
+          }}
+        />
       )}
     </div>
   );

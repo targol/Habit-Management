@@ -245,21 +245,21 @@ export const TimerModal: React.FC<Props> = ({
           </div>
         </div>
 
-        {/* Presets for Countdown */}
+        {/* Presets for Pomodoro Countdown */}
         {mode === 'COUNTDOWN' && (
-          <div className="flex justify-center gap-1.5 mb-4">
-            {[5, 15, 25, 45].map((mins) => (
+          <div className="flex flex-wrap justify-center gap-1.5 mb-4">
+            {[10, 15, 25, 45, 60].map((mins) => (
               <button
                 key={mins}
                 type="button"
                 onClick={() => handleSelectPreset(mins)}
-                className={`px-3 py-1 text-xs rounded-lg border transition-all cursor-pointer ${
+                className={`px-2.5 py-1 text-xs rounded-lg border transition-all cursor-pointer ${
                   targetMinutes === mins
                     ? 'bg-emerald-600 text-white border-emerald-600 font-bold shadow-2xs scale-105'
                     : 'bg-white text-emerald-800 border-emerald-200 hover:bg-emerald-50'
                 }`}
               >
-                {toPersianDigits(mins)} دقیقه
+                {toPersianDigits(mins)} دقیقه {mins === 25 ? '🍅' : ''}
               </button>
             ))}
           </div>
@@ -516,15 +516,42 @@ export const TimerModal: React.FC<Props> = ({
                 </span>
               </div>
 
-              <div className="mt-4 text-center">
-                <div className="w-12 h-12 mx-auto rounded-2xl bg-amber-50 border border-amber-200 text-amber-700 flex items-center justify-center mb-2 shadow-2xs">
-                  <Hourglass className="w-6 h-6 animate-pulse" />
+              <div className="mt-3 text-center">
+                {/* Animated Growing Plant Symbol */}
+                <div className="relative w-24 h-24 mx-auto mb-2 flex items-center justify-center">
+                  <div className="absolute inset-0 bg-emerald-100 rounded-full animate-ping opacity-30" />
+                  <div className="w-20 h-20 rounded-2xl bg-gradient-to-tr from-emerald-500 to-teal-400 text-white flex items-center justify-center shadow-lg relative z-10 transition-transform duration-500 hover:scale-105">
+                    <svg viewBox="0 0 100 100" className="w-14 h-14 animate-bounce">
+                      <circle cx="50" cy="50" r="46" fill="none" stroke="rgba(255,255,255,0.35)" strokeWidth="3" />
+                      {/* Soil Pot */}
+                      <path d="M 32 74 L 68 74 L 63 88 L 37 88 Z" fill="#8D6E63" />
+                      {/* Growing Stem */}
+                      <path d="M 50 74 Q 48 50 50 35" stroke="#ECFDF5" strokeWidth="5" strokeLinecap="round" fill="none" />
+                      {/* Left Leaf */}
+                      <path d="M 49 55 Q 28 44 34 32 Q 47 40 49 55" fill="#34D399" />
+                      {/* Right Leaf */}
+                      <path d="M 51 46 Q 72 36 66 23 Q 53 31 51 46" fill="#6EE7B7" />
+                      {/* Blooming Flower Center */}
+                      <circle cx="50" cy="30" r="8" fill="#FCD34D" />
+                      {/* Petals */}
+                      <circle cx="50" cy="21" r="5" fill="#F472B6" />
+                      <circle cx="59" cy="30" r="5" fill="#F472B6" />
+                      <circle cx="50" cy="39" r="5" fill="#F472B6" />
+                      <circle cx="41" cy="30" r="5" fill="#F472B6" />
+                    </svg>
+                  </div>
+                  <Sparkles className="absolute -top-1 -right-1 w-6 h-6 text-amber-400 animate-spin" />
                 </div>
+
+                <div className="inline-block px-3 py-1 rounded-full bg-emerald-100/90 text-emerald-900 text-xs font-black mb-1.5 shadow-2xs border border-emerald-200">
+                  🌱 جوانه رشد کرد! پایان بازه تمرکز پومودورو
+                </div>
+
                 <h4 className="text-sm font-black text-gray-900">
-                  وضعیت انجام این {entityType === 'HABIT' ? 'عادت' : 'تسک'} چیست؟
+                  وضعیت ثبت این {entityType === 'HABIT' ? 'عادت' : 'تسک'} چیست؟
                 </h4>
                 <p className="text-xs text-gray-500 mt-1 leading-relaxed px-2">
-                  می‌توانید تسک را ۱۰۰٪ تکمیل شده ثبت کنید، یا به صورت «نصفه» ذخیره کنید تا در ادامه امروز تکمیل کنید. در پایان روز اگر خودتان تایید نکنید، همین درصد فعلی در تاریخچه ثبت می‌شود.
+                  می‌توانید تسک را ۱۰۰٪ تکمیل شده ثبت کنید، یا به صورت «نصفه» ذخیره کنید تا در ادامه امروز تکمیل کنید.
                 </p>
               </div>
 

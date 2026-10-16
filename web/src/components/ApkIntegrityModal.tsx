@@ -84,12 +84,12 @@ export const ApkIntegrityModal: React.FC<Props> = ({ isOpen, onClose }) => {
           if (data.size) setTotalBytes(data.size);
         } else {
           setServerInfo({
-            available: true,
+            available: false,
             filename: 'javaneh.apk',
-            size: EXPECTED_SIZE,
-            formattedSize: '527 KB',
+            size: 0,
+            formattedSize: 'عدم میزبانی در سرور وب',
             sha256: EXPECTED_HASH,
-            acceptRanges: true,
+            acceptRanges: false,
           });
         }
         setLoadingServerInfo(false);
@@ -97,12 +97,12 @@ export const ApkIntegrityModal: React.FC<Props> = ({ isOpen, onClose }) => {
       .catch(() => {
         if (isMounted) {
           setServerInfo({
-            available: true,
+            available: false,
             filename: 'javaneh.apk',
-            size: EXPECTED_SIZE,
-            formattedSize: '527 KB',
+            size: 0,
+            formattedSize: 'عدم میزبانی در سرور وب',
             sha256: EXPECTED_HASH,
-            acceptRanges: true,
+            acceptRanges: false,
           });
           setLoadingServerInfo(false);
         }
@@ -197,6 +197,11 @@ export const ApkIntegrityModal: React.FC<Props> = ({ isOpen, onClose }) => {
             Range: `bytes=${start}-${end}`,
           },
         });
+
+        const cType = response.headers.get('content-type') || '';
+        if (cType.includes('text/html') || cType.includes('application/json')) {
+          throw new Error('فایل نصبی مستقیم APK در سرور وب موجود نیست. لطفاً از گزینه نصب سریع PWA استفاده فرمایید.');
+        }
 
         if (!response.ok && response.status !== 206 && response.status !== 200) {
           throw new Error(`خطای دریافت تکه فایل (${response.status})`);

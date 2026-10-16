@@ -4,7 +4,11 @@ import {
   getTodayJalali, 
   toPersianDigits, 
   PERSIAN_MONTHS, 
-  parseJalaliString 
+  parseJalaliString,
+  addDaysJalali,
+  jalaliToFormattedString,
+  jalaliToGregorian,
+  WEEKDAYS
 } from '../calendar/jalali';
 import { 
   PieChart, 
@@ -69,9 +73,26 @@ export const HabitMonthCategoryPieChart: React.FC<Props> = ({
 
   const today = useMemo(() => getTodayJalali(), []);
 
-  // Selected Jalali Year & Month
+  // Period mode: 'WEEK' (میزان موفقیت عادات هفتگی) vs 'MONTH' (عادات ماهانه)
+  const [periodMode, setPeriodMode] = useState<'WEEK' | 'MONTH'>('WEEK');
+  const [weekOffset, setWeekOffset] = useState<number>(0);
+
+  // Selected Jalali Year & Month (for monthly mode)
   const [selectedYear, setSelectedYear] = useState<number>(today.year);
   const [selectedMonth, setSelectedMonth] = useState<number>(today.month);
+
+  // Calculate week range for weekly mode
+  const gDate = useMemo(() => jalaliToGregorian(today.year, today.month, today.day), [today]);
+  const todayWeekdayIndex = (gDate.getDay() + 1) % 7; // 0: Sat ... 6: Fri
+  const startOfWeek = useMemo(() => addDaysJalali(today, -todayWeekdayIndex + weekOffset * 7), [today, todayWeekdayIndex, weekOffset]);
+  const endOfWeek = useMemo(() => addDaysJalali(startOfWeek, 6), [startOfWeek]);
+  const weekDateStrings = useMemo(() => {
+    const list: string[] = [];
+    for (let i = 0; i < 7; i++) {
+      list.push(jalaliToFormattedString(addDaysJalali(startOfWeek, i)));
+    }
+    return list;
+  }, [startOfWeek]);
 
   // Active hovered or selected slice index
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
@@ -82,8 +103,24 @@ export const HabitMonthCategoryPieChart: React.FC<Props> = ({
   // Metric mode: 'COMPLETIONS' (تعداد دفعات انجام) vs 'ACTIVE_HABITS' (تعداد عادات فعال)
   const [metricMode, setMetricMode] = useState<'COMPLETIONS' | 'ACTIVE_HABITS'>('COMPLETIONS');
 
-  // Month navigation helpers
+  // Navigation helpers
   const isCurrentMonth = selectedYear === today.year && selectedMonth === today.month;
+  const isCurrentWeek = weekOffset === 0;
+
+  const handlePrevWeek = () => {
+    setWeekOffset(prev => prev - 1);
+    setActiveIndex(null);
+  };
+
+  const handleNextWeek = () => {
+    setWeekOffset(prev => prev + 1);
+    setActiveIndex(null);
+  };
+
+  const handleResetToCurrentWeek = () => {
+    setWeekOffset(0);
+    setActiveIndex(null);
+  };
 
   const handlePrevMonth = () => {
     if (selectedMonth === 1) {
@@ -111,23 +148,31 @@ export const HabitMonthCategoryPieChart: React.FC<Props> = ({
     setActiveIndex(null);
   };
 
-  // 1. Calculate completions for each category in the chosen month
+  // 1. Calculate completions for each category in the chosen period (week or month)
   const categoryStats = useMemo<CategoryCompletionStat[]>(() => {
-    // Collect all completions per habit in the target month
-    const habitMonthCompletions: Record<string, number> = {};
+    // Collect completions per habit in the target period
+    const habitPeriodCompletions: Record<string, number> = {};
 
     habits.forEach((habit) => {
       let count = 0;
       if (habit.completionHistory) {
-        Object.entries(habit.completionHistory).forEach(([dateStr, isDone]) => {
-          if (!isDone) return;
-          const parsed = parseJalaliString(dateStr);
-          if (parsed && parsed.year === selectedYear && parsed.month === selectedMonth) {
-            count++;
-          }
-        });
+        if (periodMode === 'WEEK') {
+          weekDateStrings.forEach((dStr) => {
+            if (habit.completionHistory?.[dStr]) {
+              count++;
+            }
+          });
+        } else {
+          Object.entries(habit.completionHistory).forEach(([dateStr, isDone]) => {
+            if (!isDone) return;
+            const parsed = parseJalaliString(dateStr);
+            if (parsed && parsed.year === selectedYear && parsed.month === selectedMonth) {
+              count++;
+            }
+          });
+        }
       }
-      habitMonthCompletions[habit.id] = count;
+      habitPeriodCompletions[habit.id] = count;
     });
 
     // Map known categories
@@ -141,7 +186,7 @@ export const HabitMonthCategoryPieChart: React.FC<Props> = ({
 
       catHabits.forEach((h) => {
         processedHabitIds.add(h.id);
-        const c = habitMonthCompletions[h.id] || 0;
+        const c = habitPeriodCompletions[h.id] || 0;
         if (c > 0) {
           habitsBreakdown.push({ habit: h, count: c });
           totalCatCompletions += c;
@@ -169,7 +214,7 @@ export const HabitMonthCategoryPieChart: React.FC<Props> = ({
       let totalUncatCompletions = 0;
 
       uncategorizedHabits.forEach((h) => {
-        const c = habitMonthCompletions[h.id] || 0;
+        const c = habitPeriodCompletions[h.id] || 0;
         if (c > 0) {
           habitsBreakdown.push({ habit: h, count: c });
           totalUncatCompletions += c;
@@ -290,7 +335,7 @@ export const HabitMonthCategoryPieChart: React.FC<Props> = ({
 
         <div className="space-y-1 text-xs">
           <div className="flex justify-between items-center text-gray-600">
-            <span>سهم از ماه:</span>
+            <span>{periodMode === 'WEEK' ? 'سهم از کل هفته:' : 'سهم از ماه:'}</span>
             <span className="font-extrabold text-emerald-700">
               {toPersianDigits(item.percentage.toFixed(1))}٪
             </span>
@@ -320,7 +365,7 @@ export const HabitMonthCategoryPieChart: React.FC<Props> = ({
 
   return (
     <div className={`bg-white rounded-3xl p-5 sm:p-6 border border-emerald-100/90 shadow-xs space-y-6 ${className}`}>
-      {/* 1. Header with Title & Month Navigation Controls */}
+      {/* 1. Header with Title & Period / Navigation Controls */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-gray-100 pb-4">
         <div className="space-y-1">
           <div className="flex items-center gap-2.5">
@@ -328,11 +373,28 @@ export const HabitMonthCategoryPieChart: React.FC<Props> = ({
               <PieChartIcon className="w-5 h-5" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <h3 className="text-base font-extrabold text-gray-900 tracking-tight">
-                  توزیع عادات انجام‌شده در ماه بر اساس دسته‌بندی
+                  {periodMode === 'WEEK'
+                    ? 'نمودار دایره‌ای میزان موفقیت در انجام عادت‌های هفتگی به تفکیک دسته‌بندی‌ها'
+                    : 'توزیع عادات انجام‌شده در ماه بر اساس دسته‌بندی'}
                 </h3>
-                {isCurrentMonth ? (
+                {periodMode === 'WEEK' ? (
+                  isCurrentWeek ? (
+                    <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200/80 px-2 py-0.5 rounded-lg">
+                      هفته جاری
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleResetToCurrentWeek}
+                      className="text-[11px] font-bold text-amber-700 bg-amber-50 border border-amber-200/80 px-2 py-0.5 rounded-lg hover:bg-amber-100 transition-colors cursor-pointer"
+                      title="بازگشت به هفته جاری"
+                    >
+                      بازگشت به هفته جاری
+                    </button>
+                  )
+                ) : isCurrentMonth ? (
                   <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200/80 px-2 py-0.5 rounded-lg">
                     ماه جاری
                   </span>
@@ -350,21 +412,49 @@ export const HabitMonthCategoryPieChart: React.FC<Props> = ({
               <p className="text-xs text-gray-500 mt-0.5 flex items-center gap-1.5">
                 <Calendar className="w-3.5 h-3.5 text-emerald-600" />
                 <span>
-                  تحلیل و سهم هر حوزه موضوعی در {PERSIAN_MONTHS[selectedMonth - 1]} {toPersianDigits(selectedYear)}
+                  {periodMode === 'WEEK'
+                    ? `از شنبه ${toPersianDigits(startOfWeek.day)} ${PERSIAN_MONTHS[startOfWeek.month - 1]} تا جمعه ${toPersianDigits(endOfWeek.day)} ${PERSIAN_MONTHS[endOfWeek.month - 1]}`
+                    : `تحلیل و سهم هر حوزه موضوعی در ${PERSIAN_MONTHS[selectedMonth - 1]} ${toPersianDigits(selectedYear)}`}
                 </span>
               </p>
             </div>
           </div>
         </div>
 
-        {/* View Metric Mode Switch & Month Pager */}
-        <div className="flex flex-wrap items-center gap-2.5 self-start sm:self-auto">
-          {/* Mode switch */}
+        {/* Period Selector (Week / Month), Metric Switch & Pager */}
+        <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+          {/* Period Mode: Weekly vs Monthly */}
+          <div className="flex items-center bg-emerald-50/80 p-0.5 rounded-xl border border-emerald-200/90 text-xs">
+            <button
+              type="button"
+              onClick={() => { setPeriodMode('WEEK'); setActiveIndex(null); }}
+              className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer ${
+                periodMode === 'WEEK'
+                  ? 'bg-emerald-600 text-white shadow-2xs'
+                  : 'text-emerald-900 hover:bg-emerald-100/50'
+              }`}
+            >
+              هفتگی
+            </button>
+            <button
+              type="button"
+              onClick={() => { setPeriodMode('MONTH'); setActiveIndex(null); }}
+              className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer ${
+                periodMode === 'MONTH'
+                  ? 'bg-emerald-600 text-white shadow-2xs'
+                  : 'text-emerald-900 hover:bg-emerald-100/50'
+              }`}
+            >
+              ماهانه
+            </button>
+          </div>
+
+          {/* Metric switch */}
           <div className="flex items-center bg-gray-100 p-0.5 rounded-xl border border-gray-200/80 text-xs">
             <button
               type="button"
               onClick={() => setMetricMode('COMPLETIONS')}
-              className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer ${
+              className={`px-2 py-1 rounded-lg font-bold transition-all cursor-pointer ${
                 metricMode === 'COMPLETIONS'
                   ? 'bg-white text-emerald-800 shadow-2xs'
                   : 'text-gray-500 hover:text-gray-900'
@@ -375,7 +465,7 @@ export const HabitMonthCategoryPieChart: React.FC<Props> = ({
             <button
               type="button"
               onClick={() => setMetricMode('ACTIVE_HABITS')}
-              className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer ${
+              className={`px-2 py-1 rounded-lg font-bold transition-all cursor-pointer ${
                 metricMode === 'ACTIVE_HABITS'
                   ? 'bg-white text-emerald-800 shadow-2xs'
                   : 'text-gray-500 hover:text-gray-900'
@@ -385,24 +475,26 @@ export const HabitMonthCategoryPieChart: React.FC<Props> = ({
             </button>
           </div>
 
-          {/* Month Pager (Previous / Next) */}
+          {/* Pager (Previous / Next for Week or Month) */}
           <div className="flex items-center bg-white border border-gray-200 rounded-xl shadow-2xs p-0.5">
             <button
               type="button"
-              onClick={handlePrevMonth}
+              onClick={periodMode === 'WEEK' ? handlePrevWeek : handlePrevMonth}
               className="p-1.5 text-gray-500 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition-colors cursor-pointer"
-              title="ماه قبل"
+              title={periodMode === 'WEEK' ? 'هفته قبل' : 'ماه قبل'}
             >
               <ChevronRight className="w-4 h-4" />
             </button>
-            <span className="px-2.5 text-xs font-bold text-gray-800 min-w-[76px] text-center">
-              {PERSIAN_MONTHS[selectedMonth - 1]}
+            <span className="px-2 text-xs font-bold text-gray-800 min-w-[76px] text-center">
+              {periodMode === 'WEEK'
+                ? (weekOffset === 0 ? 'این هفته' : weekOffset < 0 ? `${toPersianDigits(Math.abs(weekOffset))} هفته قبل` : `${toPersianDigits(weekOffset)} هفته بعد`)
+                : PERSIAN_MONTHS[selectedMonth - 1]}
             </span>
             <button
               type="button"
-              onClick={handleNextMonth}
+              onClick={periodMode === 'WEEK' ? handleNextWeek : handleNextMonth}
               className="p-1.5 text-gray-500 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition-colors cursor-pointer"
-              title="ماه بعد"
+              title={periodMode === 'WEEK' ? 'هفته بعد' : 'ماه بعد'}
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
@@ -415,7 +507,7 @@ export const HabitMonthCategoryPieChart: React.FC<Props> = ({
         {/* Metric 1: Total Completions */}
         <div className="bg-emerald-50/50 rounded-2xl p-3.5 border border-emerald-100 flex flex-col justify-between">
           <div className="flex items-center justify-between text-xs text-emerald-800 mb-1">
-            <span className="font-semibold">کل ثبت‌های ماه</span>
+            <span className="font-semibold">{periodMode === 'WEEK' ? 'کل ثبت‌های هفته' : 'کل ثبت‌های ماه'}</span>
             <Flame className="w-4 h-4 text-emerald-600" />
           </div>
           <div className="text-2xl font-black text-emerald-950 font-mono">

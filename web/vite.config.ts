@@ -1,214 +1,275 @@
 import { defineConfig, Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
-import path from 'path';
 import fs from 'fs';
-import { fileURLToPath } from 'url';
+import path from 'path';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-function persistentStoragePlugin(): Plugin {
+function apkApiMiddleware(): Plugin {
   return {
-    name: 'persistent-storage-plugin',
+    name: 'apk-api-middleware',
     configureServer(server) {
-      // Direct APK download handler with full HTTP HEAD and Range support for network inspection and resume
       server.middlewares.use((req, res, next) => {
-        const urlPath = req.url ? req.url.split('?')[0] : '';
-        if (
-          urlPath === '/javaneh.apk' || 
-          urlPath === '/api/download-apk' || 
-          urlPath.endsWith('/javaneh.apk') ||
-          urlPath.endsWith('/app-debug.apk')
-        ) {
-          const candidateApkPaths = [
-            path.resolve(__dirname, 'public/javaneh.apk'),
-            path.resolve(__dirname, '../public/javaneh.apk'),
-            path.resolve(__dirname, '../dist/javaneh.apk'),
-            path.resolve(__dirname, 'dist/javaneh.apk'),
-            path.resolve(__dirname, '../.build-outputs/app-debug.apk'),
-          ];
-          const apkFile = candidateApkPaths.find(p => fs.existsSync(p));
-          if (apkFile) {
+        const url = req.url?.split('?')[0] || '';
+
+        // Handle /api/data (robust file-based persistence outside /public and /dist)
+        if (url === '/api/data') {
+          const DB_DIR = path.resolve(__dirname, '..', 'data');
+          const SNAPSHOTS_DIR = path.join(DB_DIR, 'snapshots');
+          const mainDbFile = path.join(DB_DIR, 'javaneh_db.json');
+          const backupDbFile = path.join(DB_DIR, 'javaneh_db_backup.json');
+
+          if (!fs.existsSync(DB_DIR)) fs.mkdirSync(DB_DIR, { recursive: true });
+          if (!fs.existsSync(SNAPSHOTS_DIR)) fs.mkdirSync(SNAPSHOTS_DIR, { recursive: true });
+
+          res.setHeader('Content-Type', 'application/json; charset=utf-8');
+
+          if (req.method === 'GET') {
+            const candidateFiles = [mainDbFile, backupDbFile];
+            for (const file of candidateFiles) {
+              if (fs.existsSync(file)) {
+                try {
+                  const content = fs.readFileSync(file, 'utf-8');
+                  const parsed = JSON.parse(content);
+                  if (parsed && (parsed.goals?.length || parsed.tasks?.length || parsed.habits?.length || parsed.categories?.length)) {
+                    res.statusCode = 200;
+                    res.end(content);
+                    return;
+                  }
+                } catch (e) {}
+              }
+            }
+            // Check snapshots if primary files empty
             try {
-              const stat = fs.statSync(apkFile);
-              const totalSize = stat.size;
-              const formattedSize = (totalSize / (1024 * 1024)).toFixed(2) + ' MB';
-              const rangeHeader = req.headers.range;
-
-              // Comprehensive CORS and custom metadata headers for pre-flight network checks
-              res.setHeader('Access-Control-Allow-Origin', '*');
-              res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
-              res.setHeader('Access-Control-Allow-Headers', '*');
-              res.setHeader(
-                'Access-Control-Expose-Headers', 
-                'Content-Length, Content-Disposition, Content-Range, Accept-Ranges, X-File-Size-Bytes, X-File-Size-Formatted, X-Package-Name, X-File-Version'
-              );
-              res.setHeader('Content-Type', 'application/vnd.android.package-archive');
-              res.setHeader('Content-Disposition', 'attachment; filename="javaneh.apk"');
-              res.setHeader('Accept-Ranges', 'bytes');
-              res.setHeader('X-File-Size-Bytes', String(totalSize));
-              res.setHeader('X-File-Size-Formatted', formattedSize);
-              res.setHeader('X-Package-Name', 'ir.javaneh.app');
-              res.setHeader('X-File-Version', '1.4.0');
-
-              if (req.method === 'OPTIONS') {
-                res.statusCode = 204;
-                res.end();
-                return;
-              }
-
-              // Explicit HEAD request: deliver accurate Content-Length without downloading payload
-              if (req.method === 'HEAD') {
+              const snapshotFiles = fs.readdirSync(SNAPSHOTS_DIR)
+                .filter(f => f.startsWith('snapshot-') && f.endsWith('.json'))
+                .sort().reverse();
+              if (snapshotFiles.length > 0) {
+                const latestSnap = path.join(SNAPSHOTS_DIR, snapshotFiles[0]);
+                const snapContent = fs.readFileSync(latestSnap, 'utf-8');
                 res.statusCode = 200;
-                res.setHeader('Content-Length', String(totalSize));
-                res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-                res.end();
+                res.end(snapContent);
                 return;
               }
+            } catch (e) {}
 
-              res.setHeader('Cache-Control', 'public, max-age=3600');
+            res.statusCode = 200;
+            res.end(JSON.stringify({ initialized: false, tasks: [], goals: [], habits: [], categories: null }));
+            return;
+          }
 
-              // HTTP Range requests (206 Partial Content)
-              if (rangeHeader && rangeHeader.startsWith('bytes=')) {
-                const parts = rangeHeader.replace(/bytes=/, '').split('-');
-                const start = parseInt(parts[0], 10);
-                const end = parts[1] ? parseInt(parts[1], 10) : totalSize - 1;
+          if (req.method === 'POST') {
+            let body = '';
+            req.on('data', chunk => { body += chunk; });
+            req.on('end', () => {
+              try {
+                const parsed = JSON.parse(body);
+                const hasValidContent = parsed && (
+                  (Array.isArray(parsed.goals) && parsed.goals.length > 0) ||
+                  (Array.isArray(parsed.tasks) && parsed.tasks.length > 0) ||
+                  (Array.isArray(parsed.habits) && parsed.habits.length > 0) ||
+                  (Array.isArray(parsed.categories) && parsed.categories.length > 0) ||
+                  Boolean(parsed.userProfile?.name)
+                );
 
-                if (isNaN(start) || start >= totalSize || (parts[1] && end >= totalSize) || start > end) {
-                  res.statusCode = 416; // Range Not Satisfiable
-                  res.setHeader('Content-Range', `bytes */${totalSize}`);
-                  res.end();
-                  return;
+                if (hasValidContent) {
+                  const formatted = JSON.stringify(parsed, null, 2);
+                  const tmpFile = path.join(DB_DIR, `javaneh_db.json.tmp.${Date.now()}`);
+
+                  // 1. Write atomic temp file then rename
+                  fs.writeFileSync(tmpFile, formatted, 'utf-8');
+                  if (fs.existsSync(mainDbFile)) {
+                    try {
+                      fs.copyFileSync(mainDbFile, backupDbFile);
+                    } catch (e) {}
+                  }
+                  fs.renameSync(tmpFile, mainDbFile);
+
+                  // 2. Rolling snapshot in data/snapshots/
+                  try {
+                    const snapFile = path.join(SNAPSHOTS_DIR, `snapshot-${Date.now()}.json`);
+                    fs.writeFileSync(snapFile, formatted, 'utf-8');
+                    const allSnaps = fs.readdirSync(SNAPSHOTS_DIR)
+                      .filter(f => f.startsWith('snapshot-') && f.endsWith('.json'))
+                      .sort();
+                    if (allSnaps.length > 20) {
+                      for (let i = 0; i < allSnaps.length - 20; i++) {
+                        fs.unlinkSync(path.join(SNAPSHOTS_DIR, allSnaps[i]));
+                      }
+                    }
+                  } catch (e) {}
                 }
 
-                const chunkSize = end - start + 1;
-                res.statusCode = 206; // Partial Content
-                res.setHeader('Content-Range', `bytes ${start}-${end}/${totalSize}`);
-                res.setHeader('Content-Length', String(chunkSize));
-
-                const stream = fs.createReadStream(apkFile, { start, end });
-                stream.pipe(res);
-                return;
+                res.statusCode = 200;
+                res.end(JSON.stringify({ success: true, timestamp: Date.now() }));
+              } catch (e) {
+                res.statusCode = 400;
+                res.end(JSON.stringify({ error: 'INVALID_JSON' }));
               }
-
-              // Standard full GET download: direct single transmission with explicit Content-Length
-              res.statusCode = 200;
-              res.setHeader('Content-Length', String(totalSize));
-              const stream = fs.createReadStream(apkFile);
-              stream.pipe(res);
-              return;
-            } catch (err) {
-              console.error('[Storage] Error streaming apk in Vite:', err);
-            }
-          }
-        }
-        next();
-      });
-
-      server.middlewares.use('/api/apk-info', (req, res) => {
-        const candidateApkPaths = [
-          path.resolve(__dirname, 'public/javaneh.apk'),
-          path.resolve(__dirname, '../dist/javaneh.apk'),
-          path.resolve(__dirname, '../.build-outputs/app-debug.apk'),
-        ];
-        const apkFile = candidateApkPaths.find(p => fs.existsSync(p));
-        res.setHeader('Content-Type', 'application/json; charset=utf-8');
-        if (apkFile) {
-          try {
-            const stat = fs.statSync(apkFile);
-            res.statusCode = 200;
-            res.end(JSON.stringify({
-              available: true,
-              filename: 'javaneh.apk',
-              size: stat.size,
-              formattedSize: (stat.size / (1024 * 1024)).toFixed(2) + ' MB',
-              sha256: '4aec4194adeeaa023f0f7453371a9ccc21d3d92d0b4afc8d9bbfb4cf824be280',
-              acceptRanges: true,
-            }));
+            });
             return;
-          } catch (e) {
-            console.error('[ApkInfo] Error reading apk:', e);
-          }
-        }
-        res.statusCode = 404;
-        res.end(JSON.stringify({ available: false, error: 'APK not found' }));
-      });
-
-      server.middlewares.use('/api/data', (req, res, next) => {
-        const DB_DIR = path.resolve(__dirname, '../data');
-        const DB_FILE = path.join(DB_DIR, 'javaneh_db.json');
-
-        if (!fs.existsSync(DB_DIR)) {
-          try {
-            fs.mkdirSync(DB_DIR, { recursive: true });
-          } catch (err) {
-            console.error('[Storage] Failed to create data dir:', err);
           }
         }
 
-        if (req.method === 'GET') {
+        // Handle /api/snapshots (list available snapshots in data directory)
+        if (url === '/api/snapshots') {
+          const DB_DIR = path.resolve(__dirname, '..', 'data');
+          const SNAPSHOTS_DIR = path.join(DB_DIR, 'snapshots');
           res.setHeader('Content-Type', 'application/json; charset=utf-8');
-          if (fs.existsSync(DB_FILE)) {
-            try {
-              const content = fs.readFileSync(DB_FILE, 'utf-8');
+          try {
+            if (fs.existsSync(SNAPSHOTS_DIR)) {
+              const files = fs.readdirSync(SNAPSHOTS_DIR)
+                .filter(f => f.startsWith('snapshot-') && f.endsWith('.json'))
+                .sort().reverse();
+              const list = files.slice(0, 15).map(f => {
+                const stat = fs.statSync(path.join(SNAPSHOTS_DIR, f));
+                const ts = parseInt(f.replace('snapshot-', '').replace('.json', ''), 10);
+                return { filename: f, timestamp: ts, size: stat.size };
+              });
               res.statusCode = 200;
-              res.end(content);
+              res.end(JSON.stringify({ snapshots: list }));
               return;
-            } catch (err) {
-              console.error('[Storage] Failed to read db.json:', err);
             }
-          }
+          } catch (e) {}
           res.statusCode = 200;
-          res.end(JSON.stringify({ initialized: false, tasks: [], goals: [], habits: [], categories: null }));
+          res.end(JSON.stringify({ snapshots: [] }));
           return;
         }
 
-        if (req.method === 'POST') {
-          let body = '';
-          req.on('data', (chunk) => {
-            body += chunk;
-          });
-          req.on('end', () => {
-            try {
-              const parsed = JSON.parse(body);
-              const BACKUP_FILE = path.join(DB_DIR, 'javaneh_db_backup.json');
-              let existing: any = null;
-              if (fs.existsSync(DB_FILE)) {
-                try {
-                  const currentStr = fs.readFileSync(DB_FILE, 'utf-8');
-                  existing = JSON.parse(currentStr);
-                  // Keep a safety backup before writing
-                  fs.writeFileSync(BACKUP_FILE, currentStr, 'utf-8');
-                } catch (e) {
-                  console.warn('[Storage] Backup creation failed:', e);
-                }
-              }
+        // Handle /api/apk-info
+        if (url === '/api/apk-info') {
+          const candidatePaths = [
+            path.resolve(__dirname, 'public', 'javaneh.apk'),
+            path.resolve(__dirname, '..', 'public', 'javaneh.apk'),
+            path.resolve(__dirname, 'dist', 'javaneh.apk'),
+            path.resolve(__dirname, '..', 'dist', 'javaneh.apk'),
+          ];
+          let found = candidatePaths.find(p => fs.existsSync(p));
 
-              // Non-destructive preservation: if incoming has empty arrays, don't wipe existing valid items
-              const safeData = { ...parsed };
-              if (existing) {
-                if ((!Array.isArray(safeData.tasks) || safeData.tasks.length === 0) && Array.isArray(existing.tasks) && existing.tasks.length > 0) {
-                  safeData.tasks = existing.tasks;
-                }
-                if ((!Array.isArray(safeData.goals) || safeData.goals.length === 0) && Array.isArray(existing.goals) && existing.goals.length > 0) {
-                  safeData.goals = existing.goals;
-                }
-                if ((!Array.isArray(safeData.habits) || safeData.habits.length === 0) && Array.isArray(existing.habits) && existing.habits.length > 0) {
-                  safeData.habits = existing.habits;
-                }
-              }
-
-              fs.writeFileSync(DB_FILE, JSON.stringify(safeData, null, 2), 'utf-8');
-              res.setHeader('Content-Type', 'application/json; charset=utf-8');
-              res.statusCode = 200;
-              res.end(JSON.stringify({ success: true, timestamp: Date.now() }));
-            } catch (err) {
-              console.error('[Storage] Failed to write db.json:', err);
-              res.statusCode = 400;
-              res.end(JSON.stringify({ error: 'Invalid JSON payload' }));
+          if (!found) {
+            const base64File = path.resolve(__dirname, '..', 'scripts', 'javaneh.apk.base64');
+            if (fs.existsSync(base64File)) {
+              try {
+                const b64 = fs.readFileSync(base64File, 'utf-8').trim();
+                const buffer = Buffer.from(b64, 'base64');
+                const targetPath = path.resolve(__dirname, 'public', 'javaneh.apk');
+                fs.writeFileSync(targetPath, buffer);
+                found = targetPath;
+              } catch (e) {}
             }
-          });
+          }
+
+          res.setHeader('Content-Type', 'application/json; charset=utf-8');
+          if (found) {
+            try {
+              const stat = fs.statSync(found);
+              res.statusCode = 200;
+              res.end(JSON.stringify({
+                available: true,
+                filename: 'javaneh.apk',
+                size: stat.size,
+                formattedSize: (stat.size / (1024 * 1024)).toFixed(2) + ' MB',
+              }));
+              return;
+            } catch {}
+          }
+          res.statusCode = 404;
+          res.end(JSON.stringify({
+            available: false,
+            error: 'فایل APK هنوز تولید نشده است. می‌توانید برنامه را مستقیماً به عنوان PWA روی گوشی نصب کنید.',
+          }));
+          return;
+        }
+
+        // Handle /javaneh.apk or /api/download-apk
+        if (url === '/javaneh.apk' || url === '/api/download-apk' || url.endsWith('.apk')) {
+          const candidatePaths = [
+            path.resolve(__dirname, 'public', 'javaneh.apk'),
+            path.resolve(__dirname, '..', 'public', 'javaneh.apk'),
+            path.resolve(__dirname, 'dist', 'javaneh.apk'),
+            path.resolve(__dirname, '..', 'dist', 'javaneh.apk'),
+          ];
+          let found = candidatePaths.find(p => fs.existsSync(p));
+
+          if (!found) {
+            const base64File = path.resolve(__dirname, '..', 'scripts', 'javaneh.apk.base64');
+            if (fs.existsSync(base64File)) {
+              try {
+                const b64 = fs.readFileSync(base64File, 'utf-8').trim();
+                const buffer = Buffer.from(b64, 'base64');
+                const targetPath = path.resolve(__dirname, 'public', 'javaneh.apk');
+                fs.writeFileSync(targetPath, buffer);
+                found = targetPath;
+              } catch (e) {}
+            }
+            if (!found) {
+              try {
+                const scriptPath = path.resolve(__dirname, '..', 'scripts', 'build-real-apk.sh');
+                if (fs.existsSync(scriptPath)) {
+                  const { execSync } = require('child_process');
+                  execSync(`bash "${scriptPath}"`, { stdio: 'pipe' });
+                  found = candidatePaths.find(p => fs.existsSync(p));
+                }
+              } catch (genErr) {
+                console.error('[APK AutoGen Notice]:', genErr);
+              }
+            }
+          }
+
+          if (found) {
+            try {
+              const stat = fs.statSync(found);
+              if (stat.size > 50000) {
+                res.setHeader('Content-Type', 'application/vnd.android.package-archive');
+                res.setHeader('Content-Disposition', 'attachment; filename="javaneh.apk"');
+                res.setHeader('Content-Length', stat.size);
+                res.setHeader('Accept-Ranges', 'bytes');
+                res.setHeader('Cache-Control', 'no-cache');
+
+                const readStream = fs.createReadStream(found);
+
+                readStream.on('error', (streamErr) => {
+                  console.error('[APK Streaming Error]:', streamErr);
+                  if (!res.headersSent) {
+                    res.statusCode = 500;
+                    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+                    res.end(JSON.stringify({
+                      error: 'APK_STREAMING_FAILED',
+                      message: 'خطا در خواندن و استریم فایل بسته نصبی APK: ' + (streamErr?.message || 'خطای استریم فایل'),
+                    }));
+                  } else {
+                    res.destroy(streamErr);
+                  }
+                });
+
+                res.on('error', (resErr) => {
+                  console.error('[APK Response Error]:', resErr);
+                  readStream.destroy();
+                });
+
+                readStream.pipe(res);
+                return;
+              }
+            } catch (err: any) {
+              console.error('[APK Setup Error]:', err);
+              if (!res.headersSent) {
+                res.statusCode = 500;
+                res.setHeader('Content-Type', 'application/json; charset=utf-8');
+                res.end(JSON.stringify({
+                  error: 'APK_STREAMING_FAILED',
+                  message: 'خطا در آماده‌سازی استریم فایل APK: ' + (err?.message || 'خطای فایل سرور'),
+                }));
+                return;
+              }
+            }
+          }
+
+          // Do NOT let Vite fall back to index.html! Return 404 JSON/text!
+          res.statusCode = 404;
+          res.setHeader('Content-Type', 'application/json; charset=utf-8');
+          res.end(JSON.stringify({
+            error: 'APK_NOT_FOUND',
+            message: 'فایل کامل APK روی این سرور وب موجود نیست. لطفاً دستور بیلد را جهت ساخت فایل کامل اجرا کنید.',
+          }));
           return;
         }
 
@@ -218,30 +279,22 @@ function persistentStoragePlugin(): Plugin {
   };
 }
 
-// https://vite.dev/config/
+// https://vitejs.dev/config/
 export default defineConfig({
   base: './',
-  publicDir: path.resolve(__dirname, 'public'),
-  resolve: {
-    alias: {
-      '@': path.resolve(__dirname, './src'),
+  plugins: [react(), tailwindcss(), apkApiMiddleware()],
+  server: {
+    host: '0.0.0.0',
+    port: 3000,
+    allowedHosts: true,
+    hmr: {
+      overlay: false,
     },
   },
-  plugins: [react(), tailwindcss(), persistentStoragePlugin()],
-  build: {
-    outDir: 'dist',
-    emptyOutDir: true,
-  },
-  server: {
-    port: 3000,
-    host: '0.0.0.0',
-    strictPort: true,
-    allowedHosts: true,
-  },
   preview: {
-    port: 3000,
     host: '0.0.0.0',
-    strictPort: true,
+    port: 3000,
     allowedHosts: true,
   },
 });
+

@@ -1,11 +1,33 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Category, Goal, AppTask, Habit, AppBackupData, UserProfile, ReminderSettings, AlarmSoundItem } from '../types';
+import { 
+  Category, 
+  Goal, 
+  AppTask, 
+  Habit, 
+  AppBackupData, 
+  UserProfile, 
+  ReminderSettings, 
+  AlarmSoundItem,
+  DarkModePreference,
+  DarkModeSchedule
+} from '../types';
 import { INITIAL_CATEGORIES } from '../data/initialData';
 import { PlantIcon, ALL_PLANT_TYPES } from './PlantIcon';
 import { toPersianDigits, getTodayJalali, getCurrentPersianDateTimeString } from '../calendar/jalali';
 import { PRESET_ALARM_SOUNDS, previewSound, stopAllAlarmSounds, playAlarmSound } from '../services/soundService';
 import { isNotificationSupported, getNotificationPermission, requestNotificationPermission, sendBrowserNotification } from '../services/reminderService';
 import { DEFAULT_USER_PROFILE, DEFAULT_REMINDER_SETTINGS, getOrCreateUserId } from '../services/storageService';
+import { 
+  getDarkModePreference, 
+  getDarkModeSchedule, 
+  computeEffectiveDarkMode, 
+  applyDarkMode, 
+  isSystemDarkMode, 
+  setupThemeListeners, 
+  THEME_STORAGE_KEYS,
+  DEFAULT_DARK_MODE_SCHEDULE,
+  isTimeInSchedule
+} from '../services/themeService';
 import { UserProfileSettings } from './UserProfileSettings';
 import { ReminderAlarmSettings } from './ReminderAlarmSettings';
 import { UpdateAndBackupModal } from './UpdateAndBackupModal';
@@ -289,10 +311,27 @@ export const SettingsScreen: React.FC<Props> = ({
     return userProfile?.themeColor || localStorage.getItem('javaneh_theme_color') || 'emerald';
   });
 
-  // Appearance & Display Preferences
-  const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
-    return userProfile?.darkMode ?? (localStorage.getItem('javaneh_dark_mode') === 'true');
+  // Appearance & Display Preferences with System & Schedule Auto-Dark Mode
+  const [darkModePreference, setDarkModePreference] = useState<DarkModePreference>(() => {
+    return getDarkModePreference(userProfile);
   });
+  const [darkModeSchedule, setDarkModeSchedule] = useState<DarkModeSchedule>(() => {
+    return getDarkModeSchedule(userProfile);
+  });
+  const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
+    return computeEffectiveDarkMode(getDarkModePreference(userProfile), getDarkModeSchedule(userProfile));
+  });
+  const [isSystemDark, setIsSystemDark] = useState<boolean>(() => isSystemDarkMode());
+
+  // Listen to system theme / schedule time ticks while in Settings
+  useEffect(() => {
+    const cleanup = setupThemeListeners(darkModePreference, darkModeSchedule, (effectiveDark) => {
+      setIsDarkMode(effectiveDark);
+      setIsSystemDark(isSystemDarkMode());
+    });
+    return cleanup;
+  }, [darkModePreference, darkModeSchedule]);
+
   const [enablePlantAnimations, setEnablePlantAnimations] = useState<boolean>(() => {
     return localStorage.getItem('javaneh_plant_animations') !== 'false';
   });
@@ -354,6 +393,7 @@ export const SettingsScreen: React.FC<Props> = ({
   const [rawJsonInput, setRawJsonInput] = useState('');
   const [isCopyingJson, setIsCopyingJson] = useState(false);
   const [isDraggingFile, setIsDraggingFile] = useState(false);
+  const [isReadingFile, setIsReadingFile] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Handle Tab Change with persistence
@@ -390,22 +430,87 @@ export const SettingsScreen: React.FC<Props> = ({
     showNotification(`تم «${matched ? matched.name : themeId}» با موفقیت فعال و ذخیره شد.`);
   };
 
-  const handleToggleDarkMode = (dark: boolean) => {
-    setIsDarkMode(dark);
+  const handleSelectDarkModePreference = (pref: DarkModePreference) => {
+    setDarkModePreference(pref);
     try {
-      localStorage.setItem('javaneh_dark_mode', dark ? 'true' : 'false');
-      document.documentElement.classList.toggle('dark', dark);
+      localStorage.setItem(THEME_STORAGE_KEYS.PREFERENCE, pref);
+    } catch {}
+
+    const effective = computeEffectiveDarkMode(pref, darkModeSchedule);
+    setIsDarkMode(effective);
+    applyDarkMode(effective);
+
+    if (onSaveUserProfile) {
+      const current = userProfile || DEFAULT_USER_PROFILE;
+      onSaveUserProfile({
+        ...current,
+        darkMode: effective,
+        darkModePreference: pref,
+        darkModeSchedule: darkModeSchedule,
+        themeColor: selectedThemeId,
+      });
+    }
+
+    const labels: Record<DarkModePreference, string> = {
+      LIGHT: 'حالت روز (روشن) فعال شد.',
+      DARK: 'حالت شب (تیره) دائمی فعال شد.',
+      SYSTEM: 'هماهنگی خودکار با تم دستگاه/سیستم فعال شد.',
+      SCHEDULE: `حالت شب خودکار بر اساس زمان‌بندی (${toPersianDigits(darkModeSchedule.start)} تا ${toPersianDigits(darkModeSchedule.end)}) فعال شد.`,
+    };
+    showNotification(labels[pref]);
+  };
+
+  const handleUpdateSchedule = (start: string, end: string) => {
+    const newSchedule = { start, end };
+    setDarkModeSchedule(newSchedule);
+    try {
+      localStorage.setItem(THEME_STORAGE_KEYS.SCHEDULE_START, start);
+      localStorage.setItem(THEME_STORAGE_KEYS.SCHEDULE_END, end);
+    } catch {}
+
+    const effective = computeEffectiveDarkMode(darkModePreference, newSchedule);
+    setIsDarkMode(effective);
+    applyDarkMode(effective);
+
+    if (onSaveUserProfile) {
+      const current = userProfile || DEFAULT_USER_PROFILE;
+      onSaveUserProfile({
+        ...current,
+        darkModeSchedule: newSchedule,
+        darkModePreference,
+        darkMode: effective,
+        themeColor: selectedThemeId,
+      });
+    }
+
+    showNotification(`زمان‌بندی حالت شب به ${toPersianDigits(start)} تا ${toPersianDigits(end)} ذخیره شد.`);
+  };
+
+  const handleToggleManualPreview = () => {
+    const nextVal = !isDarkMode;
+    setIsDarkMode(nextVal);
+    applyDarkMode(nextVal);
+    const nextPref: DarkModePreference = nextVal ? 'DARK' : 'LIGHT';
+    setDarkModePreference(nextPref);
+    try {
+      localStorage.setItem(THEME_STORAGE_KEYS.PREFERENCE, nextPref);
     } catch {}
 
     if (onSaveUserProfile) {
       const current = userProfile || DEFAULT_USER_PROFILE;
       onSaveUserProfile({
         ...current,
-        darkMode: dark,
+        darkMode: nextVal,
+        darkModePreference: nextPref,
+        darkModeSchedule: darkModeSchedule,
         themeColor: selectedThemeId,
       });
     }
-    showNotification(dark ? 'حالت شب (تیره) فعال شد.' : 'حالت روز (روشن) فعال شد.');
+    showNotification(nextVal ? 'حالت شب (تیره) فعال شد.' : 'حالت روز (روشن) فعال شد.');
+  };
+
+  const handleToggleDarkMode = (dark: boolean) => {
+    handleSelectDarkModePreference(dark ? 'DARK' : 'LIGHT');
   };
 
   const handleTogglePlantAnimations = (enabled: boolean) => {
@@ -586,25 +691,58 @@ export const SettingsScreen: React.FC<Props> = ({
     return true;
   };
 
-  // 4. File input change
+  // 4. File input change & Mobile Clipboard Restore
   const handleFileSelect = (file: File) => {
     if (!file) return;
+    setIsReadingFile(true);
+    showNotification(`در حال خواندن فایل «${file.name}»...`);
+
     const reader = new FileReader();
     reader.onload = (e) => {
+      setIsReadingFile(false);
       const content = e.target?.result as string;
+      if (!content || !content.trim()) {
+        showNotification('محتوای فایل خالی است یا خوانده نشد.');
+        return;
+      }
       const sizeKb = Math.max(1, Math.round(file.size / 1024));
       parseAndPrepareBackup(content, file.name, sizeKb);
     };
-    reader.onerror = () => {
-      showNotification('خطا در خواندن فایل از حافظه دستگاه.');
+    reader.onerror = (err) => {
+      setIsReadingFile(false);
+      console.error('File read error:', err);
+      showNotification('خطا در خواندن فایل از حافظه گوشی. لطفاً متن فایل را کپی و دستی وارد کنید.');
     };
-    reader.readAsText(file, 'UTF-8');
+    try {
+      reader.readAsText(file, 'UTF-8');
+    } catch (err) {
+      setIsReadingFile(false);
+      showNotification('امکان بارگذاری این فرمت فایل روی دستگاه وجود ندارد.');
+    }
   };
 
   const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      handleFileSelect(e.target.files[0]);
-      e.target.value = '';
+    const file = e.target.files?.[0];
+    if (file) {
+      handleFileSelect(file);
+    }
+  };
+
+  const handlePasteFromClipboardDirectly = async () => {
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.readText) {
+        const text = await navigator.clipboard.readText();
+        if (text && text.trim().length > 0) {
+          const success = parseAndPrepareBackup(text.trim(), 'متن کلیپ‌بورد گوشی');
+          if (success) return;
+        }
+      }
+      setRawJsonInput('');
+      setIsTextPasteModalOpen(true);
+      showNotification('کلیپ‌بورد خالی است یا دسترسی خودکار داده نشد؛ کادر ورود دستی باز شد.');
+    } catch {
+      setRawJsonInput('');
+      setIsTextPasteModalOpen(true);
     }
   };
 
@@ -754,11 +892,10 @@ export const SettingsScreen: React.FC<Props> = ({
                 type="button"
                 onClick={() => setIsApkConfirmModalOpen(true)}
                 className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-white text-xs font-black rounded-xl shadow-xs flex items-center gap-1.5 transition-all cursor-pointer active:scale-95"
-                title="دانلود فایل نصبی APK جوانه برای اندروید"
+                title="نصب اپلیکیشن جوانه روی گوشی (اندروید)"
               >
-                <Download className="w-3.5 h-3.5" />
-                <span>دانلود فایل APK</span>
-                <span className="hidden sm:inline-block px-1.5 py-0.2 bg-black/15 rounded-md text-[9px] font-bold">۵۳۵KB</span>
+                <Smartphone className="w-3.5 h-3.5" />
+                <span>نصب برنامه روی گوشی</span>
               </button>
             </div>
           </div>
@@ -797,11 +934,11 @@ export const SettingsScreen: React.FC<Props> = ({
               type="button"
               onClick={() => setIsApkConfirmModalOpen(true)}
               className="px-3.5 py-2 bg-gradient-to-r from-emerald-700 to-green-700 hover:from-emerald-800 hover:to-green-800 text-white text-xs font-black rounded-xl shadow-xs flex items-center gap-1.5 transition-all cursor-pointer active:scale-95"
-              title="دانلود فایل نصبی APK اندروید"
+              title="نصب آسان برنامه جوانه روی گوشی (اندروید)"
             >
-              <Download className="w-3.5 h-3.5 text-emerald-200" />
-              <span>دانلود فایل APK</span>
-              <span className="hidden sm:inline-block px-1.5 py-0.2 bg-white/20 rounded-md text-[10px] font-bold">۵۳۵KB</span>
+              <Smartphone className="w-3.5 h-3.5 text-emerald-200" />
+              <span>نصب برنامه روی گوشی</span>
+              <span className="hidden sm:inline-block px-1.5 py-0.2 bg-white/20 rounded-md text-[10px] font-bold">اندروید</span>
             </button>
 
             <button
@@ -1093,30 +1230,237 @@ export const SettingsScreen: React.FC<Props> = ({
               <span>تنظیمات حالت نمایش و دسترسی‌پذیری</span>
             </h4>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              {/* Dark Mode toggle */}
-              <div className="p-3 bg-gray-50 rounded-xl border border-gray-200/80 flex items-center justify-between gap-2">
-                <div>
-                  <span className="text-xs font-bold text-gray-800 block">حالت تیره (شب)</span>
-                  <span className="text-[10px] text-gray-500">کاهش نور صفحه در شب</span>
+            {/* Advanced Dark Mode (حالت شب و تم تاریک هوشمند) */}
+            <div className="bg-gray-50/90 rounded-2xl p-4 border border-gray-200/90 shadow-2xs space-y-4">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div className="flex items-center gap-2.5">
+                  <div className={`w-9 h-9 rounded-xl flex items-center justify-center text-lg ${
+                    isDarkMode ? 'bg-indigo-950 text-indigo-300 border border-indigo-800' : 'bg-amber-50 text-amber-600 border border-amber-200'
+                  }`}>
+                    {isDarkMode ? <Moon className="w-5 h-5 text-indigo-400" /> : <Sun className="w-5 h-5 text-amber-500" />}
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-gray-900 flex items-center gap-2">
+                      <span>حالت تاریک و تم شب (Dark Mode)</span>
+                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
+                        isDarkMode 
+                          ? 'bg-purple-100 text-purple-800 border border-purple-200' 
+                          : 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                      }`}>
+                        {isDarkMode ? '🌙 تم شب فعال است' : '☀️ تم روز فعال است'}
+                      </span>
+                    </h4>
+                    <p className="text-xs text-gray-500">
+                      تنظیم خودکار تم تیره بر اساس نور محیط، ساعت شبانه‌روز یا تنظیمات دستگاه
+                    </p>
+                  </div>
                 </div>
+
+                {/* Quick Preview Toggle Button */}
                 <button
                   type="button"
-                  onClick={() => handleToggleDarkMode(!isDarkMode)}
-                  className={`w-12 h-6 rounded-full transition-colors relative cursor-pointer ${
-                    isDarkMode ? 'bg-purple-600' : 'bg-gray-300'
+                  onClick={handleToggleManualPreview}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border cursor-pointer ${
+                    isDarkMode
+                      ? 'bg-purple-900/40 text-purple-200 border-purple-700/60 hover:bg-purple-800/50'
+                      : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-100'
                   }`}
+                  title="تغییر سریع برای آزمایش تم"
                 >
-                  <span
-                    className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow-xs transition-transform flex items-center justify-center text-[10px] ${
-                      isDarkMode ? 'left-1' : 'right-1'
-                    }`}
-                  >
-                    {isDarkMode ? '🌙' : '☀️'}
-                  </span>
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>آزمایش لحظه‌ای ({isDarkMode ? 'تغییر به روز' : 'تغییر به شب'})</span>
                 </button>
               </div>
 
+              {/* 4 Mode Selection Segmented Cards */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-1">
+                {/* 1. Always Light */}
+                <button
+                  type="button"
+                  onClick={() => handleSelectDarkModePreference('LIGHT')}
+                  className={`p-3 rounded-xl border text-right transition-all cursor-pointer relative flex flex-col justify-between ${
+                    darkModePreference === 'LIGHT'
+                      ? 'bg-amber-50/80 border-amber-400 ring-2 ring-amber-300 shadow-xs'
+                      : 'bg-white border-gray-200/80 hover:bg-gray-50 text-gray-700'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-xl">☀️</span>
+                    {darkModePreference === 'LIGHT' && (
+                      <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
+                    )}
+                  </div>
+                  <div>
+                    <span className="text-xs font-bold text-gray-900 block">همیشه روشن</span>
+                    <span className="text-[10px] text-gray-500">تم روز با نور استاندارد</span>
+                  </div>
+                </button>
+
+                {/* 2. Always Dark */}
+                <button
+                  type="button"
+                  onClick={() => handleSelectDarkModePreference('DARK')}
+                  className={`p-3 rounded-xl border text-right transition-all cursor-pointer relative flex flex-col justify-between ${
+                    darkModePreference === 'DARK'
+                      ? 'bg-purple-950/40 border-purple-500 ring-2 ring-purple-400 shadow-xs text-white'
+                      : 'bg-white border-gray-200/80 hover:bg-gray-50 text-gray-700'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-xl">🌙</span>
+                    {darkModePreference === 'DARK' && (
+                      <span className="w-2 h-2 rounded-full bg-purple-400 animate-pulse"></span>
+                    )}
+                  </div>
+                  <div>
+                    <span className="text-xs font-bold text-gray-900 block">همیشه تیره</span>
+                    <span className="text-[10px] text-gray-500">تم شب آرام برای چشم</span>
+                  </div>
+                </button>
+
+                {/* 3. System Sync */}
+                <button
+                  type="button"
+                  onClick={() => handleSelectDarkModePreference('SYSTEM')}
+                  className={`p-3 rounded-xl border text-right transition-all cursor-pointer relative flex flex-col justify-between ${
+                    darkModePreference === 'SYSTEM'
+                      ? 'bg-blue-50/80 border-blue-400 ring-2 ring-blue-300 shadow-xs'
+                      : 'bg-white border-gray-200/80 hover:bg-gray-50 text-gray-700'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-xl">📱</span>
+                    {darkModePreference === 'SYSTEM' && (
+                      <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></span>
+                    )}
+                  </div>
+                  <div>
+                    <span className="text-xs font-bold text-gray-900 block">تنظیمات سیستم</span>
+                    <span className="text-[10px] text-gray-500">هماهنگ با گوشی/ویندوز</span>
+                  </div>
+                </button>
+
+                {/* 4. Schedule */}
+                <button
+                  type="button"
+                  onClick={() => handleSelectDarkModePreference('SCHEDULE')}
+                  className={`p-3 rounded-xl border text-right transition-all cursor-pointer relative flex flex-col justify-between ${
+                    darkModePreference === 'SCHEDULE'
+                      ? 'bg-teal-50/80 border-teal-400 ring-2 ring-teal-300 shadow-xs'
+                      : 'bg-white border-gray-200/80 hover:bg-gray-50 text-gray-700'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-xl">⏰</span>
+                    {darkModePreference === 'SCHEDULE' && (
+                      <span className="w-2 h-2 rounded-full bg-teal-500 animate-pulse"></span>
+                    )}
+                  </div>
+                  <div>
+                    <span className="text-xs font-bold text-gray-900 block">بر اساس زمان</span>
+                    <span className="text-[10px] text-gray-500">ساعت غروب تا طلوع</span>
+                  </div>
+                </button>
+              </div>
+
+              {/* Dynamic Panel: System details */}
+              {darkModePreference === 'SYSTEM' && (
+                <div className="p-3.5 bg-blue-50/80 rounded-xl border border-blue-200 flex items-start gap-3">
+                  <div className="p-2 rounded-lg bg-blue-100 text-blue-700 shrink-0 mt-0.5">
+                    <Smartphone className="w-4 h-4" />
+                  </div>
+                  <div className="text-xs space-y-1">
+                    <div className="font-bold text-blue-900 flex items-center gap-1.5">
+                      <span>هماهنگی لحظه‌ای با سیستم‌عامل فعال است</span>
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-200/90 text-blue-800 font-bold">
+                        {isSystemDark ? 'سیستم شما هم‌اکنون تیره (Dark) است 🌙' : 'سیستم شما هم‌اکنون روشن (Light) است ☀️'}
+                      </span>
+                    </div>
+                    <p className="text-blue-700 text-[11px] leading-relaxed">
+                      هنگامی که حالت دارک‌مود در گوشی اندروید یا سیستم شما فعال شود، تم برنامه به طور خودکار بدون نیاز به لمس دکمه تیره می‌شود.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Dynamic Panel: Schedule details */}
+              {darkModePreference === 'SCHEDULE' && (
+                <div className="p-3.5 bg-teal-50/80 rounded-xl border border-teal-200 space-y-3">
+                  <div className="flex items-center justify-between flex-wrap gap-2 text-xs font-bold text-teal-900">
+                    <span className="flex items-center gap-1.5">
+                      <Clock className="w-4 h-4 text-teal-700" />
+                      <span>تنظیم ساعات شبانه (فعال‌سازی خودکار بر اساس زمان)</span>
+                    </span>
+                    <span className={`text-[10px] px-2.5 py-0.5 rounded-full font-bold ${
+                      isTimeInSchedule(darkModeSchedule)
+                        ? 'bg-teal-200 text-teal-900'
+                        : 'bg-amber-100 text-amber-800'
+                    }`}>
+                      {isTimeInSchedule(darkModeSchedule)
+                        ? 'هم‌اکنون در بازه شب قرار دارید (تم تیره فعال است 🌙)'
+                        : 'هم‌اکنون در بازه روز قرار دارید (تم روشن فعال است ☀️)'}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {/* Start Time */}
+                    <div className="p-2.5 bg-white rounded-lg border border-teal-200 flex items-center justify-between gap-2">
+                      <label className="text-xs font-bold text-gray-700 flex items-center gap-1.5">
+                        <span>🌙 شروع حالت شب (غروب):</span>
+                      </label>
+                      <input
+                        type="time"
+                        value={darkModeSchedule.start}
+                        onChange={(e) => handleUpdateSchedule(e.target.value || '20:00', darkModeSchedule.end)}
+                        className="px-2.5 py-1 text-xs font-mono font-bold rounded-md border border-gray-300 bg-gray-50 focus:bg-white focus:outline-teal-500"
+                      />
+                    </div>
+
+                    {/* End Time */}
+                    <div className="p-2.5 bg-white rounded-lg border border-teal-200 flex items-center justify-between gap-2">
+                      <label className="text-xs font-bold text-gray-700 flex items-center gap-1.5">
+                        <span>☀️ پایان حالت شب (صبح):</span>
+                      </label>
+                      <input
+                        type="time"
+                        value={darkModeSchedule.end}
+                        onChange={(e) => handleUpdateSchedule(darkModeSchedule.start, e.target.value || '06:30')}
+                        className="px-2.5 py-1 text-xs font-mono font-bold rounded-md border border-gray-300 bg-gray-50 focus:bg-white focus:outline-teal-500"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Preset quick buttons */}
+                  <div className="flex items-center gap-1.5 flex-wrap pt-1">
+                    <span className="text-[10px] font-bold text-teal-800">پیش‌تنظیم‌های متداول:</span>
+                    <button
+                      type="button"
+                      onClick={() => handleUpdateSchedule('20:00', '06:30')}
+                      className="text-[10px] px-2 py-0.5 rounded-md bg-white border border-teal-300 text-teal-900 hover:bg-teal-100 transition-colors cursor-pointer"
+                    >
+                      ۲۰:۰۰ تا ۰۶:۳۰ (استاندارد شبانه)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleUpdateSchedule('21:00', '07:00')}
+                      className="text-[10px] px-2 py-0.5 rounded-md bg-white border border-teal-300 text-teal-900 hover:bg-teal-100 transition-colors cursor-pointer"
+                    >
+                      ۲۱:۰۰ تا ۰۷:۰۰ (دیروقت)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleUpdateSchedule('18:30', '06:00')}
+                      className="text-[10px] px-2 py-0.5 rounded-md bg-white border border-teal-300 text-teal-900 hover:bg-teal-100 transition-colors cursor-pointer"
+                    >
+                      ۱۸:۳۰ تا ۰۶:۰۰ (زمستانه)
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Animation and Haptic Settings */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
               {/* Plant Growth animations toggle */}
               <div className="p-3 bg-gray-50 rounded-xl border border-gray-200/80 flex items-center justify-between gap-2">
                 <div>
@@ -1418,8 +1762,8 @@ export const SettingsScreen: React.FC<Props> = ({
                   className="px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-950 border border-emerald-300 text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs"
                   title="دانلود فایل نصبی APK برای گوشی اندروید"
                 >
-                  <Download className="w-3.5 h-3.5 text-emerald-700" />
-                  <span>دانلود فایل APK (اندروید)</span>
+                  <Smartphone className="w-3.5 h-3.5 text-emerald-700" />
+                  <span>نصب برنامه روی گوشی (اندروید)</span>
                 </button>
 
                 <button
@@ -1467,21 +1811,48 @@ export const SettingsScreen: React.FC<Props> = ({
               </div>
 
               <div className="flex items-center gap-2 pt-1 flex-wrap">
-                <label
-                  htmlFor="settings-screen-file-input"
-                  className="px-3.5 py-2 bg-teal-700 hover:bg-teal-800 active:scale-98 text-white text-xs font-bold rounded-xl shadow-xs flex items-center gap-1.5 transition-all cursor-pointer select-none"
+                {/* Hidden Native File Input (Detached from label to fix mobile touch canceling) */}
+                <input
+                  id="settings-screen-file-input"
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".json,application/json,text/plain,*/*"
+                  onChange={handleFileInputChange}
+                  onClick={(e) => {
+                    // Reset input value on every click so selecting the same file again triggers onChange reliably
+                    (e.target as HTMLInputElement).value = '';
+                  }}
+                  className="hidden"
+                />
+
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isReadingFile}
+                  className="px-3.5 py-2 bg-teal-700 hover:bg-teal-800 active:scale-98 text-white text-xs font-bold rounded-xl shadow-xs flex items-center gap-1.5 transition-all cursor-pointer select-none disabled:opacity-60"
                 >
-                  <FileUp className="w-3.5 h-3.5" />
-                  <span>انتخاب فایل پشتیبان (.json)</span>
-                  <input
-                    id="settings-screen-file-input"
-                    ref={fileInputRef}
-                    type="file"
-                    accept=".json,application/json,text/plain,*/*"
-                    onChange={handleFileInputChange}
-                    className="sr-only"
-                  />
-                </label>
+                  {isReadingFile ? (
+                    <>
+                      <RotateCcw className="w-3.5 h-3.5 animate-spin" />
+                      <span>در حال خواندن فایل...</span>
+                    </>
+                  ) : (
+                    <>
+                      <FileUp className="w-3.5 h-3.5" />
+                      <span>انتخاب فایل پشتیبان (.json)</span>
+                    </>
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handlePasteFromClipboardDirectly}
+                  className="px-3 py-2 bg-teal-50 hover:bg-teal-100 text-teal-900 border border-teal-300 text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs"
+                  title="خواندن مستقیم و سریع از حافظه کلیپ‌بورد گوشی"
+                >
+                  <Copy className="w-3.5 h-3.5 text-teal-700" />
+                  <span>پیست مستقیم از کلیپ‌بورد</span>
+                </button>
 
                 <button
                   type="button"
@@ -1492,7 +1863,7 @@ export const SettingsScreen: React.FC<Props> = ({
                   className="px-3 py-2 bg-white hover:bg-teal-50 text-teal-900 border border-teal-300 text-xs font-semibold rounded-xl flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs"
                 >
                   <FileText className="w-3.5 h-3.5 text-teal-600" />
-                  <span>ورود متنی (Paste)</span>
+                  <span>کادر متنی (Manual Paste)</span>
                 </button>
               </div>
             </div>
@@ -1933,9 +2304,33 @@ export const SettingsScreen: React.FC<Props> = ({
 
             <form onSubmit={handleTextPasteSubmit} className="p-5 space-y-4">
               <div>
-                <label className="block text-xs font-bold text-gray-700 mb-1">
-                  کد یا متن JSON پشتیبان:
-                </label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-xs font-bold text-gray-700">
+                    کد یا متن JSON پشتیبان:
+                  </label>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        if (navigator.clipboard && navigator.clipboard.readText) {
+                          const text = await navigator.clipboard.readText();
+                          if (text && text.trim()) {
+                            setRawJsonInput(text.trim());
+                            showNotification('متن با موفقیت از کلیپ‌بورد درج شد ✓');
+                            return;
+                          }
+                        }
+                        showNotification('متنی در کلیپ‌بورد یافت نشد.');
+                      } catch {
+                        showNotification('لطفاً متن را دستی در کادر پیست نمایید.');
+                      }
+                    }}
+                    className="text-[11px] text-teal-700 hover:text-teal-900 font-bold flex items-center gap-1 cursor-pointer bg-teal-50 hover:bg-teal-100 px-2.5 py-1 rounded-lg border border-teal-200 transition-colors"
+                  >
+                    <Copy className="w-3 h-3" />
+                    <span>الصاق از کلیپ‌بورد</span>
+                  </button>
+                </div>
                 <textarea
                   value={rawJsonInput}
                   onChange={(e) => setRawJsonInput(e.target.value)}
@@ -1987,10 +2382,12 @@ export const SettingsScreen: React.FC<Props> = ({
         onOpenFullApkDownload={() => setIsApkConfirmModalOpen(true)}
       />
 
-      {/* Direct APK Download Modal with HEAD inspection */}
+      {/* Direct APK / PWA Install Modal with safe handling */}
       <ApkDownloadConfirmModal
         isOpen={isApkConfirmModalOpen}
         onClose={() => setIsApkConfirmModalOpen(false)}
+        deferredPrompt={deferredPrompt}
+        onInstallClick={onInstallClick}
       />
     </div>
   );

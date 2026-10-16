@@ -28,6 +28,14 @@ export class ErrorBoundary extends Component<Props, State> {
     window.location.reload();
   };
 
+  private handleSafeModeBoot = () => {
+    try {
+      sessionStorage.setItem('javaneh_force_safe_offline_mode', 'true');
+    } catch {}
+    this.setState({ hasError: false, error: undefined });
+    window.location.reload();
+  };
+
   public render() {
     if (this.state.hasError) {
       return (
@@ -37,19 +45,28 @@ export class ErrorBoundary extends Component<Props, State> {
               <AlertCircle className="w-6 h-6" />
             </div>
             <div>
-              <h2 className="text-base font-bold text-gray-900">خطایی رخ داده است</h2>
-              <p className="text-xs text-gray-500 mt-1">
-                اطلاعات شما در امان است. برای بارگذاری مجدد و ادامه کار روی دکمه زیر کلیک کنید.
+              <h2 className="text-base font-bold text-gray-900">خطا در بارگذاری برنامه</h2>
+              <p className="text-xs text-gray-500 mt-1 leading-relaxed">
+                اطلاعات شما در پایگاه داده امن محلی حفظ شده است. می‌توانید صفحه را مجدداً بارگذاری کنید یا برنامه را در «حالت آفلاین امن» اجرا نمایید.
               </p>
             </div>
-            <button
-              type="button"
-              onClick={this.handleReset}
-              className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-2 transition-colors cursor-pointer"
-            >
-              <RotateCcw className="w-4 h-4" />
-              <span>بارگذاری مجدد صفحه</span>
-            </button>
+            <div className="space-y-2 pt-1">
+              <button
+                type="button"
+                onClick={this.handleSafeModeBoot}
+                className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-2 transition-colors cursor-pointer"
+              >
+                <span>🌱 اجرای مستقیم در حالت آفلاین امن</span>
+              </button>
+              <button
+                type="button"
+                onClick={this.handleReset}
+                className="w-full py-2 px-4 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-medium rounded-xl flex items-center justify-center gap-2 transition-colors cursor-pointer"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>بارگذاری مجدد صفحه</span>
+              </button>
+            </div>
           </div>
         </div>
       );

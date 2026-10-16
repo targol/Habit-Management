@@ -13,17 +13,48 @@ export interface ReleaseNote {
 }
 
 export const APP_VERSION_INFO = {
-  currentVersion: '1.4.0',
-  currentVersionCode: 140,
-  releaseDate: '۱۴۰۵/۰۷/۲۲',
-  apkFileName: 'javaneh-v1.4.0.apk',
-  apkPackageName: 'ir.javaneh.app',
-  targetSdk: 'Android 14 (API 34)',
-  minSdk: 'Android 7.0 (API 24)',
-  storageMode: 'ISOLATED_CLIENT_FIRST', // هر کاربر در حافظه محلی و مجزای دستگاه خود ذخیره‌سازی دارد
+  currentVersion: '2.0.0',
+  currentVersionCode: 200,
+  releaseDate: '۱۴۰۵/۰۷/۲۴',
+  apkFileName: 'javaneh.apk',
+  apkPackageName: 'ir.javaneh.mobile',
+  targetSdk: 'Android (سازگار با تمامی نسخه‌ها)',
+  minSdk: 'Android 5.0 به بالا',
+  storageMode: 'ISOLATED_CLIENT_FIRST',
 };
 
 export const RELEASE_HISTORY: ReleaseNote[] = [
+  {
+    version: '1.5.0',
+    versionCode: 150,
+    releaseDate: '۱۴۰۵/۰۷/۲۲',
+    gregorianDate: '2026-10-13',
+    title: 'حالت آفلاین امن (Safe Offline Recovery)، نمودار دایره‌ای دسته‌بندی و پایداری کامل بارگذاری',
+    highlights: [
+      'مکانیزم جامع تاب‌آوری و مدیریت خطای بارگذاری اولیه (Initialization Safe Recovery)',
+      'اجرای بدون کرش اپلیکیشن در صورت مسدود بودن یا خطای IndexedDB و Storage با داده‌های امن آفلاین',
+      'نمودار دایره‌ای (Pie Chart) هوشمند برای تفکیک دسته‌بندی عادات انجام‌شده در ماه جاری',
+      'سیستم چندلایه محافظت از حافظه محلی و جلوگیری از صفحات سفید یا بن‌بست در مرورگر داخلی',
+      'ارتقای کد نسخه به 150 و شماره نسخه به 1.5.0 جهت شفافیت و سازگاری رسمی در Google Play'
+    ],
+    changes: [
+      {
+        type: 'FEATURE',
+        title: 'مدیریت خطای جامع بارگذاری اولیه و حالت امن آفلاین (Safe Offline Fallback)',
+        description: 'در صورت بروز هرگونه خطای دسترسی یا مسدودی پایگاه‌داده، اپلیکیشن به جای کرش یا صفحه خالی، با داده‌های پیش‌فرض محلی و امن بالا می‌آید.'
+      },
+      {
+        type: 'FEATURE',
+        title: 'نمودار دایره‌ای توزیع عادات بر اساس دسته‌بندی (Monthly Habits Category Pie Chart)',
+        description: 'نمایش گرافیکی زیبا با رنگ‌بندی تفکیک‌شده و جزئیات درصد تکمیل عادات در ماه جاری در تب گزارش‌ها.'
+      },
+      {
+        type: 'IMPROVEMENT',
+        title: 'به‌روزرسانی رسمی نسخه 1.5.0 در گوگل‌پلی',
+        description: 'افزایش versionCode به 150 و نسخه به 1.5.0 مطابق با دستورالعمل‌های رسمی Google Play جهت استقرار شفاف و بدون باگ.'
+      }
+    ]
+  },
   {
     version: '1.4.0',
     versionCode: 140,

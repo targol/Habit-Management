@@ -1,0 +1,26 @@
+{
+  "categories": [
+    {
+      "id": "cat-work",
+      "title": "کاری و تحصیلی"
+    }
+  ],
+  "goals": [
+    {
+      "id": "goal-1",
+      "title": "هدف آزمایشی"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "task-1",
+      "title": "تسک آزمایشی"
+    }
+  ],
+  "habits": [
+    {
+      "id": "habit-1",
+      "title": "عادت آزمایشی"
+    }
+  ]
+}

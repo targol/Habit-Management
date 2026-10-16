@@ -29,6 +29,7 @@ import { PlantIcon } from './PlantIcon';
 import { WeeklyProgressSummary } from './WeeklyProgressSummary';
 import { HabitWeeklyDisciplineChart } from './HabitWeeklyDisciplineChart';
 import { HabitMonthCategoryPieChart } from './HabitMonthCategoryPieChart';
+import { WeeklyTrendBarChart } from './WeeklyTrendBarChart';
 
 interface Props {
   tasks: AppTask[];
@@ -47,7 +48,7 @@ export const ReportsScreen: React.FC<Props> = ({ tasks, habits, goals, categorie
   const [timeframe, setTimeframe] = useState<Timeframe>('WEEK');
   const [goalFilter, setGoalFilter] = useState<'ALL' | 'ANNUAL' | 'INTERMEDIATE' | 'SEASONAL'>('ALL');
   const [selectedSeasonFilter, setSelectedSeasonFilter] = useState<number | 'ALL'>('ALL');
-  const [weeklyReportView, setWeeklyReportView] = useState<'HABITS_DISCIPLINE' | 'ALL_ACTIVITIES'>('HABITS_DISCIPLINE');
+  const [weeklyReportView, setWeeklyReportView] = useState<'WEEKLY_TREND' | 'HABITS_DISCIPLINE' | 'ALL_ACTIVITIES'>('WEEKLY_TREND');
 
   // --- Calculate Days in Timeframe ---
   const currentSeasonIndex = Math.floor((today.month - 1) / 3);
@@ -477,9 +478,21 @@ export const ReportsScreen: React.FC<Props> = ({ tasks, habits, goals, categorie
       {/* Weekly Progress Summary Component */}
       {timeframe === 'WEEK' ? (
         <div className="space-y-4">
-          {/* Sub-view switcher between Habit Discipline Bar Chart and Full Activity Summary */}
+          {/* Sub-view switcher between Weekly Trend Bar Chart, Habit Discipline, and Full Activity Summary */}
           <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-2 rounded-2xl border border-emerald-100 shadow-2xs">
-            <div className="flex items-center gap-1.5 text-xs">
+            <div className="flex items-center gap-1.5 flex-wrap text-xs">
+              <button
+                type="button"
+                onClick={() => setWeeklyReportView('WEEKLY_TREND')}
+                className={`px-3.5 py-2 rounded-xl font-bold flex items-center gap-2 transition-all cursor-pointer ${
+                  weeklyReportView === 'WEEKLY_TREND'
+                    ? 'bg-emerald-600 text-white shadow-xs'
+                    : 'text-gray-600 hover:text-emerald-800 hover:bg-emerald-50/60'
+                }`}
+              >
+                <BarChart3 className="w-4 h-4 text-emerald-300" />
+                <span>نمودار میله‌ای تسک‌ها و عادت‌های هفته</span>
+              </button>
               <button
                 type="button"
                 onClick={() => setWeeklyReportView('HABITS_DISCIPLINE')}
@@ -490,7 +503,7 @@ export const ReportsScreen: React.FC<Props> = ({ tasks, habits, goals, categorie
                 }`}
               >
                 <Flame className="w-4 h-4 text-amber-300" />
-                <span>نمودار ستونی نظم هفتگی (تسک‌ها و عادت‌ها)</span>
+                <span>انضباط و جزئیات عادات</span>
               </button>
               <button
                 type="button"
@@ -501,20 +514,24 @@ export const ReportsScreen: React.FC<Props> = ({ tasks, habits, goals, categorie
                     : 'text-gray-600 hover:text-emerald-800 hover:bg-emerald-50/60'
                 }`}
               >
-                <BarChart3 className="w-4 h-4 text-emerald-300" />
-                <span>خلاصه جامع پیشرفت هفتگی</span>
+                <TrendingUp className="w-4 h-4 text-emerald-300" />
+                <span>خلاصه جامع پیشرفت</span>
               </button>
             </div>
             
             <div className="text-[11px] text-gray-500 font-medium px-2 hidden sm:block">
-              {weeklyReportView === 'HABITS_DISCIPLINE' 
-                ? 'نمودار ستونی میزان تکمیل تسک‌ها و عادت‌ها به تفکیک هر روز هفته جاری'
+              {weeklyReportView === 'WEEKLY_TREND' 
+                ? 'نمودار ستونی تعداد تسک‌ها و عادات تکمیل‌شده بر اساس روزهای تقویم شمسی'
+                : weeklyReportView === 'HABITS_DISCIPLINE'
+                ? 'نمودار ستونی میزان تکمیل عادات به تفکیک هر روز هفته'
                 : 'گزارش تفکیکی فعالیت‌های تسک و عادت‌ها'
               }
             </div>
           </div>
 
-          {weeklyReportView === 'HABITS_DISCIPLINE' ? (
+          {weeklyReportView === 'WEEKLY_TREND' ? (
+            <WeeklyTrendBarChart tasks={tasks} habits={habits} />
+          ) : weeklyReportView === 'HABITS_DISCIPLINE' ? (
             <HabitWeeklyDisciplineChart habits={habits} tasks={tasks} categories={categories} />
           ) : (
             <WeeklyProgressSummary 

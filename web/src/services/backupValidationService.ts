@@ -54,21 +54,38 @@ export function validateAndSanitizeBackupJson(rawJson: string): ValidatedBackupR
     };
   }
 
-  // 1. Syntactic JSON Parse check
-  let parsed: any;
-  try {
-    parsed = JSON.parse(rawJson.trim());
-  } catch (err: any) {
-    return {
-      isValid: false,
-      fatalError: 'خطای نحوی (Syntax Error): ساختار فایل JSON نامعتبر است. لطفاً مطمئن شوید فایل بدون آسیب دانلود شده است.',
-      warnings: [],
-      counts: emptyCounts,
-      data: null,
-    };
+  // 1. Clean encoding artifacts (UTF-8 BOM, markdown code fences, zero-width spaces)
+  let cleaned = rawJson
+    .replace(/^\uFEFF/, '') // Strip UTF-8 Byte Order Mark
+    .replace(/[\u200B-\u200D\uFEFF]/g, '') // Strip invisible zero-width chars
+    .trim();
+
+  // Strip Markdown code block formatting (e.g. ```json ... ```)
+  if (cleaned.startsWith('```')) {
+    cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
   }
 
-  // 2. Structural Root Check
+  // 2. Syntactic JSON Parse check with resilient fallback
+  let parsed: any;
+  try {
+    parsed = JSON.parse(cleaned);
+  } catch (initialErr: any) {
+    // Attempt fallback by removing common trailing commas before } or ]
+    try {
+      const sanitizedCommas = cleaned.replace(/,\s*([\]}])/g, '$1');
+      parsed = JSON.parse(sanitizedCommas);
+    } catch (fallbackErr: any) {
+      return {
+        isValid: false,
+        fatalError: 'خطای ساختاری در متن فایل JSON. لطفاً مطمئن شوید فایل بدون آسیب دانلود شده و دارای فرمت صحیح است.',
+        warnings: [],
+        counts: emptyCounts,
+        data: null,
+      };
+    }
+  }
+
+  // 3. Structural Root Check
   if (!parsed || typeof parsed !== 'object') {
     return {
       isValid: false,
@@ -84,8 +101,17 @@ export function validateAndSanitizeBackupJson(rawJson: string): ValidatedBackupR
     return validateDirectTasksArray(parsed);
   }
 
+  // Support various common wrapped backup formats (data, backup, payload, javaneh, state)
   const root = (parsed.data && typeof parsed.data === 'object' && !Array.isArray(parsed.data))
     ? parsed.data
+    : (parsed.backup && typeof parsed.backup === 'object' && !Array.isArray(parsed.backup))
+    ? parsed.backup
+    : (parsed.payload && typeof parsed.payload === 'object' && !Array.isArray(parsed.payload))
+    ? parsed.payload
+    : (parsed.javaneh && typeof parsed.javaneh === 'object' && !Array.isArray(parsed.javaneh))
+    ? parsed.javaneh
+    : (parsed.state && typeof parsed.state === 'object' && !Array.isArray(parsed.state))
+    ? parsed.state
     : parsed;
 
   const warnings: string[] = [];

@@ -120,6 +120,13 @@ export interface PlantState {
   totalCount: number;
 }
 
+export type DarkModePreference = 'LIGHT' | 'DARK' | 'SYSTEM' | 'SCHEDULE';
+
+export interface DarkModeSchedule {
+  start: string; // e.g. "20:00"
+  end: string;   // e.g. "06:30"
+}
+
 export interface UserProfile {
   name: string;
   title?: string;
@@ -127,6 +134,8 @@ export interface UserProfile {
   bio?: string;
   themeColor?: string; // شناسه تم رنگی برگزیده: emerald, teal, blue, indigo, purple, amber, rose, slate
   darkMode?: boolean;
+  darkModePreference?: DarkModePreference;
+  darkModeSchedule?: DarkModeSchedule;
 }
 
 export interface AlarmSoundItem {

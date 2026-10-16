@@ -118,6 +118,121 @@ const SEASON_CONFIG = [
   },
 ];
 
+interface GoalVisualProgressSliderProps {
+  goalId: string;
+  progress: number;
+  isManual: boolean;
+  autoProgress: number;
+  colorHex: string;
+  compact?: boolean;
+  onUpdateProgress?: (goalId: string, manualProgress: number | null, isManualActive: boolean) => void;
+  onOpenModal?: () => void;
+}
+
+export const GoalVisualProgressSlider: React.FC<GoalVisualProgressSliderProps> = ({
+  goalId,
+  progress,
+  isManual,
+  autoProgress,
+  colorHex,
+  compact = false,
+  onUpdateProgress,
+  onOpenModal,
+}) => {
+  return (
+    <div 
+      className={`rounded-xl border transition-all ${compact ? 'p-2 space-y-1.5' : 'p-2.5 space-y-2'}`}
+      style={{
+        backgroundColor: '#ffffffdd',
+        borderColor: `${colorHex}35`,
+      }}
+      onClick={(e) => e.stopPropagation()}
+    >
+      {/* Top Header: Percentage, Manual/Auto tag, and action buttons */}
+      <div className="flex justify-between items-center text-xs">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className="font-semibold text-gray-700">میزان پیشرفت:</span>
+          <strong className="font-bold text-gray-950 text-sm font-mono">
+            {toPersianDigits(progress)}٪
+          </strong>
+          <span className={`text-[9px] sm:text-[10px] px-1.5 py-0.2 rounded font-medium border ${
+            isManual 
+              ? 'bg-amber-50 text-amber-800 border-amber-200' 
+              : 'bg-emerald-50 text-emerald-800 border-emerald-200'
+          }`}>
+            {isManual ? 'دستی' : 'خودکار'}
+          </span>
+          {isManual && (
+            <button
+              type="button"
+              onClick={() => onUpdateProgress?.(goalId, null, false)}
+              className="text-[9px] text-gray-500 hover:text-emerald-700 hover:underline cursor-pointer"
+              title={`محاسبه خودکار سیستم (${toPersianDigits(autoProgress)}٪)`}
+            >
+              (بازگشت به خودکار: {toPersianDigits(autoProgress)}٪)
+            </button>
+          )}
+        </div>
+
+        {onOpenModal && (
+          <button
+            type="button"
+            onClick={onOpenModal}
+            className="text-[10px] sm:text-[11px] font-bold text-gray-700 hover:text-gray-900 bg-white hover:bg-gray-50 border border-gray-200 px-2 py-0.5 rounded-lg flex items-center gap-1 transition-colors cursor-pointer shadow-2xs"
+            title="تنظیم دقیق پیشرفت"
+          >
+            <Sliders className="w-3 h-3 text-emerald-600" />
+            <span>تنظیم دقیق</span>
+          </button>
+        )}
+      </div>
+
+      {/* Visual Slider with live progress track */}
+      <div className="space-y-1">
+        <div className="relative flex items-center">
+          <input
+            type="range"
+            min="0"
+            max="100"
+            step="5"
+            value={progress}
+            onChange={(e) => {
+              const val = Number(e.target.value);
+              onUpdateProgress?.(goalId, val, true);
+            }}
+            className="w-full h-2.5 rounded-lg appearance-none cursor-pointer focus:outline-hidden transition-all bg-gray-200"
+            style={{
+              accentColor: colorHex,
+              background: `linear-gradient(to left, ${colorHex} ${progress}%, #e5e7eb ${progress}%)`,
+            }}
+            title={`تغییر درصد پیشرفت با اسلایدر: ${toPersianDigits(progress)}٪`}
+          />
+        </div>
+
+        {/* Preset quick values row */}
+        {!compact && (
+          <div className="flex items-center justify-between text-[9px] text-gray-500 pt-0.5">
+            {[0, 25, 50, 75, 100].map((val) => (
+              <button
+                key={val}
+                type="button"
+                onClick={() => onUpdateProgress?.(goalId, val, true)}
+                className={`px-1.5 py-0.5 rounded font-mono transition-all cursor-pointer ${
+                  progress === val 
+                    ? 'bg-gray-900 text-white font-bold' 
+                    : 'hover:bg-gray-200 text-gray-600'
+                }`}
+              >
+                %{toPersianDigits(val)}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
 export const GoalsScreen: React.FC<Props> = ({
   goals,
   tasks,
@@ -921,26 +1036,17 @@ export const GoalsScreen: React.FC<Props> = ({
                             </span>
                           </div>
 
-                          {/* Progress Bar */}
-                          <div className="space-y-1 bg-gray-50/80 p-2 rounded-lg border border-gray-100">
-                            <div className="flex items-center justify-between text-[11px]">
-                              <span className="text-gray-700 font-semibold">پیشرفت: %{toPersianDigits(sProg)}</span>
-                              <button
-                                type="button"
-                                onClick={() => setSelectedGoalForProgress(sGoal)}
-                                className="text-[10px] text-emerald-700 font-bold hover:underline flex items-center gap-0.5 cursor-pointer"
-                              >
-                                <Sliders className="w-2.5 h-2.5" />
-                                <span>تنظیم درصد</span>
-                              </button>
-                            </div>
-                            <div className="h-1.5 w-full bg-gray-200 rounded-full overflow-hidden">
-                              <div
-                                className="h-full rounded-full transition-all duration-500"
-                                style={{ width: `${sProg}%`, backgroundColor: sColor }}
-                              />
-                            </div>
-                          </div>
+                          {/* Interactive Visual Progress Slider */}
+                          <GoalVisualProgressSlider
+                            goalId={sGoal.id}
+                            progress={sProg}
+                            isManual={isSManual}
+                            autoProgress={calculateAutoGoalProgress(sGoal.id)}
+                            colorHex={sColor}
+                            compact
+                            onUpdateProgress={onUpdateGoalProgress}
+                            onOpenModal={() => setSelectedGoalForProgress(sGoal)}
+                          />
 
                           {/* Tasks and Habits */}
                           <div className="space-y-1.5 pt-1 border-t border-gray-100">
@@ -1238,47 +1344,16 @@ export const GoalsScreen: React.FC<Props> = ({
                   </div>
                 </div>
 
-                {/* Progress Bar with Manual / Auto Indicator & Adjust Button */}
-                <div 
-                  className="p-2.5 rounded-xl border space-y-1.5"
-                  style={{
-                    backgroundColor: '#ffffffdd',
-                    borderColor: `${goalColor}35`,
-                  }}
-                >
-                  <div className="flex justify-between items-center text-xs">
-                    <div className="flex items-center gap-1.5">
-                      <span className="font-semibold text-gray-700">میزان پیشرفت:</span>
-                      <strong className="font-bold text-gray-900 text-sm">
-                        {toPersianDigits(effectiveProgress)}٪
-                      </strong>
-                      <span className={`text-[10px] px-1.5 py-0.2 rounded font-medium border ${
-                        isManual 
-                          ? 'bg-amber-50 text-amber-800 border-amber-200' 
-                          : 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                      }`}>
-                        {isManual ? 'ارزیابی دستی شما' : 'محاسبه خودکار'}
-                      </span>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => setSelectedGoalForProgress(annual)}
-                      className="text-[11px] font-bold text-gray-700 hover:text-gray-900 bg-white hover:bg-gray-50 border border-gray-200 px-2 py-0.5 rounded-lg flex items-center gap-1 transition-colors cursor-pointer shadow-2xs"
-                      title="تغییر یا تنظیم درصد پیشرفت"
-                    >
-                      <Sliders className="w-3 h-3 text-emerald-600" />
-                      <span>تنظیم درصد</span>
-                    </button>
-                  </div>
-
-                  <div className="h-2 w-full bg-gray-200/80 rounded-full overflow-hidden">
-                    <div
-                      className="h-full rounded-full transition-all duration-500"
-                      style={{ width: `${effectiveProgress}%`, backgroundColor: goalColor }}
-                    />
-                  </div>
-                </div>
+                {/* Interactive Visual Progress Slider */}
+                <GoalVisualProgressSlider
+                  goalId={annual.id}
+                  progress={effectiveProgress}
+                  isManual={isManual}
+                  autoProgress={calculateAutoGoalProgress(annual.id)}
+                  colorHex={goalColor}
+                  onUpdateProgress={onUpdateGoalProgress}
+                  onOpenModal={() => setSelectedGoalForProgress(annual)}
+                />
 
                 {/* Sub-goals and Seasons Strip */}
                 {isExpanded && (() => {
@@ -1490,28 +1565,17 @@ export const GoalsScreen: React.FC<Props> = ({
                                             </div>
                                           </div>
 
-                                          {/* Progress */}
-                                          <div className="flex items-center justify-between text-[11px]">
-                                            <div className="flex items-center gap-1.5">
-                                              <span className="text-gray-500">پیشرفت:</span>
-                                              <strong className="font-bold text-emerald-800">{toPersianDigits(subProgress)}٪</strong>
-                                              <span className="text-[9px] text-gray-400">{isSubManual ? '(دستی)' : '(خودکار)'}</span>
-                                            </div>
-                                            <button
-                                              type="button"
-                                              onClick={() => setSelectedGoalForProgress(seasonalGoal)}
-                                              className="text-[10px] font-bold text-emerald-700 hover:underline flex items-center gap-1 cursor-pointer"
-                                            >
-                                              <Sliders className="w-2.5 h-2.5" />
-                                              <span>تنظیم درصد</span>
-                                            </button>
-                                          </div>
-                                          <div className="h-1.5 w-full bg-black/5 rounded-full overflow-hidden">
-                                            <div
-                                              className="h-full bg-emerald-600 rounded-full transition-all duration-300"
-                                              style={{ width: `${subProgress}%` }}
-                                            />
-                                          </div>
+                                          {/* Interactive Visual Progress Slider */}
+                                          <GoalVisualProgressSlider
+                                            goalId={seasonalGoal.id}
+                                            progress={subProgress}
+                                            isManual={isSubManual}
+                                            autoProgress={calculateAutoGoalProgress(seasonalGoal.id)}
+                                            colorHex="#059669"
+                                            compact
+                                            onUpdateProgress={onUpdateGoalProgress}
+                                            onOpenModal={() => setSelectedGoalForProgress(seasonalGoal)}
+                                          />
 
                                           {/* Actions for Seasonal Goal */}
                                           <div className="flex items-center justify-between pt-1 text-[10px]">
@@ -1692,28 +1756,17 @@ export const GoalsScreen: React.FC<Props> = ({
                                               </div>
                                             </div>
 
-                                            {/* Progress */}
-                                            <div className="flex items-center justify-between text-[11px]">
-                                              <div className="flex items-center gap-1.5">
-                                                <span className="text-gray-500">پیشرفت:</span>
-                                                <strong className="font-bold text-emerald-800">{toPersianDigits(mProgress)}٪</strong>
-                                                <span className="text-[9px] text-gray-400">{isMManual ? '(دستی)' : '(خودکار)'}</span>
-                                              </div>
-                                              <button
-                                                type="button"
-                                                onClick={() => setSelectedGoalForProgress(mGoal)}
-                                                className="text-[10px] font-bold text-emerald-700 hover:underline flex items-center gap-1 cursor-pointer"
-                                              >
-                                                <Sliders className="w-2.5 h-2.5" />
-                                                <span>تنظیم درصد</span>
-                                              </button>
-                                            </div>
-                                            <div className="h-1.5 w-full bg-black/5 rounded-full overflow-hidden">
-                                              <div
-                                                className="h-full bg-teal-600 rounded-full transition-all duration-300"
-                                                style={{ width: `${mProgress}%` }}
-                                              />
-                                            </div>
+                                            {/* Interactive Visual Progress Slider */}
+                                            <GoalVisualProgressSlider
+                                              goalId={mGoal.id}
+                                              progress={mProgress}
+                                              isManual={isMManual}
+                                              autoProgress={calculateAutoGoalProgress(mGoal.id)}
+                                              colorHex="#0D9488"
+                                              compact
+                                              onUpdateProgress={onUpdateGoalProgress}
+                                              onOpenModal={() => setSelectedGoalForProgress(mGoal)}
+                                            />
 
                                             {/* Actions for Monthly Goal */}
                                             <div className="flex items-center justify-between pt-1 text-[10px]">

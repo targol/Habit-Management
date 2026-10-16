@@ -262,10 +262,73 @@ export function saveToLocalStorage(key: string, value: unknown): void {
   }
 }
 
-// --- Server API Sync with Debouncing ---
+// --- Server API Sync with Debouncing & Atomic File Persistence ---
 let syncTimeout: ReturnType<typeof setTimeout> | null = null;
 
+// Calculate a lightweight checksum / signature for dirty checking
+function computeDataSignature(data: AppDataPayload): string {
+  const gCount = data.goals?.length || 0;
+  const tCount = data.tasks?.length || 0;
+  const hCount = data.habits?.length || 0;
+  const cCount = data.categories?.length || 0;
+  const lastTaskMod = data.tasks?.[0]?.updatedAt || data.tasks?.[0]?.id || '';
+  const lastGoalMod = data.goals?.[0]?.updatedAt || data.goals?.[0]?.id || '';
+  return `${gCount}:${tCount}:${hCount}:${cCount}:${lastTaskMod}:${lastGoalMod}`;
+}
+
+// Immediate flush to disk persistence outside /public or /dist
+export async function saveServerDataImmediate(data: AppDataPayload): Promise<boolean> {
+  const hasContent = (data.goals && data.goals.length > 0) ||
+                     (data.tasks && data.tasks.length > 0) ||
+                     (data.habits && data.habits.length > 0) ||
+                     (data.categories && data.categories.length > 0);
+  if (!hasContent) return false;
+
+  try {
+    const userId = getOrCreateUserId();
+    const payload = {
+      ...data,
+      userId,
+      initialized: true,
+      lastUpdated: Date.now(),
+    };
+    const bodyStr = JSON.stringify(payload);
+
+    // Try sendBeacon if page is unloading
+    if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function' && document.visibilityState === 'hidden') {
+      const blob = new Blob([bodyStr], { type: 'application/json; charset=utf-8' });
+      navigator.sendBeacon('/api/data', blob);
+      return true;
+    }
+
+    const res = await fetch('/api/data', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json; charset=utf-8',
+        'X-User-Id': userId,
+      },
+      keepalive: true,
+      body: bodyStr,
+    });
+    if (res.ok) {
+      saveToLocalStorage(STORAGE_KEYS.LAST_SYNC, Date.now());
+      return true;
+    }
+  } catch (err) {
+    console.warn('[Storage] Immediate server save notice:', err);
+  }
+  return false;
+}
+
 export function triggerServerSync(data: AppDataPayload, delayMs: number = 600): void {
+  // Safety Guard: Never sync empty payload to server before hydration
+  const hasContent = (data.goals && data.goals.length > 0) ||
+                     (data.tasks && data.tasks.length > 0) ||
+                     (data.habits && data.habits.length > 0);
+  if (!hasContent) {
+    return;
+  }
+
   // Always create snapshot locally immediately
   saveLocalSnapshot(data);
 
@@ -274,34 +337,71 @@ export function triggerServerSync(data: AppDataPayload, delayMs: number = 600): 
   }
 
   syncTimeout = setTimeout(async () => {
-    try {
-      const userId = getOrCreateUserId();
-      const payload = {
-        ...data,
-        userId,
-        initialized: true,
-        lastUpdated: Date.now(),
-      };
-      await fetch('/api/data', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json; charset=utf-8',
-          'X-User-Id': userId,
-        },
-        body: JSON.stringify(payload),
-      });
-      saveToLocalStorage(STORAGE_KEYS.LAST_SYNC, Date.now());
-    } catch (err) {
-      console.warn('Background server sync paused (will retry next change):', err);
-    }
+    await saveServerDataImmediate(data);
   }, delayMs);
+}
+
+// Robust Periodic Persistence Service: Saves to dedicated data/ directory outside public/dist
+export function startPeriodicPersistence(
+  getData: () => AppDataPayload,
+  intervalMs: number = 15000
+): () => void {
+  if (typeof window === 'undefined') return () => {};
+
+  let lastSignature = '';
+
+  const performCheckAndSave = () => {
+    try {
+      const currentData = getData();
+      if (!currentData) return;
+
+      const hasContent = (currentData.goals && currentData.goals.length > 0) ||
+                         (currentData.tasks && currentData.tasks.length > 0) ||
+                         (currentData.habits && currentData.habits.length > 0);
+      if (!hasContent) return;
+
+      const signature = computeDataSignature(currentData);
+      if (signature !== lastSignature) {
+        lastSignature = signature;
+        saveLocalSnapshot(currentData);
+        saveServerDataImmediate(currentData);
+      }
+    } catch (e) {
+      console.warn('[Periodic Persistence Error]:', e);
+    }
+  };
+
+  // Run on interval
+  const timerId = setInterval(performCheckAndSave, intervalMs);
+
+  // Flush on visibilitychange & beforeunload
+  const handleVisibilityChange = () => {
+    if (document.visibilityState === 'hidden') {
+      performCheckAndSave();
+    }
+  };
+
+  const handleBeforeUnload = () => {
+    performCheckAndSave();
+  };
+
+  window.addEventListener('visibilitychange', handleVisibilityChange);
+  window.addEventListener('beforeunload', handleBeforeUnload);
+  window.addEventListener('pagehide', handleBeforeUnload);
+
+  return () => {
+    clearInterval(timerId);
+    window.removeEventListener('visibilitychange', handleVisibilityChange);
+    window.removeEventListener('beforeunload', handleBeforeUnload);
+    window.removeEventListener('pagehide', handleBeforeUnload);
+  };
 }
 
 // Fetch from server API with fast timeout for resilient real-world hydration
 export async function fetchServerData(): Promise<AppDataPayload | null> {
   try {
     const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-    const timeoutId = controller ? setTimeout(() => controller.abort(), 1500) : null;
+    const timeoutId = controller ? setTimeout(() => controller.abort(), 2000) : null;
 
     const userId = getOrCreateUserId();
     const res = await fetch(`/api/data?userId=${encodeURIComponent(userId)}`, {
@@ -316,7 +416,13 @@ export async function fetchServerData(): Promise<AppDataPayload | null> {
     if (res.ok) {
       const data = await res.json();
       if (data && typeof data === 'object') {
-        return data as AppDataPayload;
+        const hasContent = (Array.isArray(data.goals) && data.goals.length > 0) ||
+                           (Array.isArray(data.tasks) && data.tasks.length > 0) ||
+                           (Array.isArray(data.habits) && data.habits.length > 0) ||
+                           (Array.isArray(data.categories) && data.categories.length > 0);
+        if (hasContent) {
+          return data as AppDataPayload;
+        }
       }
     }
   } catch (e) {
@@ -324,6 +430,18 @@ export async function fetchServerData(): Promise<AppDataPayload | null> {
     console.info('Server storage API not accessible or offline, using local storage.');
   }
   return null;
+}
+
+// Fetch available snapshots from the persistent server directory
+export async function fetchServerSnapshots(): Promise<Array<{ filename: string; timestamp: number; size: number }>> {
+  try {
+    const res = await fetch('/api/snapshots');
+    if (res.ok) {
+      const data = await res.json();
+      return data?.snapshots || [];
+    }
+  } catch {}
+  return [];
 }
 
 // Safe Pre-Update Storage Check and Emergency Snapshot
